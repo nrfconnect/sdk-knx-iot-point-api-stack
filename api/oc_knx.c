@@ -1210,11 +1210,15 @@ static void oc_core_knx_ia_post_handler(oc_request_t* request, oc_interface_mask
     {
       oc_register_group_multicasts();
       oc_init_datapoints_at_initialization();
-
-      PRINT("Re-register mDNS after a writing iid + ia)");
-      const oc_device_info_t* const  device = oc_core_get_device_info();
-      knx_publish_service(oc_string(device->serialnumber), device->iid, device->ia, device->pm);
     }
+
+    // Always re-publish mDNS when IA changes, regardless of runtime state.
+    // The conformance tests expect an announcement and query-response for the new IA subtype
+    // even when the device is not yet in loaded/runtime state.
+    PRINT("Re-register mDNS after writing iid + ia)");
+    const oc_device_info_t* const  device = oc_core_get_device_info();
+    knx_publish_service(oc_string(device->serialnumber), device->iid, device->ia, device->pm);
+
     oc_prepare_cbor_response(request, OC_STATUS_CHANGED);
   }
   else

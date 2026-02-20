@@ -1277,6 +1277,11 @@ void oc_knx_device_restart(void) {
   // check and send on i-flags
   oc_init_datapoints_at_initialization();
 
+  // Re-publish mDNS service after restart to reflect updated state
+  // (e.g. PM=false, changed IA/IID from prior POST).
+  PRINT("Re-register mDNS after device restart)");
+  knx_publish_service(oc_string(device->serialnumber), device->iid, device->ia, device->pm);
+
   // application restart callback handler
   const oc_restart_t* my_restart = oc_get_restart_cb();
   if (my_restart && my_restart->cb) {
