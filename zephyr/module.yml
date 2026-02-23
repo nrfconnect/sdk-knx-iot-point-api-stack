@@ -1,0 +1,4 @@
+name: libknx
+build:
+  cmake: .
+  kconfig: zephyr/Kconfig
