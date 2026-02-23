@@ -1,0 +1,250 @@
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig KNXIOT_LIB
+    bool "Enable KNX IoT library"
+    default n
+    help
+      Enable support for KNX protocol handling.
+
+config OC_DYNAMIC_ALLOCATION
+    bool "Enable dynamic allocation for OC layer"
+    default y
+    help
+       When enabled, compilation will include code paths that rely on dynamic allocation in the OC stack.
+
+config OC_CLIENT
+    bool "Enable OC client features"
+    default y
+    help
+      Build client-side functionality of the OC stack
+
+config OC_SERVER
+    bool "Enable OC server features"
+    default y
+    help
+      Build server-side functionality of the OC stack
+
+config KNX_ACTUATOR
+    bool "Enable KNX Actuator App"
+    default y
+    help
+      KNX Actuator App
+
+config KNX_SENSOR
+    bool "Enable KNX Sensor App"
+    default y
+    help
+      KNX Sensor App
+
+config APPLICATION_NAME
+	string "KNX Application Name"
+	default "KNX virtual actuator (LSAB)"
+	help
+	  The KNX application name.
+
+config SN_LOWER_CASE
+	string "KNX Application Serial Number"
+	default "00fabeef0901"
+	help
+	  The KNX serial number.
+
+config PASSWORD
+	string "KNX Application Password"
+	default "2X4W3TE0DFLLS19Y1FCH"
+	help
+	  The KNX Application Password.
+
+config KNX_THREAD_STACK_SIZE
+    int "KNX thread stack size"
+    default 12288
+
+menu "KNX IoT Options"
+
+menu "Common"
+
+config CLANG_TIDY_ENABLED
+    bool "Enable clang-tidy analysis during compilation"
+    default n
+    help
+      Enables running clang-tidy during compilation. Default OFF.
+
+config KNX_LOG_CAST_64_BIT_INTS_ENABLED
+    bool "Cast int64_t/uint64_t to (int) if no 64-bit printf specifiers"
+    default n
+    help
+      Casts 64-bit integers to int for logging when platform doesn't support
+      64-bit format specifiers. Default OFF.
+
+config OC_DNS_SD_ENABLED
+    bool "Enable DNS-SD discovery (in addition to CoAP discovery)"
+    default y
+    help
+      Enables DNS Service Discovery alongside CoAP. Default ON.
+
+config OC_PUBLISHER_TABLE_ENABLED
+    bool "Enable publisher table (device can also receive)"
+    default y
+    help
+      Enables publisher table so a device can also receive. Default ON.
+      Turn OFF for plain senders.
+
+config OC_PKI_ENABLED
+    bool "Enable PKI security"
+    default n
+    help
+      Enables PKI security features. Default OFF.
+
+config KNXIOT_TINYCBOR_BUILTIN
+    bool "Use the TinyCBOR library provided by the KNX-IoT stack."
+    default y
+    help
+      Enables use of TinyCBOR library provided by the KNX IoT stack. Default ON
+
+config KNXIOT_MBEDTLS_BUILTIN
+    bool "Use the Mbed TLS library provided by the KNX-IoT stack."
+    default n
+    help
+      Use the MBEDTLS that is associated with the KNX IoT repository.
+      In CMake, default is ON when not building with Zephyr and OFF when
+      building with Zephyr
+
+config OC_USE_KNX_PORT_LAYER_ENABLED
+    bool "Use the port layer provided by the KNX-IoT stack"
+    default y
+    help
+        Set to y if the port layer from /port folder should be used,
+        set to n if the port layer is provided in other ways.
+
+endmenu  # Common
+
+menu "Debug"
+
+config KNXIOT_KNX_LOG_TO_FILE
+    bool "Redirect all logging messages to a file"
+    default n
+    help
+      Redirects logging to a file. Requires PRINT to be also enabled.
+      Default OFF.
+
+config OC_USE_STORAGE
+    bool "Persist configuration data in storage"
+    default y
+    help
+      Persists configuration data in file-based storage. Default ON.
+
+config OC_OSCORE_ENABLED
+    bool "Enable OSCORE"
+    default y
+    help
+      Enables OSCORE. Can be turned OFF for debugging. Default ON.
+
+config OC_PRINT_ENABLED
+    bool "Enable print messages for stack/application"
+    default n
+    help
+      Enables print/log output. Turning OFF disables all logging.
+      Default OFF.
+
+config CONFIG_OC_PLATFORM_DEFINED_PRINT_ENABLED
+    bool "Enables platform redefinition of PRINTF mechanism"
+    default n
+    help
+      Enables PRINTF redefinition based on platform requirement.
+      Default OFF.
+
+config OC_DEBUG_ENABLED
+    bool "Enable common debug messages"
+    default n
+    help
+      Enables additional debug logs. Default OFF.
+
+config OC_DEBUG_OSCORE_ENABLED
+    bool "Enable security (OSCORE) debug messages"
+    default n
+    help
+      Enables more verbose security debug logs. Default OFF.
+
+config KNX_LOG_TO_ZEPHYR
+    bool "Enable Zephyr logging messages"
+    default y
+    help
+      Enables Zephyr debug logs. Default ON.
+
+config LIB_KNX_LOG_LEVEL
+	int "Lib KNX Log Level"
+	default 4
+	range 0 4
+	help
+	  Set the log level for Lib KNX module.
+	  0 = OFF, 1 = ERROR, 2 = WARNING, 3 = INFO, 4 = DEBUG
+
+config USE_CONSOLE
+    bool "Enable console as logging output (incl. GUI apps)"
+    default n
+    help
+      Enables console output also for GUI apps, useful for debugging.
+      Default OFF for Zephyr build, ON for Windows build.
+
+config OC_REPLAY_PROTECTION_ENABLED
+    bool "Enable security replay protection via Echo option"
+    default y
+    help
+      Enables replay protection using the Echo option. Default ON.
+
+endmenu  # Debug
+
+
+menu "IoT device specific resource variables"
+
+config KNX_GOT_MAX_ENTRIES
+    int "Maximum number of group object table entries"
+    default 50
+    help
+      Maximum number of GOT entries. Default 50.
+
+config KNX_GPT_MAX_ENTRIES
+    int "Maximum number of group publisher table entries"
+    default 20
+    help
+      Maximum number of GPT entries. Default 20.
+
+config KNX_GRT_MAX_ENTRIES
+    int "Maximum number of group recipient table entries"
+    default 20
+    help
+      Maximum number of GRT entries. Default 20.
+
+config KNX_SEC_MAX_ENTRIES
+    int "Maximum number of access token table entries"
+    default 20
+    help
+      Maximum number of access token entries. Default 20.
+
+config KNX_PAGE_SIZE
+    int "Server default page size for pagination"
+    default 20
+    help
+      Default pagination page size. Default 20.
+
+config KNX_SPAKE_ITERATIONS
+    int "SHA256 iterations used within SPAKE2+ handshake"
+    default 50000
+    help
+      Number of SHA256 iterations used in SPAKE2+. Default 50000.
+
+config KNX_RESPONSE_TIME_SECONDS
+    int "KNX reset Process Time (seconds)"
+    default 2
+    help
+      KNX reset 'Process Time' in seconds. Default 2.
+
+config OC_SENDER_MULTICAST_SCOPE
+    int "IPv6 multicast scope"
+    default 2
+    help
+      IPv6 multicast scope, used on sending all (multicast) s-mode messages. Default 2.
+
+endmenu  # IoT device specific
+
+endmenu  # KNX IoT Options
+
