@@ -1,7 +1,9 @@
 cmake_minimum_required (VERSION 3.21)
 
 # Load module to fetch external content.
-include(FetchContent)
+if(NOT Zephyr_FOUND)
+    include(FetchContent)
+endif()
 
 ### TinyCBOR (provided by the KNX-IoT stack) ###
 if(CONFIG_KNXIOT_TINYCBOR_BUILTIN)
@@ -13,9 +15,15 @@ if(CONFIG_KNXIOT_TINYCBOR_BUILTIN)
         ${CMAKE_CURRENT_SOURCE_DIR}/tinycbor/src/cborpretty.c
     )
 
-    add_library(tinycbor-master ${CBOR_SOURCES})
-
-    target_include_directories(tinycbor-master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tinycbor/src)
+    if(NOT Zephyr_FOUND)
+        add_library(tinycbor-master ${CBOR_SOURCES})
+        target_include_directories(tinycbor-master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tinycbor/src)
+    else()
+        if(CONFIG_KNXIOT_LIB)
+            zephyr_library_named(tinycbor-master)
+            zephyr_library_sources(${CBOR_SOURCES})
+        endif()
+    endif()
 endif()
 
 ### Mbed TLS (provided by the KNX-IoT stack) ###
@@ -125,7 +133,7 @@ if(CONFIG_KNXIOT_MBEDTLS_BUILTIN)
         ${CMAKE_CURRENT_SOURCE_DIR}/mbedtls/library/x509write_crt.c
         ${CMAKE_CURRENT_SOURCE_DIR}/mbedtls/library/x509write_csr.c
     )
-    
+
     set(src_tls
         ${CMAKE_CURRENT_SOURCE_DIR}/mbedtls/library/debug.c
         ${CMAKE_CURRENT_SOURCE_DIR}/mbedtls/library/mps_reader.c
@@ -155,7 +163,7 @@ if(CONFIG_KNXIOT_MBEDTLS_BUILTIN)
     add_library(mbedcrypto ${src_crypto})
     set_target_properties(mbedcrypto PROPERTIES OUTPUT_NAME mbedcrypto)
     target_link_libraries(mbedcrypto PUBLIC ${libs})
-    
+
     add_library(mbedx509 ${src_x509})
     set_target_properties(mbedx509 PROPERTIES OUTPUT_NAME mbedx509)
     target_link_libraries(mbedx509 PUBLIC mbedcrypto)

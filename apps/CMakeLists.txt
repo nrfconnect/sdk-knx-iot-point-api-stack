@@ -1,10 +1,12 @@
 cmake_minimum_required (VERSION 3.21)
 
 # Load module to fetch external content.
-include(FetchContent)
+if(NOT Zephyr_FOUND)
+    include(FetchContent)
+endif()
 
 ### Stack compilation variables ###
-## Debug 
+## Debug
 # TBD FIXME do we set this here specifically for the apps!?
 #set(USE_CONSOLE ON CACHE BOOL "Enables the console as a logging output also for the GUI applications, typically used for debugging reasons.")
 
@@ -19,7 +21,7 @@ if(WIN32)
     )
 
     # Prefer to use extraction timestamp rather than archive timepstamp.
-    option(DOWNLOAD_EXTRACT_TIMESTAMP "" ON) 
+    option(DOWNLOAD_EXTRACT_TIMESTAMP "" ON)
     option(wxBUILD_SHARED "" OFF)
 
     message(STATUS "Fetching wxWidgets, kindly wait...")
@@ -69,8 +71,6 @@ if(WIN32)
     endif()
 endif()
 
-
-
 ## GUI Executable Targets ##
 if(WIN32 OR UNIX)
     # EITT (GUI) (for certification)
@@ -80,7 +80,7 @@ if(WIN32 OR UNIX)
         ${CMAKE_CURRENT_SOURCE_DIR}/knx/knx_iot_virtual_knx.c
         ${CMAKE_CURRENT_SOURCE_DIR}/knx_iot_virtual.c
         ${CMAKE_CURRENT_SOURCE_DIR}/knx_iot_virtual.cpp
-        ${MANIFEST_RC} 
+        ${MANIFEST_RC}
     )
 
     # LSSB (GUI) - Demo Application
@@ -90,7 +90,7 @@ if(WIN32 OR UNIX)
         ${CMAKE_CURRENT_SOURCE_DIR}/knx/knx_iot_virtual_knx.c
         ${CMAKE_CURRENT_SOURCE_DIR}/knx_iot_virtual.c
         ${CMAKE_CURRENT_SOURCE_DIR}/knx_iot_virtual.cpp
-        ${MANIFEST_RC} 
+        ${MANIFEST_RC}
     )
 
     # LSAB (GUI) - Demo Application
@@ -100,7 +100,7 @@ if(WIN32 OR UNIX)
         ${CMAKE_CURRENT_SOURCE_DIR}/knx/knx_iot_virtual_knx.c
         ${CMAKE_CURRENT_SOURCE_DIR}/knx_iot_virtual.c
         ${CMAKE_CURRENT_SOURCE_DIR}/knx_iot_virtual.cpp
-        ${MANIFEST_RC} 
+        ${MANIFEST_RC}
     )
 
     # Inverter (GUI) - Demo Application
@@ -110,7 +110,7 @@ if(WIN32 OR UNIX)
         ${CMAKE_CURRENT_SOURCE_DIR}/hems/knx_iot_virtual_ems.c
         ${CMAKE_CURRENT_SOURCE_DIR}/knx_iot_virtual.c
         ${CMAKE_CURRENT_SOURCE_DIR}/knx_iot_virtual.cpp
-        ${MANIFEST_RC} 
+        ${MANIFEST_RC}
     )
 
     # CEM (GUI) - Demo Application
@@ -120,7 +120,7 @@ if(WIN32 OR UNIX)
         ${CMAKE_CURRENT_SOURCE_DIR}/hems/knx_iot_virtual_ems.c
         ${CMAKE_CURRENT_SOURCE_DIR}/knx_iot_virtual.c
         ${CMAKE_CURRENT_SOURCE_DIR}/knx_iot_virtual.cpp
-        ${MANIFEST_RC} 
+        ${MANIFEST_RC}
     )
 
     # Charger (GUI) - Demo Application
@@ -130,27 +130,50 @@ if(WIN32 OR UNIX)
         ${CMAKE_CURRENT_SOURCE_DIR}/hems/knx_iot_virtual_ems.c
         ${CMAKE_CURRENT_SOURCE_DIR}/knx_iot_virtual.c
         ${CMAKE_CURRENT_SOURCE_DIR}/knx_iot_virtual.cpp
-        ${MANIFEST_RC} 
-    ) 
+        ${MANIFEST_RC}
+    )
 
     # LSSB/LSAB Demo (GUI)
     set_target_properties(eitt_virtual_gui PROPERTIES LINK_FLAGS ${GUI_FLAG})
     set_target_properties(lssb_virtual_gui PROPERTIES LINK_FLAGS ${GUI_FLAG})
     set_target_properties(lsab_virtual_gui PROPERTIES LINK_FLAGS ${GUI_FLAG})
-    
+
     # HEMS Demo (GUI)
     set_target_properties(charger_virtual_gui PROPERTIES LINK_FLAGS ${GUI_FLAG})
     set_target_properties(cem_virtual_gui PROPERTIES LINK_FLAGS ${GUI_FLAG})
     set_target_properties(inverter_virtual_gui PROPERTIES LINK_FLAGS ${GUI_FLAG})
-    
+
     # LSSB/LSAB Demo (GUI)
     target_link_libraries(eitt_virtual_gui ${wxWidgets_LIBRARIES} kisClientServer)
     target_link_libraries(lssb_virtual_gui ${wxWidgets_LIBRARIES} kisClientServer)
     target_link_libraries(lsab_virtual_gui ${wxWidgets_LIBRARIES} kisClientServer)
-    
+
     # HEMS Demo (GUI)
     target_link_libraries(charger_virtual_gui ${wxWidgets_LIBRARIES} kisClientServer)
     target_link_libraries(cem_virtual_gui ${wxWidgets_LIBRARIES} kisClientServer)
     target_link_libraries(inverter_virtual_gui ${wxWidgets_LIBRARIES} kisClientServer)
+endif()
 
+if(Zephyr_FOUND)
+    if(CONFIG_KNXIOT_LIB)
+        zephyr_library_named(knx_iot_lsxb_sources)
+
+        set(KNX_APP_SOURCES
+            ${CMAKE_CURRENT_SOURCE_DIR}/knx/knx_iot_virtual_knx.c
+            ${CMAKE_CURRENT_SOURCE_DIR}/knx_iot_virtual.c
+        )
+        if(CONFIG_KNX_ACTUATOR)
+            list(APPEND KNX_APP_SOURCES
+                ${CMAKE_CURRENT_SOURCE_DIR}/knx/lsab/knx_iot_virtual_lsab.c
+            )
+        endif()
+
+        if(CONFIG_KNX_SENSOR)
+            list(APPEND KNX_APP_SOURCES
+                ${CMAKE_CURRENT_SOURCE_DIR}/knx/lssb/knx_iot_virtual_lssb.c
+            )
+        endif()
+
+        zephyr_library_sources(${KNX_APP_SOURCES})
+    endif()
 endif()
