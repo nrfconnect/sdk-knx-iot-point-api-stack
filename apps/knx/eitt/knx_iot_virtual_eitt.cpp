@@ -29,6 +29,7 @@
 #include "apps/knx/knx_iot_virtual_knx.h"
 #include "oc_knx_client.h"
 #include "port/dns-sd.h"
+#include "port/oc_connectivity.h"
 #include "port/oc_network_interface.h"
 #include "port/oc_storage.h"
 
@@ -122,6 +123,7 @@ private:
   void OnClearTables(wxCommandEvent& event);
   void OnRestartDevice(wxCommandEvent& event);
   void OnNetworkInterfaces(wxCommandEvent& event);
+  void OnGetNewPorts(wxCommandEvent& event);
   void OnExit(wxCommandEvent& event);
   void OnAbout(wxCommandEvent& event);
   void OnTimer(wxTimerEvent& event);
@@ -201,6 +203,7 @@ MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, "KNX EITT test application")
   m_menuFile->Append(RESTART_DEVICE, "Restart Device", "Simulate a device restart", false);
   m_menuFile->AppendSeparator();
   m_menuFile->Append(NETWORK_INTERFACES, "Network Interfaces...", "Configure network interface selection", false);
+  m_menuFile->Append(GET_NEW_PORTS, "Get New Network Ports", "Refresh network port bindings", false);
   m_menuFile->AppendSeparator();
   m_menuFile->Append(wxID_EXIT);
 
@@ -240,6 +243,7 @@ MyFrame::MyFrame() : wxFrame(nullptr, wxID_ANY, "KNX EITT test application")
   Bind(wxEVT_MENU, &MyFrame::OnReset, this, RESET);
   Bind(wxEVT_MENU, &MyFrame::OnRestartDevice, this, RESTART_DEVICE);
   Bind(wxEVT_MENU, &MyFrame::OnNetworkInterfaces, this, NETWORK_INTERFACES);
+  Bind(wxEVT_MENU, &MyFrame::OnGetNewPorts, this, GET_NEW_PORTS);
   Bind(wxEVT_MENU, &MyFrame::OnAbout, this, wxID_ABOUT);
   Bind(wxEVT_MENU, &MyFrame::OnExit, this, wxID_EXIT);
 
@@ -502,6 +506,31 @@ void MyFrame::OnNetworkInterfaces(wxCommandEvent& event)
   NetworkInterfaceDialog dialog(this);
   dialog.ShowModal();
   SetStatusText(NetworkInterfaceDialog::GetStatusMessage());
+}
+
+/**
+ * @brief rebind the unicast server socket to get a new OS-assigned CoAP port
+ *
+ * Replaces only the server socket while keeping the network receive thread
+ * running. This simulates a network change event where the device 
+ * gets assigned a new IP address and thus needs to get a new port binding. The old port is closed and the new port is bound, and the mDNS service is re-advertised to reflect the new port.
+ *
+ * @param event command triggered by the menu button
+ */
+void MyFrame::OnGetNewPorts(wxCommandEvent& event)
+{
+  SetStatusText("Getting new network port...");
+
+  if (oc_connectivity_get_new_port() != 0) {
+    SetStatusText("Failed to get new network port");
+    return;
+  }
+
+  // Re-advertise the service so mDNS reflects the new port
+  const oc_device_info_t* const device = oc_core_get_device_info();
+  knx_publish_service(oc_string(device->serialnumber), device->iid, device->ia, device->pm);
+
+  SetStatusText("New network port acquired");
 }
 
 /**

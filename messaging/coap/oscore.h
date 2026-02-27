@@ -54,6 +54,7 @@ extern "C"
   // a message is serialized by adding outer options AND the OSCORE option
   size_t oscore_serialize_message(void* packet, uint8_t* buffer);
 
+  // a message is serialized by adding outer options AND the OSCORE option, see https://datatracker.ietf.org/doc/html/rfc8613#section-5.3
   size_t oscore_serialize_plaintext(void* packet, uint8_t* buffer);
 
 #ifdef __cplusplus

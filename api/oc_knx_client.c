@@ -77,20 +77,20 @@ int oc_is_redirected_request_from(const oc_request_t* request) {
   return 2;
 }
 
-int oc_send_s_mode_unicast_message(uint32_t group_address, char service_type,
-        const uint8_t* value_data, int value_size, oc_group_table_t* recipient, 
-        oc_group_object_table_t* group_object) 
+void oc_send_s_mode_unicast_message(uint32_t group_address, char service_type,
+                                    const uint8_t* value_data, int value_size, oc_group_table_t* recipient,
+                                    oc_group_object_table_t* group_object) 
 {
   if (!recipient) 
   {
     OC_ERR("Cannot send unicast: recipient is NULL");
-    return -1;
+    return;
   }
 
   if (recipient->ia == -1) 
   {
     OC_ERR("Cannot send unicast: invalid IA in recipient for GA %u", group_address);
-    return -1;
+    return;
   }
 
   // Send s-mode unicast message, IPv6 address of recipient must be known
@@ -115,7 +115,7 @@ int oc_send_s_mode_unicast_message(uint32_t group_address, char service_type,
     oc_set_delayed_callback_ms(recipient, deferred_coap_discovery_callback, 10);
 
     OC_INF("cannot send unicast: resolver is (still) pending for GA %u", group_address);
-    return -1;
+    return;
   }
 
   // create unicast endpoint from ipv6 address + port
@@ -132,13 +132,11 @@ int oc_send_s_mode_unicast_message(uint32_t group_address, char service_type,
 
   // send unicast message (confirmable or non-confirmable)
   oc_issue_s_mode_message(&group_ucast_endpoint, "/k", group_address, service_type, value_data, value_size, recipient->non);
-  
-  return 0;
 }
 
-void oc_send_s_mode_multicast_message(uint8_t scope, 
-        uint32_t grpid, uint32_t group_address, char service_type, 
-        const uint8_t* value_data, int value_size) {
+void oc_send_s_mode_multicast_message(uint8_t scope, uint32_t grpid, uint32_t group_address,
+                                      char service_type, const uint8_t* value_data, int value_size)
+{
   // get local device info (iid) -> always the same
   const uint64_t iid = oc_core_get_device_info()->iid;
   
@@ -147,8 +145,7 @@ void oc_send_s_mode_multicast_message(uint8_t scope,
   // - 'access token' index is invalidated - it is a fresh request and not a response to a former inbound request
   // - 'ga' is set 
   oc_endpoint_t group_mcast_endpoint = {0};
-  group_mcast_endpoint = oc_create_multicast_group_address_with_port(
-          group_mcast_endpoint, grpid, iid, scope, COAP_DEFAULT_PORT);
+  group_mcast_endpoint = oc_create_multicast_group_address_with_port(group_mcast_endpoint, grpid, iid, scope, COAP_DEFAULT_PORT);
 
   // set for the EP the sending group_address
   group_mcast_endpoint.group_address = group_address;
@@ -156,8 +153,7 @@ void oc_send_s_mode_multicast_message(uint8_t scope,
   PRINT("Sending s-mode multicast %c", service_type);
 
   // send non-confirmable message
-  oc_issue_s_mode_message(&group_mcast_endpoint, "/k", group_address, 
-          service_type, value_data, value_size, true);
+  oc_issue_s_mode_message(&group_mcast_endpoint, "/k", group_address, service_type, value_data, value_size, true);
 }
 
 // sends a mc (non) or uc (con/non) s-mode message
@@ -474,8 +470,10 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
 /* CoAP Discovery for IPv6 Resolution */
 
 // response handler for CoAP discovery
-static void knx_coap_discovery_response_handler(oc_client_response_t *data) {
-  if (!data || !data->endpoint) {
+static void knx_coap_discovery_response_handler(oc_client_response_t *data) 
+{
+  if (!data || !data->endpoint) 
+  {
     OC_ERR("CoAP discovery: Invalid response data");
     return;
   }

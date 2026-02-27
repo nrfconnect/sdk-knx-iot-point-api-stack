@@ -117,11 +117,11 @@ void oc_send_s_mode_multicast_message(uint8_t scope, uint32_t grpid,
  *       - recipient->non = false (default) -> sends Confirmable (CON)
  *       - recipient->non = true -> sends Non-Confirmable (NON)
  */
-int oc_send_s_mode_unicast_message(
-        uint32_t group_address, char service_type, 
-        const uint8_t* value_data, int value_size,
-        oc_group_table_t* recipient, 
-        oc_group_object_table_t* group_object);
+void oc_send_s_mode_unicast_message(
+  uint32_t group_address, char service_type,
+  const uint8_t* value_data, int value_size,
+  oc_group_table_t* recipient,
+  oc_group_object_table_t* group_object);
 
 /** @} */ // end of doc_module_tag_s_mode_client
 

@@ -429,7 +429,7 @@ int app_init(void)
   // set the firmware version 0.0.1 -> volatile, value may be overwritten at runtime by MaC
   oc_core_set_device_fwv(0, 0, 1);
 
-  // set the application version 1.0.0, > volatile,  value may be overwritten at runtime by MaC
+  // set the application version 1.0.0, -> volatile, value may be overwritten at runtime by MaC
   oc_core_set_device_apv(1, 0, 0);
 
   // set manufacturer id, -> permanent

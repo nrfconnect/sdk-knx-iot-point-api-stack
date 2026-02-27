@@ -417,6 +417,7 @@ void MyFrame::OnProcessInverterUpdate()
     const char* url = app_retrieve_href_from_cem_charger();
     set_cem_charger_value(current_charger_power);
 
+    //TODO: optimize by only sending on value change and not on every update
     // send message
     oc_send_s_mode_mc_or_uc_message(OC_SENDER_MULTICAST_SCOPE, url, 'w');
   }

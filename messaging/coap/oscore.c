@@ -215,7 +215,8 @@ int coap_set_header_oscore(void* packet, uint8_t* piv, uint8_t piv_len, uint8_t*
   return 1;
 }
 
-int coap_parse_inner_oscore_option(void* packet, uint8_t* current_option, size_t option_length) {
+int coap_parse_inner_oscore_option(void* packet, uint8_t* current_option, size_t option_length) 
+{
   coap_packet_t* const coap_pkt = (coap_packet_t*) packet;
 
   // OSCORE Option structure From RFC 8613:
@@ -230,8 +231,9 @@ int coap_parse_inner_oscore_option(void* packet, uint8_t* current_option, size_t
   // | s (if any) | kid context (if any) | kid (if any) ... |
   // +------------+----------------------+------------------+
   OC_DBG("OSCORE option");
-  if (option_length == 0) {
-    OC_DBG("\t... empty value");
+  if (option_length == 0) 
+  {
+    OC_DBG("\t... empty value, no need to parse");
     return 0;
   }
 

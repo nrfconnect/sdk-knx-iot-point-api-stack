@@ -496,6 +496,7 @@ enum controls : uint16_t
   RESTART_DEVICE,       // restart device
   NETWORK_INTERFACES,   // network interfaces dialog
   REFRESH_INTERFACES,   // refresh network interface
+  GET_NEW_PORTS,        // get new network ports
 
   EITT_SOO,             // EITT test button
   wxID_SLIDER,          // EMS Inverter slider

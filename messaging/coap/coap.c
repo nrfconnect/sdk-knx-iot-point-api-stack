@@ -1199,7 +1199,7 @@ size_t coap_oscore_serialize_message(void* packet, uint8_t* buffer, bool inner, 
   } 
   else 
   {
-    // TODO outer = false, but inner may be also false => not tested here! 
+    // see https://datatracker.ietf.org/doc/html/rfc8613#section-5.3
 
     coap_pkt->buffer[0] = coap_pkt->code;
     option = coap_pkt->buffer + 1;

@@ -275,6 +275,16 @@ extern "C"
   void oc_register_group_multicasts(void);
 
   /**
+   * @brief unregister (drop) all multicast addresses previously registered
+   *
+   * Mirrors oc_register_group_multicasts(): iterates the same publisher-table
+   * entries and calls unsubscribe_group_to_multicast_with_port() for each one.
+   * Should be called before clearing the group tables (reset) and on shutdown
+   * so the OS sends proper MLD leave messages.
+   */
+  void oc_unregister_group_multicasts(void);
+
+  /**
    * @brief find the grpid from the group_address in the publisher table
    *
    * @see oc_register_group_multicasts

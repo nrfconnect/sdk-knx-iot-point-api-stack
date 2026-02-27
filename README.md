@@ -66,14 +66,11 @@ __port/\*.h__
 Contains the shared platform abstractions.
 
 - DNS/SD 
-  - The stack is creating/calling a process to call specific \<OS> functionality
-    (Windows - Bonjour from Apple, needs to be installed; Linux - Avahi tools, maybe already installed). For an own implementation, 
-    this functionality must be adapted.  
+  - The stack uses an own MDNS/DNS-SD code, to support KNX IoT specific subtypes, such as **_pm._sub._knx._udp.local.** 
 - Clock
   - The stack uses the clock functions only to evaluate time differences, such as with seconds 
     to inform a client on a server reboot startup time. An absolute (RFC 3339 UTC) time stamp 
-    is optional and - if used -  only applicable for the endpoint `swu/lastupdate`. For this see the link 
-    on the [wiki pages](../../wikis/Home#endpoints), `Rest API Endpoints`.
+    is optional and - if used -  only applicable for the endpoint `swu/lastupdate`. For this see the corresponding endpoint on the [Point API Schema](https://gitlab.knx.org/public-projects/knx-iot-point-api-schema/-/blob/work_in_progress/knxiot-point-api-scheme-openapi.yaml?ref_type=heads).
 - Logging
   - The logging functions, either for the console print out or file print.    
 - Random
@@ -88,6 +85,7 @@ Contains adaptations per supported OS platform.
 
 - **Linux** 
 - **Windows**  
+- **Zephyr/RTOS (soon)**
 
 __apps/*__  
 Contains the sample [application](apps/Readme.md) describing how to use the stack.

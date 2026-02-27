@@ -428,6 +428,77 @@ static void refresh_endpoints_list(ip_context_t *dev, ifaddr_t *ifaddr_list) {
   }
 }
 
+int oc_connectivity_get_new_port(void) {
+  ip_context_t *dev = get_ip_context_for_device();
+  if (!dev) {
+    OC_ERR("no IP context available");
+    return -1;
+  }
+
+  /* Close old server socket */
+  closesocket(dev->server_sock);
+
+  /* Open a fresh socket */
+  dev->server_sock = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+  if (dev->server_sock == SOCKET_ERROR) {
+    OC_ERR("creating new server socket %d", WSAGetLastError());
+    return -1;
+  }
+
+  int on = 1;
+  if (setsockopt(dev->server_sock, IPPROTO_IPV6, IPV6_PKTINFO,
+                 (char *)&on, sizeof(on)) == SOCKET_ERROR) {
+    OC_ERR("setting IPV6_PKTINFO %d", WSAGetLastError());
+    return -1;
+  }
+  if (setsockopt(dev->server_sock, IPPROTO_IPV6, IPV6_V6ONLY,
+                 (char *)&on, sizeof(on)) == SOCKET_ERROR) {
+    OC_ERR("setting IPV6_V6ONLY %d", WSAGetLastError());
+    return -1;
+  }
+  if (setsockopt(dev->server_sock, SOL_SOCKET, SO_REUSEADDR,
+                 (char *)&on, sizeof(on)) == SOCKET_ERROR) {
+    OC_ERR("setting SO_REUSEADDR %d", WSAGetLastError());
+    return -1;
+  }
+
+  /* Bind to port 0 so OS assigns a new ephemeral port */
+  struct sockaddr_in6 addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin6_family = AF_INET6;
+  addr.sin6_addr   = in6addr_any;
+  addr.sin6_port   = 0;
+  memcpy(&dev->server, &addr, sizeof(addr));
+
+  if (bind(dev->server_sock, (struct sockaddr *)&dev->server,
+           sizeof(dev->server)) == SOCKET_ERROR) {
+    OC_ERR("binding new server socket %d", WSAGetLastError());
+    return -1;
+  }
+
+  socklen_t socklen = sizeof(dev->server);
+  if (getsockname(dev->server_sock, (struct sockaddr *)&dev->server,
+                  &socklen) == SOCKET_ERROR) {
+    OC_ERR("getsockname new server socket %d", WSAGetLastError());
+    return -1;
+  }
+  dev->port = ntohs(((struct sockaddr_in6 *)&dev->server)->sin6_port);
+
+  /* Re-associate the existing WSA event (already watched by the thread)
+     with the new socket so the thread wakes on incoming packets */
+  if (dev->event_server_handle) {
+    WSAEventSelect(dev->server_sock, dev->event_server_handle, FD_READ);
+  }
+
+  /* Rebuild the endpoint list with the new port */
+  oc_network_event_handler_mutex_lock();
+  refresh_endpoints_list(dev, NULL);
+  oc_network_event_handler_mutex_unlock();
+
+  OC_INF("New CoAP port: %u", dev->port);
+  return 0;
+}
+
 int oc_network_refresh_endpoints(void) {
   int ret = 0;
   ifaddr_t *ifaddr_list = get_network_addresses();

@@ -184,6 +184,17 @@ void oc_dns_clear_cache(void);
 oc_endpoint_t *oc_connectivity_get_endpoints(void);
 
 /**
+ * @brief Rebind the unicast server socket to a new OS-assigned ephemeral port
+ *
+ * The network receive thread is kept running; only the UDP server socket is
+ * replaced.  After this call oc_connectivity_get_endpoints() will return the
+ * newly assigned port.
+ *
+ * @return 0 on success, -1 on error
+ */
+int oc_connectivity_get_new_port(void);
+
+/**
  * @brief the callback function for an network change
  *
  * @param event the network event

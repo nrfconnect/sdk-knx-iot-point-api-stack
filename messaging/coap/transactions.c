@@ -139,9 +139,9 @@ coap_transaction_t* smode_new_transaction(uint16_t mid, uint8_t* token, uint8_t 
 }
 
 // sends a message by 'transaction'
-// - NON-confirmable : send + clear the transaction afterward (fire one time)
+// - NON-confirmable : send + clear the transaction afterward
 // - NON-confirmable s-mode : send + NOT clear the transaction afterward (transaction runs into timeout)
-// - CON-confirmable : send + MAY clear the transaction afterward (fire n- time with poss. reps)
+// - CON-confirmable : send + clear the transaction after response or all reps are done
 void coap_send_transaction(coap_transaction_t *t) 
 {
   if (!oc_main_initialized()) 
@@ -165,13 +165,13 @@ void coap_send_transaction(coap_transaction_t *t)
   #endif
 
   const uint8_t type = (COAP_HEADER_TYPE_MASK & t->message->data[0]) >> COAP_HEADER_TYPE_POSITION;
-  const bool confirmable = type == COAP_TYPE_CON;
-  const bool non_confirmable = type == COAP_TYPE_NON;
+  const bool confirmable_all_types = type == COAP_TYPE_CON;
+  const bool non_confirmable_smode = t->is_non_confirmable_smode_msg;
 
   #ifdef OC_TCP
   if (!(t->message->endpoint.flags & TCP) && confirmable) {
   #else 
-  if (confirmable) 
+  if (confirmable_all_types) 
   {
   #endif
 
@@ -223,16 +223,16 @@ void coap_send_transaction(coap_transaction_t *t)
       }
     }
   }
-  else if (t->is_non_confirmable_smode_msg)
+  else if (non_confirmable_smode)
   {
     if (t->retransmit_counter < 1)
     { // keep transaction + init timeout
 
-      OC_DBG("interval initialized %d", (int)t->retransmit_timer.timer.interval);
-
       // init ~ 5s timeout
       t->retransmit_timer.timer.interval = COAP_RESPONSE_TIMEOUT_TICKS;
 
+      OC_DBG("interval initialized %d", (int)t->retransmit_timer.timer.interval);
+      
       OC_PROCESS_CONTEXT_BEGIN(transaction_handler_process);
       oc_etimer_restart(&t->retransmit_timer);
       OC_PROCESS_CONTEXT_END(transaction_handler_process);
@@ -301,10 +301,9 @@ coap_transaction_t * coap_get_transaction_by_token(uint8_t *token, uint8_t token
   return NULL;
 }
 
-coap_transaction_t* coap_get_transaction_by_token_or_mid(uint16_t mid, uint8_t* token, uint8_t token_len)
+transaction_t* get_any_transaction_by_token_or_mid(uint16_t mid, uint8_t* token, uint8_t token_len)
 {
-  for (coap_transaction_t* t = (coap_transaction_t*)oc_list_head(transactions_list); 
-       t && !t->is_non_confirmable_smode_msg; t = t->next)
+  for (transaction_t* t = (transaction_t*)oc_list_head(transactions_list); t ; t = t->next)
   {
     if (t->mid == mid)
     {
@@ -314,26 +313,6 @@ coap_transaction_t* coap_get_transaction_by_token_or_mid(uint16_t mid, uint8_t* 
     if (t->token_len == token_len && memcmp(t->token, token, token_len) == 0)
     {
       OC_DBG("found coap transaction for token, flags %i", t->message->endpoint.flags);
-      return t;
-    }
-  }
-
-  return NULL;
-}
-
-smode_transaction_t* smode_get_transaction_by_token_or_mid(uint16_t mid, uint8_t* token, uint8_t token_len)
-{
-  for (smode_transaction_t* t = (smode_transaction_t*)oc_list_head(transactions_list); 
-       t && t->is_non_confirmable_smode_msg; t = t->next)
-  {
-    if (t->mid == mid)
-    {
-      OC_DBG("found s-mode transaction for mid, flags %i", t->message->endpoint.flags);
-      return t;
-    }
-    if (t->token_len == token_len && memcmp(t->token, token, token_len) == 0)
-    {
-      OC_DBG("found s-mode transaction for token, flags %i", t->message->endpoint.flags);
       return t;
     }
   }

@@ -1197,6 +1197,9 @@ void oc_knx_device_storage_reset(int reset_mode) {
     (void)snprintf(hname, HNAME_SIZE, HNAME_TYPE, oc_string(device->serialnumber));
     oc_core_set_device_hostname(hname);
 
+    // drop multicast memberships before clearing the tables
+    oc_unregister_group_multicasts();
+
     // delete iot device tables
     oc_delete_group_object_table();
     oc_delete_group_tables();
@@ -1227,6 +1230,9 @@ void oc_knx_device_storage_reset(int reset_mode) {
 
     // set the ia to KNX defaults (ports see above)
     device->pm = false;
+
+    // drop multicast memberships before clearing the tables
+    oc_unregister_group_multicasts();
 
     // delete iot device tables
     oc_delete_group_object_table();

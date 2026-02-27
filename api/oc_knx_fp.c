@@ -2988,6 +2988,33 @@ void oc_register_group_multicasts(void)
   #endif
 }
 
+void oc_unregister_group_multicasts(void)
+{
+  #ifdef OC_PUBLISHER_TABLE
+
+  const oc_device_info_t* const device = oc_core_get_device_info();
+
+  for (int index = 0; index < GOT_MAX_ENTRIES; index++)
+  {
+    const oc_cflag_mask_t cflags = g_got[index].cflags;
+
+    if (cflags & OC_CFLAG_WRITE + OC_CFLAG_UPDATE + OC_CFLAG_READ)
+    {
+      for (int i = 0; i < g_got[index].ga_len; i++)
+      {
+        const uint32_t grpid = oc_find_grpid_in_publisher_table(g_got[index].ga[i]);
+
+        if (grpid > 0)
+        {
+          unsubscribe_group_to_multicast_with_port(grpid, device->iid, OC_SENDER_MULTICAST_SCOPE, COAP_DEFAULT_PORT);
+        }
+      }
+    }
+  }
+
+  #endif
+}
+
 void oc_init_datapoints_at_initialization(void)
 {
   PRINT("scan datapoints for a possible cflag read on 'init' initialization ...");

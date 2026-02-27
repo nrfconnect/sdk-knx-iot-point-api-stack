@@ -133,6 +133,7 @@ static oc_event_callback_retval_t reset(void* context)
       - publisher table
       - PASE token (with below deletion)
       - all access tokens 
+      - device IP configuration(bind new socket)
    
    7 (Factory Reset without IA):
       - group object table
@@ -479,6 +480,9 @@ static void oc_core_a_lsm_post_handler(oc_request_t* request, oc_interface_mask_
 
       if (new_lsm_state == LSM_S_UNLOADED && old_lsm_state != LSM_S_UNLOADED)
       { // extra task on entering UNLOADED
+
+        // drop multicast memberships before clearing the tables
+        oc_unregister_group_multicasts();
 
         // do a reset like erase code 2 but not for the access token table, ia, iid, fid -> EITT test
         oc_delete_group_tables();

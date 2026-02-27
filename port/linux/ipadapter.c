@@ -534,6 +534,73 @@ oc_endpoint_t * oc_connectivity_get_endpoints() {
   return oc_list_head(dev->eps);
 }
 
+int oc_connectivity_get_new_port(void) {
+  ip_context_t *dev = get_ip_context_for_device();
+  if (!dev) {
+    OC_ERR("no IP context available");
+    return -1;
+  }
+
+  /* Remove old socket from the watched fd set before closing it */
+  ip_context_rfds_fd_clr(dev, dev->server_sock);
+  close(dev->server_sock);
+
+  /* Open a fresh socket */
+  dev->server_sock = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+  if (dev->server_sock < 0) {
+    OC_ERR("creating new server socket %d", errno);
+    return -1;
+  }
+
+  int on = 1;
+  if (setsockopt(dev->server_sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &on,
+                 sizeof(on)) == -1) {
+    OC_ERR("setting IPV6_RECVPKTINFO %d", errno);
+    return -1;
+  }
+  if (setsockopt(dev->server_sock, IPPROTO_IPV6, IPV6_V6ONLY, &on,
+                 sizeof(on)) == -1) {
+    OC_ERR("setting IPV6_V6ONLY %d", errno);
+    return -1;
+  }
+
+  /* Bind to port 0 so OS assigns a new ephemeral port */
+  struct sockaddr_in6 *l = (struct sockaddr_in6 *)&dev->server;
+  l->sin6_family = AF_INET6;
+  l->sin6_addr   = in6addr_any;
+  l->sin6_port   = 0;
+
+  if (bind(dev->server_sock, (struct sockaddr *)&dev->server,
+           sizeof(dev->server)) == -1) {
+    OC_ERR("binding new server socket %d", errno);
+    return -1;
+  }
+
+  socklen_t socklen = sizeof(dev->server);
+  if (getsockname(dev->server_sock, (struct sockaddr *)&dev->server,
+                  &socklen) == -1) {
+    OC_ERR("getsockname new server socket %d", errno);
+    return -1;
+  }
+  dev->port = ntohs(l->sin6_port);
+
+  /* Register new socket with the select() thread */
+  ip_context_rfds_fd_set(dev, dev->server_sock);
+
+  /* Wake the select() loop so it picks up the updated rfds immediately */
+  if (write(dev->shutdown_pipe[1], "", 1) < 0) {
+    OC_ERR("waking network thread %d", errno);
+  }
+
+  /* Rebuild the endpoint list with the new port */
+  oc_network_event_handler_mutex_lock();
+  refresh_endpoints_list(dev);
+  oc_network_event_handler_mutex_unlock();
+
+  OC_INF("New CoAP port: %u", dev->port);
+  return 0;
+}
+
 /* Called after network interface up/down events.
  * This function reconfigures IPv6/v4 multicast sockets for
  * all logical devices.

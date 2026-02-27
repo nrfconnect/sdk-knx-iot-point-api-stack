@@ -352,6 +352,9 @@ void oc_main_shutdown(void)
   /* Stop mDNS (goodbye + listener thread) before tearing down networking */
   knx_stop_mdns();
 
+  /* Send MLD leave messages for all registered multicast groups */
+  oc_unregister_group_multicasts();
+
   oc_ri_shutdown();
 
   #ifdef KNX_TCP_TLS
