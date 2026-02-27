@@ -75,21 +75,22 @@ if(NOT Zephyr_FOUND)
         target_sources(kis-port PUBLIC
             ${PORT_SOURCES}
         )
-	target_include_directories(kis-port PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-	# Platform-specific include path (for ipadapter.h / ipcontext.h used by dns-sd.c)
-	target_include_directories(kis-port PRIVATE ${PORT_DIR})
-	# mDNS header-only library (deps/mdns/mdns.h) — PUBLIC because dns-sd.c is a PUBLIC source
-	# that gets compiled by targets linking to kis-port
-	target_include_directories(kis-port PUBLIC ${PROJECT_SOURCE_DIR}/deps/mdns)
+        target_include_directories(kis-port PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+        # Platform-specific include path (for ipadapter.h / ipcontext.h used by dns-sd.c)
+        target_include_directories(kis-port PRIVATE ${PORT_DIR})
+        # mDNS header-only library (deps/mdns/mdns.h) — PUBLIC because dns-sd.c is a PUBLIC source
+        # that gets compiled by targets linking to kis-port
+        target_include_directories(kis-port PUBLIC ${PROJECT_SOURCE_DIR}/deps/mdns)
     endif()
+
+    ## KNX-IoT Stack - Platform Port Options ##
+    target_link_libraries(kis-port PUBLIC kis-common)
 else()
     if(CONFIG_KNXIOT_LIB)
         zephyr_library_sources(${PORT_SOURCES})
     endif()
 endif()
 
-## KNX-IoT Stack - Platform Port Options ##
-target_link_libraries(kis-port PUBLIC kis-common)
 if(CONFIG_KNXIOT_MBEDTLS_BUILTIN)
     target_link_libraries(kis-port PUBLIC mbedtls)
 else()
