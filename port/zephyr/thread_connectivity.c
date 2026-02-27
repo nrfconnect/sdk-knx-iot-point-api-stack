@@ -228,6 +228,14 @@ oc_connectivity_subscribe_mcast_ipv6(oc_endpoint_t *address)
     }
 }
 
+void oc_connectivity_unsubscribe_mcast_ipv6(oc_endpoint_t *address)
+{
+    if (sInstance != NULL)
+    {
+        otIp6UnsubscribeMulticastAddress(sInstance, (const otIp6Address *) address->addr.ipv6.address);
+    }
+}
+
 int oc_network_refresh_endpoints(void)
 {
     return 0;
