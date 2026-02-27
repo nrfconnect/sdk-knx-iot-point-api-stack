@@ -432,7 +432,11 @@ int calc_transcript_responder(spake_data_t* spake_data, const uint8_t shareP_enc
   ttlen += encode_mpi(&spake_data->w0, ttbuf + ttlen);
 
   // calculate hash
+#if defined(MBEDTLS_DEPRECATED_REMOVED) && (MBEDTLS_VERSION_NUMBER < 0x03000000)
+  mbedtls_sha256_ret(ttbuf, ttlen, spake_data->K_main, 0);
+#else
   mbedtls_sha256(ttbuf, ttlen, spake_data->K_main, 0);
+#endif
 
 cleanup:
   mbedtls_ecp_point_free(&Z);
@@ -497,7 +501,11 @@ int calc_transcript_initiator(mbedtls_mpi* w0, mbedtls_mpi* w1, mbedtls_mpi* x, 
   ttlen += encode_mpi(w0, ttbuf + ttlen);
 
   // calculate hash
+#if defined(MBEDTLS_DEPRECATED_REMOVED) && (MBEDTLS_VERSION_NUMBER < 0x03000000)
+  mbedtls_sha256_ret(ttbuf, ttlen, K_main, 0);
+#else
   mbedtls_sha256(ttbuf, ttlen, K_main, 0);
+#endif
 
 cleanup:
   mbedtls_ecp_point_free(&Y);
