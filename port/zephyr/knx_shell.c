@@ -18,7 +18,6 @@
 #include "dns-sd.h"
 
 #include <zephyr/shell/shell.h>
-#include <openthread.h>
 
 #include <stdio.h>
 #include <ctype.h>
