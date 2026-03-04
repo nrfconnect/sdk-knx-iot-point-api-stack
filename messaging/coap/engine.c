@@ -1027,7 +1027,15 @@ int coap_receive(oc_message_t* incoming_message)
             OC_DBG("client callback updated on echo re request");
           }
 
-          // create new unicast transaction from original (transaction'ized) message (not the inbound message)
+          /* 
+             create new transaction from original (transaction'ized) message
+             (a) not from the inbound message
+             (b) as a new STANDARD coap transaction, not as a new (second) s-mode transaction with a new timeout,
+                 the 'unicast echo re-request' will simply be sent out as a copy of the original (CON or NON) s-mode message 
+                 via the coap 'send transaction'. Moreover, all (1...n) later received inbound 'echo responses' uses the 
+                 coap token from the original s-mode message that we need to match on with the original s-mode message.
+
+          */
           coap_transaction_t* new_transaction = coap_new_transaction(re_request_coap_packet->mid, 
                                                                      re_request_coap_packet->token,
                                                                      re_request_coap_packet->token_len, 
@@ -1061,6 +1069,8 @@ int coap_receive(oc_message_t* incoming_message)
 
             // in case of not send out 'unicast echo re-request' message, drop new and old transactions
             // in case of send out 'unicast echo re-request' message, drop old transaction (new is taking care)
+            // TODO DL on figure 26 step  4/5  does NOT work (org transaction is released here under) - don't delete transaction BUT retrigger timer to new 5 seconds 
+            // TODO and wait until this is auto timed out 
             coap_clear_transaction(transaction);
             transaction = NULL;
 

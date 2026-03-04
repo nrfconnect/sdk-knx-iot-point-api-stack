@@ -1,56 +1,105 @@
-# KNX IoT Client
+# KNX IoT Client scripts
 
-A Python client for discovering and interacting with KNX IoT devices on your network. This tool implements the KNX IoT Point API specification, supporting mDNS device discovery and secure CoAP communication with OSCORE encryption.
+Python-based client scripts for discovering and commissioning KNX IoT devices on your network, they are based on the KNX IoT Point API specification, supporting mDNS device discovery and secure CoAP communication with OSCORE encryption.
 
 ## Features
 
 - **Device Discovery**: Find KNX IoT devices using mDNS/DNS-SD
-- **Secure Communication**: OSCORE-protected CoAP requests for reading, writing, and observing
-- **Resource Discovery**: Query device functional blocks (/.well-known/core)
-- **Point Operations**: Read, write, and observe data points on KNX IoT devices
-- **CBOR Decoding**: Automatic decoding of CBOR payloads to human-readable JSON format
-- **Comprehensive Logging**: All operations logged to knxiotclient.log with detailed response information
+- **Secure Communication**: OSCORE-protected CoAP requests for reading, writing
+- **Resource Discovery**: Query device resources
+- **CBOR Decoding**: Encoding/decoding of CBOR payloads
 
 ## Prerequisites
 
 - Python 3.11 or higher
 - Poetry (Python dependency management)
 - Network access to KNX IoT devices
-- Security credentials file (Project Security.csv) for OSCORE communication
 
 ## Installation
 
-For the minimal setup required to run the three commissioning scripts (`pv.bat`, `ev.bat`, `cem.bat`), see `SETUP_PV_EV_CEM.md`.
+### 1) Prerequisites
 
-### Step 1: Install Poetry
+- Windows 10/11
+- Python 3.10 <-> 3.12.3 (3.11 recommended)
+- Git (only if cloning the repo)
 
-We use [Poetry](https://python-poetry.org/) for dependency management.
-Follow the [official installation guide](https://python-poetry.org/docs/#installation):
+### 2) Get the project
+
+Clone or copy the repo to the target machine, for example:
+
+```
+C:\temp
+```
+
+### 3) Install Poetry
+
+Use the Python that you want the project to run with:
 
 ```cmd
 pip install poetry
 ```
 
-Configure Poetry to create a project-specific Python environment:
+Configure Poetry to keep the virtual environment inside the repo (required by these scripts):
 
 ```cmd
 poetry config virtualenvs.in-project true
-poetry config cache-dir %USERPROFILE%\.poetry-cache
 ```
 
+If `poetry install` fails with a permission error on the Poetry cache folder, set a project-local cache:
 
-**What it does:**
+```cmd
+poetry config cache-dir "C:\temp\.poetry-cache"
+```
 
-1. Discovers the device by serial number using mDNS (10 second timeout)
-2. Selects the best IPv6 address (prefers link-local `fe80::` addresses)
-3. Loads OSCORE credentials from the security file
-4. Reads `/.well-known/core` to discover all functional blocks
-5. Iterates through each functional block to discover its properties
-6. Reads all properties with metadata (data type, interfaces, descriptions)
-7. Writes a timestamped device name to test write operations
-8. Verifies the write by reading back the updated value
+### 4) Install runtime dependencies only
 
-**Example Output:**
+From the repo root:
+
+```cmd
+cd C:\temp
+poetry install --only main
+```
+
+### 5) Start Windows PowerShell
+
+```PS
+PS C:\temp> dir
+
+
+    Directory: C:\temp
+
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d-----         2/20/2026  10:38 AM                .venv
+d-----         2/20/2026  10:35 AM                .vscode
+d-----         2/20/2026  10:35 AM                knxiotclient
+d-----         2/20/2026  10:35 AM                script
+-a----         2/18/2026   2:02 PM             29 .env
+-a----         2/18/2026   2:02 PM          90934 poetry.lock
+-a----         2/18/2026   2:02 PM            629 pyproject.toml
+-a----         2/18/2026   2:02 PM           5159 README.md
+-a----         2/18/2026   2:02 PM           1398 SETUP_PV_EV_CEM.md
+```
+
+### 6) Start (in PS) the virtual environment
+
+```PS
+PS C:\temp> .\.venv\Scripts\Activate.ps1
+```
+
+### 7) Start in the virtual environment the scripts
+
+```(knxiotclient-py3.12)
+(knxiotclient-py3.12) PS C:\temp> .venv\Scripts\python.exe c:\temp/script/pv.py 00fa10020b00
+..
+(knxiotclient-py3.12) PS C:\temp> .venv\Scripts\python.exe c:\temp/script/cem.py 00fa10020c00
+..
+(knxiotclient-py3.12) PS C:\temp> .venv\Scripts\python.exe c:\temp/script/ev.py 00fa10020d00
+..
+```
+
+### 8) Example Output
 
 ```text
 ======================================================================
@@ -98,8 +147,7 @@ commissioning completed
 ```
 
 
-
-### Project Structure
+## Project Structure
 
 The repository is structured as follows:
 
@@ -112,9 +160,7 @@ The repository is structured as follows:
 | `script/`               | Utility                                                                     |
 | `README.md`             | This documentation file                                                     |
 
-## Troubleshooting
-
-### No Devices Discovered
+## Troubleshooting: no devices discovered
 
 If discovery doesn't find any devices:
 
@@ -123,10 +169,3 @@ If discovery doesn't find any devices:
 3. Increase the timeout: `--timeout 10`
 4. Check firewall settings (UDP port 5353 for mDNS)
 
-
-## Contribute
-
-We love contributions! Found a bug or would like to add a feature?
-Improve the documentation or have additional comments?
-
-Please help us and create a merge request. Follow the CONTRIBUTING.md document.

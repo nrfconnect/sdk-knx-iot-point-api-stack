@@ -249,7 +249,7 @@ void coap_send_transaction(coap_transaction_t *t)
     }
   } 
   else
-  {// ACK, RST
+  {// ACK, RST, application messages, ...
     // send message and delete transaction
     OC_DBG("sending NON coap message transaction (len: %" PRIu64 " , mid %u)", t->message->length, t->mid);
     oc_message_add_ref(t->message); // msg created on 'new transaction' sets ref_count = 0, so set here to 1 (allocated)

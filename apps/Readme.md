@@ -23,7 +23,7 @@ in the c-file template 'knx_iot_application_template' in folder 'template'.
   'Usage as Application Common Layer'
 
 ## Folder '/hems'
-The Energy Management System (EMS) [samples](apps/hems/Readme.md) are used to play with the stack and 
+The Energy Management System (EMS) [samples](hems/Readme.md) are used to play with the stack and 
 KNX based EMS applications (Inverter, Charger, Customer Energy Manager).	
 
 ## Folder '/knx'

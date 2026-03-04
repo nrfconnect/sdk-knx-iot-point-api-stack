@@ -377,8 +377,10 @@ static int oc_oscore_receive_message(oc_message_t* msg)
         uint64_t inbound_ssn;
         oscore_read_piv(oscore_pkt->piv, oscore_pkt->piv_len, &inbound_ssn);
 
-        // get access token
+        // get access token 
         const oc_auth_at_t* at_entry = oc_get_auth_at_entry(idx);
+
+        // take over client's ssn on synchronization, due to a lost sync by the client
         oscore_ctx = oc_oscore_add_recipient_context(oc_string(at_entry->osc_id), oc_byte_string_len(at_entry->osc_id),
                                                      inbound_ssn,
                                                      oc_string(at_entry->osc_ms), oc_byte_string_len(at_entry->osc_ms),
@@ -468,15 +470,17 @@ static int oc_oscore_receive_message(oc_message_t* msg)
            - ssn 
       */
 
-      // store ssn as PIV (take over client's ssn on synchronization, due to a lost sync by the client)
-      uint64_t inbound_ssn;
-      oscore_read_piv(oscore_pkt->piv, oscore_pkt->piv_len, &inbound_ssn);
+     
+      // TODO DL check on replay by compare ssn with white 'list' (last send out ssn, kid, kid context) / black 'list' (own list system , not reusing ctx , to big) 
       
       // get access token
       const oc_auth_at_t* at_entry = oc_get_auth_at_entry(idx);
+
+      // init ssn with '0', not used on any sending (BUT consider on TASK above) 
+
       oscore_ctx = oc_oscore_add_recipient_context(
         oc_string(at_entry->osc_id), oc_byte_string_len(at_entry->osc_id), 
-        inbound_ssn,
+        0,
         oc_string(at_entry->osc_ms), oc_byte_string_len(at_entry->osc_ms),
         oc_string(at_entry->osc_salt), oc_byte_string_len(at_entry->osc_salt),
         (char*)oscore_pkt->kid_ctx, oscore_pkt->kid_ctx_len, idx, false);

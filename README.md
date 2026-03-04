@@ -2,10 +2,52 @@
 
 # Introduction 
 
-A common (stack) introduction and further information how to use the demo apps in ETS6 (including commissioning) is available on the [wiki pages](../../wikis/Home), 
+A common (stack) introduction and further information how to use the demo apps in ETS6 (including commissioning) is available on the KNX IoT [documentation pages](https://buildwithknxiot.knx.org/public-projects/knx-iot-docs/), 
 more branch specific topics are listed here below. 
 
-To directly jump the demo apps, go [here](apps/Readme.md).
+- To directly jump the demo apps, go [here](apps/Readme.md).
+- To understand the repository content the follwoing figure shows the used stack layers. 
+
+```plantuml
+@startuml
+
+title Stack Components 
+
+database Stack as "
+..**Application**..
+- vendor specific
+----
+.. **m/o Resources**..
+- vendor specific
+----
+..**OSCORE**..
+- RFC 8613
+----
+..**Core-Link | CBOR**..
+- RFC 6690 
+- RFC 7049
+----
+..**CoAP**..
+- RFC 7252
+----
+..**mDNS | DTLS**..
+- RFC 6762
+- RFC 4347
+----
+..**UDP**..
+- RFC 768
+----
+..**IPv6**..
+- RFC 2460
+----
+..**Porting Layer**..
+- platform specific
+----
+..**WiFi | Thread | Ethernet | ...** ..
+"
+
+@enduml
+```
 
 # Project Directory Structure
 
