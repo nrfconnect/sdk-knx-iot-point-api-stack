@@ -103,7 +103,6 @@ else()
             $<$<BOOL:${CONFIG_KNXIOT_KNX_LOG_TO_FILE}>:OC_LOG_TO_FILE>
             $<$<BOOL:${CONFIG_KNXIOT_KNX_LOG_TO_FILE}>:KNX_LOG_TO_FILE>
             $<$<BOOL:${CONFIG_OC_USE_STORAGE}>:OC_USE_STORAGE>
-            $<$<BOOL:${CONFIG_OC_OSCORE_ENABLED}>:OC_SPAKE>
             $<$<BOOL:${CONFIG_OC_PRINT_ENABLED}>:OC_PRINT>
             $<$<BOOL:${CONFIG_OC_PLATFORM_DEFINED_PRINT_ENABLED}>:OC_PLATFORM_DEFINED_PRINT>
             $<$<BOOL:${CONFIG_OC_DEBUG_ENABLED}>:OC_DEBUG>
@@ -122,6 +121,8 @@ else()
             KNX_RESPONSE_TIME_SECONDS=${CONFIG_KNX_RESPONSE_TIME_SECONDS}
             OC_SENDER_MULTICAST_SCOPE=${CONFIG_OC_SENDER_MULTICAST_SCOPE}
         )
+
+        target_compile_definitions(kis-common INTERFACE OC_SPAKE)
 
         target_compile_definitions(app PUBLIC kis-common)
     endif()

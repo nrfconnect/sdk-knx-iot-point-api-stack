@@ -132,12 +132,6 @@ config OC_USE_STORAGE
     help
       Persists configuration data in file-based storage. Default ON.
 
-config OC_OSCORE_ENABLED
-    bool "Enable OSCORE"
-    default y
-    help
-      Enables OSCORE. Can be turned OFF for debugging. Default ON.
-
 config OC_PRINT_ENABLED
     bool "Enable print messages for stack/application"
     default n
