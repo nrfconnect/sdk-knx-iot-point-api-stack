@@ -495,12 +495,14 @@ int coap_receive(oc_message_t* incoming_message)
               transaction = NULL;
 
               OC_DBG("regular (uc/mc) request from unsycned client, sending 4.01 Echo Response");
+              oc_free_string(&kid);
+              oc_free_string(&kid_ctx);
               return UNAUTHORIZED_4_01;
             }
 
             if (sync_state == REPLAY)
             {
-              // send 4.01 'unicast echo response' with OSCORE options but no s-mode app. payload 
+              // send 4.01 'unicast echo response' with OSCORE options but no s-mode app. payload
               // -> multicast : MUST be suppressed (message already received)
               // -> unicast   : unicast 4.01 with response sender context without echo
               coap_send_response_with_empty_application_payload(
@@ -516,6 +518,8 @@ int coap_receive(oc_message_t* incoming_message)
               transaction = NULL;
 
               OC_DBG("replayed (uc/mc) request from unsycned client, sending 4.01 Echo Response");
+              oc_free_string(&kid);
+              oc_free_string(&kid_ctx);
               return UNAUTHORIZED_4_01;
 
             }
@@ -524,9 +528,9 @@ int coap_receive(oc_message_t* incoming_message)
           { // (b)
             // check received len is the same as from send out echo response
             if (echo_len != sizeof(oc_clock_time_t))
-            { // redo 'unicast echo response' 
-              
-              // send 4.01 'unicast echo response' with OSCORE options but no s-mode app. payload 
+            { // redo 'unicast echo response'
+
+              // send 4.01 'unicast echo response' with OSCORE options but no s-mode app. payload
               coap_send_response_with_empty_application_payload(
                 incoming_coap_message->type == COAP_TYPE_CON ? COAP_TYPE_ACK : COAP_TYPE_NON,
                 incoming_coap_message->type == COAP_TYPE_CON ? incoming_coap_message->mid : coap_get_next_mid(),
@@ -540,6 +544,8 @@ int coap_receive(oc_message_t* incoming_message)
               transaction = NULL;
 
               OC_DBG("request from unsycned client with bad 'echo' size %d, sending 4.02", (int)echo_len);
+              oc_free_string(&kid);
+              oc_free_string(&kid_ctx);
               return BAD_OPTION_4_02;
             }
 
@@ -573,18 +579,22 @@ int coap_receive(oc_message_t* incoming_message)
               transaction = NULL;
 
               OC_ERR("Stale request from unsycned client, sending 4.01 Echo Response");
+              oc_free_string(&kid);
+              oc_free_string(&kid_ctx);
               return UNAUTHORIZED_4_01;
             }
 
             // inbound message fom a new/unknown sender now accepted
             // - MUST init a new replay window
-            // - ignore sync state ECHO/REPLAY -> catch it by time based test above    
+            // - ignore sync state ECHO/REPLAY -> catch it by time based test above
             OC_DBG("received unicast echo re-request - fresh request from unsycned client, updating record's SSN/window");
             oc_replay_add_client(ssn, kid, kid_ctx);
           }
         }
 
-        // client is synchronised, SSNs updated 
+        // client is synchronised, SSNs updated
+        oc_free_string(&kid);
+        oc_free_string(&kid_ctx);
 
       }
       #endif
