@@ -441,6 +441,8 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
             application_resource_with_href_match->put_handler.cb(&new_request,
                                                                  application_resource_with_href_match->put_handler.interface_mask,
                                                                  application_resource_with_href_match->put_handler.user_data);
+
+            oc_free_rep(cbor_object_ptr);
           }
 
           go_table_index_where_ga_is_used = oc_core_find_next_go_table_index_with_ga(sending_ga, go_table_index_where_ga_is_used);

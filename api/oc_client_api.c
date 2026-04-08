@@ -33,13 +33,11 @@ bool oc_do_s_mode_message_update(void)
   const int payload_size = oc_rep_get_encoded_payload_size();
   bool ret = false;
 
-  if (payload_size == 0) 
+  if (payload_size == 0)
   {
     OC_WRN("sent (uc/mc) s-mode message - ERROR (application payload len = 0)");
-    // udp message is initialized, it may jump into with a NULL ptr but this is checked there
-    oc_message_unref(udp_message_update);
-  } 
-  else 
+  }
+  else
   {
     // udp message is initialized, coap payload gets ptr from message data (but data are NOT copied)
     coap_set_payload(udp_coap_request, udp_message_update->data + COAP_MAX_HEADER_SIZE, payload_size);
@@ -50,30 +48,29 @@ bool oc_do_s_mode_message_update(void)
     {
       // create a new (specific) s-mode transaction
       coap_transaction_t* s_mode_transaction = smode_new_transaction(
-        udp_coap_request->mid, 
+        udp_coap_request->mid,
         udp_coap_request->token,
-        udp_coap_request->token_len, 
+        udp_coap_request->token_len,
         udp_message_update);
-      
+
       if (s_mode_transaction)
       {
         OC_INF("sent (uc/mc) s-mode message - OK");
         coap_send_transaction(s_mode_transaction);
-        ret = true; // don't 'unref' the sending message
+        ret = true;
       }
       else
       {
         OC_WRN("sent (uc/mc) s-mode message - ERROR (no transaction free)");
-        oc_message_unref(udp_message_update);
       }
     }
     else
     {
       OC_WRN("sent (uc/mc) s-mode message - ERROR (message len = 0)");
-      oc_message_unref(udp_message_update);
     }
   }
 
+  oc_message_unref(udp_message_update);
   udp_message_update = NULL;
   return ret;
 }
