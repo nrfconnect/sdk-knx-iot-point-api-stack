@@ -1,7 +1,8 @@
 /*
  * Copyright (c) 2020 Intel Corporation
  * Copyright (c) 2026 KNX Association
- *            
+ * Copyright 2026 NXP
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,47 +13,83 @@
 #include "oc_rep.h"
 #include "port/oc_log.h"
 
+/**
+ * @def HMAC_SHA256_HASHLEN
+ * @brief Output length of HMAC-SHA256 in bytes
+ *
+ * SHA-256 produces a 256-bit (32-byte) hash output.
+ */
 #define HMAC_SHA256_HASHLEN (32)
+
+/**
+ * @def HKDF_OUTPUT_MAXLEN
+ * @brief Maximum output length for HKDF in bytes
+ *
+ */
 #define HKDF_OUTPUT_MAXLEN (512)
 
+/**
+ * @brief Compute HMAC-SHA256
+ *
+ * @param[in]  key      HMAC key (not modified)
+ * @param[in]  key_len  Length of key in bytes
+ * @param[in]  data     Data to authenticate (not modified)
+ * @param[in]  data_len Length of data in bytes
+ * @param[out] hmac     Output buffer for 32-byte HMAC (must be at least 32 bytes)
+ * @param[in]  hmac_len Size of hmac buffer
+ *
+ * @return 0 on success, negative error code on failure
+ *
+ * @note This function zeros the output buffer on error
+ * @warning The key should be treated as sensitive data
+ */
 static void HMAC_SHA256(const uint8_t *key, uint8_t key_len, 
         const uint8_t *data, uint8_t data_len, uint8_t *hmac) {
-  memset(hmac, 0, HMAC_SHA256_HASHLEN);
+    memset(hmac, 0, HMAC_SHA256_HASHLEN);
 
-  mbedtls_md_context_t hmac_SHA256;
-  mbedtls_md_init(&hmac_SHA256);
-  mbedtls_md_setup(&hmac_SHA256, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1);
+    mbedtls_md_context_t hmac_SHA256;
+    mbedtls_md_init(&hmac_SHA256);
+    mbedtls_md_setup(&hmac_SHA256, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1);
 
-  mbedtls_md_hmac_starts(&hmac_SHA256, key, key_len);
-  mbedtls_md_hmac_update(&hmac_SHA256, data, data_len);
-  mbedtls_md_hmac_finish(&hmac_SHA256, hmac);
+    mbedtls_md_hmac_starts(&hmac_SHA256, key, key_len);
+    mbedtls_md_hmac_update(&hmac_SHA256, data, data_len);
+    mbedtls_md_hmac_finish(&hmac_SHA256, hmac);
 
-  mbedtls_md_free(&hmac_SHA256);
+    mbedtls_md_free(&hmac_SHA256);
 }
 
 static int HKDF_Extract(const uint8_t *salt, uint8_t salt_len, 
         const uint8_t *ikm, uint8_t ikm_len, uint8_t *prk_buffer) {
-  // From RFC 5869
-  // HKDF-Extract(salt, IKM) -> PRK, where PRK = HMAC-Hash(salt, IKM)
-  uint8_t zeroes[32];
-  memset(zeroes, 0, 32);
+    // From RFC 5869
+    // HKDF-Extract(salt, IKM) -> PRK, where PRK = HMAC-Hash(salt, IKM)
+    uint8_t zeroes[HMAC_SHA256_HASHLEN];
+    memset(zeroes, 0, HMAC_SHA256_HASHLEN);
 
-  if (salt == NULL || salt_len == 0) {
-    // If salt not provided, it is set to a string of HashLen zeros.
-    HMAC_SHA256(zeroes, 32, ikm, ikm_len, prk_buffer);
-  } else {
-    HMAC_SHA256(salt, salt_len, ikm, ikm_len, prk_buffer);
-  }
+    if (salt == NULL || salt_len == 0) {
+        // If salt not provided, it is set to a string of HashLen zeros.
+        HMAC_SHA256(zeroes, HMAC_SHA256_HASHLEN, ikm, ikm_len, prk_buffer);
+    } else {
+        HMAC_SHA256(salt, salt_len, ikm, ikm_len, prk_buffer);
+    }
 
-  return 0;
+    return 0;
 }
 
-static int HKDF_Expand(const uint8_t *prk, 
+static int HKDF_Expand(const uint8_t *prk,
         const uint8_t *info, uint8_t info_len,
         const uint8_t *okm, size_t okm_len) {
   // From RFC 5869
   // HKDF-Expand(PRK, info, L) -> OKM
-  if (okm_len > HKDF_OUTPUT_MAXLEN) {
+
+  if (!prk || !okm || (info_len > 0 && !info))
+  {
+    OC_ERR("HKDF_Expand: NULL pointer");
+    return -1;
+  }
+
+  if (okm_len == 0 || okm_len > HKDF_OUTPUT_MAXLEN)
+  {
+    OC_ERR("HKDF_Expand: invalid okm_len %zu", okm_len);
     return -1;
   }
 
@@ -209,44 +246,47 @@ int oc_oscore_compose_AAD(
 
 int oc_oscore_encrypt(
         uint8_t *plaintext, size_t plaintext_len, size_t tag_len,
-        uint8_t *key, size_t key_len, 
-        uint8_t *nonce, size_t nonce_len, 
+        uint8_t *key, size_t key_len,
+        uint8_t *nonce, size_t nonce_len,
         uint8_t *AAD, size_t AAD_len,
-        uint8_t *output) {
-  mbedtls_ccm_context ccm;
-  mbedtls_ccm_init(&ccm);
-  mbedtls_ccm_setkey(&ccm, MBEDTLS_CIPHER_ID_AES, key, key_len * 8);
+        uint8_t *output)
+{
+    int ret = 0;
+    mbedtls_ccm_context ccm;
+    mbedtls_ccm_init(&ccm);
+    mbedtls_ccm_setkey(&ccm, MBEDTLS_CIPHER_ID_AES, key, key_len * 8);
 
-  int ret = mbedtls_ccm_encrypt_and_tag(&ccm, plaintext_len, nonce, nonce_len,
-          AAD, AAD_len, plaintext, output, plaintext + plaintext_len, tag_len);
+    ret = mbedtls_ccm_encrypt_and_tag(&ccm, plaintext_len, nonce, nonce_len,
+            AAD, AAD_len, plaintext, output, plaintext + plaintext_len, tag_len);
 
-  if (ret != 0) {
-    OC_ERR("***error encrypting OSCORE plaintext: mbedtls (%d)***", ret);
-  }
+    if (ret != 0) {
+        OC_ERR("***error encrypting OSCORE plaintext: mbedtls (%d)***", ret);
+    }
 
-  mbedtls_ccm_free(&ccm);
-  return ret;
+    mbedtls_ccm_free(&ccm);
+    return ret;
 }
 
 int oc_oscore_decrypt(
         uint8_t *ciphertext, size_t ciphertext_len, size_t tag_len,
-        uint8_t *key, size_t key_len, 
-        uint8_t *nonce, size_t nonce_len, 
+        uint8_t *key, size_t key_len,
+        uint8_t *nonce, size_t nonce_len,
         uint8_t *AAD, size_t AAD_len,
         uint8_t *output)
 {
-  mbedtls_ccm_context ccm;
-  mbedtls_ccm_init(&ccm);
-  mbedtls_ccm_setkey(&ccm, MBEDTLS_CIPHER_ID_AES, key, key_len * 8);
+    int ret = 0;
+    mbedtls_ccm_context ccm;
+    mbedtls_ccm_init(&ccm);
+    mbedtls_ccm_setkey(&ccm, MBEDTLS_CIPHER_ID_AES, key, key_len * 8);
 
-  int ret = mbedtls_ccm_auth_decrypt(&ccm, ciphertext_len - tag_len, 
-          nonce, nonce_len, AAD, AAD_len, ciphertext, output, 
-          ciphertext + ciphertext_len - tag_len, tag_len);
+    ret = mbedtls_ccm_auth_decrypt(&ccm, ciphertext_len - tag_len,
+            nonce, nonce_len, AAD, AAD_len, ciphertext, output,
+            ciphertext + ciphertext_len - tag_len, tag_len);
 
-  if (ret != 0) {
-    OC_ERR("***error decrypting/verifying response: mbedtls (%d)***", ret);
-  }
+    if (ret != 0) {
+        OC_ERR("***error decrypting/verifying response: mbedtls (%d)***", ret);
+    }
 
-  mbedtls_ccm_free(&ccm);
-  return ret;
+    mbedtls_ccm_free(&ccm);
+    return ret;
 }

@@ -1,5 +1,6 @@
 /*
 // Copyright (c) 2022 Cascoda Ltd.
+// Copyright 2026 NXP
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,11 +13,16 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-*/
 /**
-  @brief security: SPAKE2+ implementation
-  @file
-*/
+ * @file
+ * @brief SPAKE2+ Password-Authenticated Key Exchange for KNX IoT
+ *
+ * This file implements cryptographic primitives for KNX IoT device authentication.
+ *
+ * @note Supports two backends:
+ * - KNXIOT_SPAKE2P_MBEDTLS: Uses mbedTLS ECP/bignum (legacy)
+ * - KNXIOT_SPAKE2P_PSA: Uses PSA Crypto API (recommended, WIP)
+ */
 
 #ifndef OC_SPAKE2PLUS_H
 #define OC_SPAKE2PLUS_H
@@ -26,8 +32,19 @@
 #include "oc_helpers.h"
 #include "oscore_constants.h"
 
+/**
+ * @brief Public key size for SPAKE2+ using P-256 curve
+ * Format: 1 byte (0x04 uncompressed) + 32 bytes X + 32 bytes Y = 65 bytes
+ */
 enum { kPubKeySize = 65 };
 
+/**
+ * @brief SPAKE2+ protocol data structure
+ * @warning Contains sensitive cryptographic material.
+ *          - Must be zeroed after use with oc_spake_free()
+ *          - Never log or transmit y or K_main
+ *          - Store only in secure memory
+ */
 typedef struct
 {
   mbedtls_mpi w0;
@@ -204,4 +221,4 @@ int calc_transcript_initiator(mbedtls_mpi* w0, mbedtls_mpi* w1, mbedtls_mpi* x, 
 }
 #endif
 
-#endif 
+#endif

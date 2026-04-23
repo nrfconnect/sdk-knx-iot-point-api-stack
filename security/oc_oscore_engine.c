@@ -570,7 +570,7 @@ static int oc_oscore_receive_message(oc_message_t* msg)
   uint8_t* decryption_key = oscore_ctx->recipient_key;
 
   // verify and decrypt OSCORE payload in coap packet , acc. MBEDTLS same input/output buffer can be used
-  int ret = oc_oscore_decrypt(oscore_pkt->payload, oscore_pkt->payload_len, 
+  int ret = oc_oscore_decrypt(oscore_pkt->payload, oscore_pkt->payload_len,
                               OSCORE_AEAD_TAG_LEN, decryption_key, OSCORE_KEY_LEN, nonce,
                               OSCORE_AEAD_NONCE_LEN, aad, aad_len, oscore_pkt->payload);
 
