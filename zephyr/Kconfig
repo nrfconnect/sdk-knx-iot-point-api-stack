@@ -48,7 +48,7 @@ config SN_LOWER_CASE
 	help
 	  The KNX serial number.
 
-config PASSWORD
+config KNX_IOT_PASSWORD
 	string "KNX Application Password"
 	default "2X4W3TE0DFLLS19Y1FCH"
 	help

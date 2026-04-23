@@ -29,7 +29,11 @@
 #include "oc_helpers.h"
 
 // use it in upper case (min 6, max 32), IMPORTANT consider the notes for the PASE Resource Object (oc_pase_t)
-#define PASSWORD "2X4W3TE0DFLLS19Y1FCH"
+#if defined(CONFIG_KNX_IOT_PASSWORD)
+#define KNX_IOT_PASSWORD CONFIG_KNX_IOT_PASSWORD
+#else
+#define KNX_IOT_PASSWORD "2X4W3TE0DFLLS19Y1FCH"
+#endif
 
 // Callback Notes
 /*

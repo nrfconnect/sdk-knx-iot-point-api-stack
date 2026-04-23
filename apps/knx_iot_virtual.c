@@ -49,7 +49,7 @@ void app_str_to_upper(char* str)
 }
 
 // IMPORTANT consider the notes for the PASE Resource Object (oc_pase_t)
-char* app_get_password(void) { return PASSWORD; }
+char* app_get_password(void) { return KNX_IOT_PASSWORD; }
 
 #ifdef OC_DEBUG
 #ifndef _MSC_VER
