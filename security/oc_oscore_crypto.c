@@ -7,8 +7,12 @@
  */
 
 #include "oc_oscore_crypto.h"
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
 #include "mbedtls/ccm.h"
 #include "mbedtls/md.h"
+#elif defined(KNXIOT_SPAKE2P_PSA)
+#include "psa/crypto.h"
+#endif
 #include "messaging/coap/oscore_constants.h"
 #include "oc_rep.h"
 #include "port/oc_log.h"
@@ -46,7 +50,7 @@
 static void HMAC_SHA256(const uint8_t *key, uint8_t key_len, 
         const uint8_t *data, uint8_t data_len, uint8_t *hmac) {
     memset(hmac, 0, HMAC_SHA256_HASHLEN);
-
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
     mbedtls_md_context_t hmac_SHA256;
     mbedtls_md_init(&hmac_SHA256);
     mbedtls_md_setup(&hmac_SHA256, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1);
@@ -56,6 +60,40 @@ static void HMAC_SHA256(const uint8_t *key, uint8_t key_len,
     mbedtls_md_hmac_finish(&hmac_SHA256, hmac);
 
     mbedtls_md_free(&hmac_SHA256);
+#elif defined(KNXIOT_SPAKE2P_PSA)
+    const psa_algorithm_t algorithm = PSA_ALG_HMAC(PSA_ALG_SHA_256);
+    psa_status_t status = PSA_SUCCESS;
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_key_id_t keyId = PSA_KEY_ID_NULL;
+    size_t mac_size = 0;
+
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_HMAC);
+    psa_set_key_algorithm(&attributes, algorithm);
+    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_SIGN_HASH);
+
+    status = psa_import_key(&attributes, key, key_len, &keyId);
+
+    if (status != PSA_SUCCESS)
+    {
+        OC_ERR("Failed to import HMAC key: %d", (int)status);
+        goto exit;
+    }
+
+    status = psa_mac_compute(keyId, algorithm, data, data_len, hmac, HMAC_SHA256_HASHLEN, &mac_size);
+
+    if (status != PSA_SUCCESS)
+    {
+        OC_ERR("Failed to compute HMAC: %d", (int)status);
+        goto exit;
+    }
+
+exit:
+    if (keyId != PSA_KEY_ID_NULL)
+    {
+        psa_destroy_key(keyId);
+    }
+    psa_reset_key_attributes(&attributes);
+#endif // KNXIOT_SPAKE2P_PSA
 }
 
 static int HKDF_Extract(const uint8_t *salt, uint8_t salt_len, 
@@ -244,6 +282,31 @@ int oc_oscore_compose_AAD(
   return 0;
 }
 
+#if defined(KNXIOT_SPAKE2P_PSA)
+psa_key_id_t oc_oscore_encryption_init(uint8_t *key, size_t key_len,
+                                        psa_key_usage_t flags, psa_algorithm_t algorithm)
+{
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_key_id_t keyId = PSA_KEY_ID_NULL;
+    psa_status_t status;
+
+    /* import key */
+    psa_set_key_usage_flags(&attributes, flags);
+    psa_set_key_algorithm(&attributes, algorithm);
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_AES);
+    psa_set_key_bits(&attributes, key_len * 8);
+
+    status = psa_import_key(&attributes, key, key_len, &keyId);
+    psa_reset_key_attributes(&attributes);
+    if (status != PSA_SUCCESS)
+    {
+        OC_ERR("Failed to allocate key_id!!!");
+    }
+
+    return keyId;
+}
+#endif // KNXIOT_SPAKE2P_PSA
+
 int oc_oscore_encrypt(
         uint8_t *plaintext, size_t plaintext_len, size_t tag_len,
         uint8_t *key, size_t key_len,
@@ -252,6 +315,7 @@ int oc_oscore_encrypt(
         uint8_t *output)
 {
     int ret = 0;
+#if defined(KNXIOT_SPAKE2P_MBEDTLS)
     mbedtls_ccm_context ccm;
     mbedtls_ccm_init(&ccm);
     mbedtls_ccm_setkey(&ccm, MBEDTLS_CIPHER_ID_AES, key, key_len * 8);
@@ -264,6 +328,39 @@ int oc_oscore_encrypt(
     }
 
     mbedtls_ccm_free(&ccm);
+#elif defined(KNXIOT_SPAKE2P_PSA)
+    const psa_algorithm_t algorithm = PSA_ALG_AEAD_WITH_SHORTENED_TAG(PSA_ALG_CCM, tag_len);
+    psa_status_t status = PSA_SUCCESS;
+    psa_key_id_t keyId = PSA_KEY_ID_NULL;
+    size_t out_length = 0;
+
+    keyId = oc_oscore_encryption_init(key, key_len, PSA_KEY_USAGE_ENCRYPT, algorithm);
+
+    if (keyId == PSA_KEY_ID_NULL)
+    {
+        OC_ERR("***error initializing OSCORE encryption***");
+        ret = -1;
+        goto cleanup;
+    }
+
+    status = psa_aead_encrypt(keyId, algorithm, nonce, nonce_len, AAD, AAD_len, plaintext,
+                              plaintext_len, output, plaintext_len + tag_len, &out_length);
+
+    if (status != PSA_SUCCESS)
+    {
+        OC_ERR("AEAD encryption failed: status=%d, out_length=%zu",
+            (int)status, out_length);
+        ret = -1;
+        goto cleanup;
+    }
+
+cleanup:
+    // Clean up the key after use
+    if (keyId != PSA_KEY_ID_NULL)
+    {
+        psa_destroy_key(keyId);
+    }
+#endif // KNXIOT_SPAKE2P_PSA
     return ret;
 }
 
@@ -275,6 +372,7 @@ int oc_oscore_decrypt(
         uint8_t *output)
 {
     int ret = 0;
+#if defined(KNXIOT_SPAKE2P_MBEDTLS)
     mbedtls_ccm_context ccm;
     mbedtls_ccm_init(&ccm);
     mbedtls_ccm_setkey(&ccm, MBEDTLS_CIPHER_ID_AES, key, key_len * 8);
@@ -288,5 +386,53 @@ int oc_oscore_decrypt(
     }
 
     mbedtls_ccm_free(&ccm);
+#elif defined(KNXIOT_SPAKE2P_PSA)
+    psa_algorithm_t algorithm = PSA_ALG_AEAD_WITH_SHORTENED_TAG(PSA_ALG_CCM, tag_len);
+    psa_status_t status = PSA_SUCCESS;
+    psa_key_id_t key_id = PSA_KEY_ID_NULL;
+    size_t out_length = 0;
+    uint8_t *plaintext = NULL;
+
+    key_id = oc_oscore_encryption_init(key, key_len, PSA_KEY_USAGE_DECRYPT, algorithm);
+
+    if (key_id == PSA_KEY_ID_NULL)
+    {
+        OC_ERR("***error initializing OSCORE encryption***");
+        ret = -1;
+        goto cleanup;
+    }
+
+    plaintext = malloc(ciphertext_len);
+
+    if (plaintext == NULL)
+    {
+        OC_ERR("***error allocating memory for plaintext***");
+        ret = -1;
+        goto cleanup;
+    }
+
+    status = psa_aead_decrypt(key_id, algorithm, nonce, nonce_len, AAD, AAD_len, ciphertext,
+                              ciphertext_len, plaintext, ciphertext_len, &out_length);
+
+    if (status != PSA_SUCCESS)
+    {
+        OC_ERR("AEAD decryption failed: status=%d, out_length=%zu",
+            (int)status, out_length);
+        ret = -1;
+        goto cleanup;
+    }
+
+cleanup:
+    if(plaintext != NULL)
+    {
+        memcpy(output, plaintext, ciphertext_len);
+        free(plaintext);
+    }
+    // Clean up the key after use
+    if (key_id != PSA_KEY_ID_NULL)
+    {
+        psa_destroy_key(key_id);
+    }
+#endif // KNXIOT_SPAKE2P_PSA
     return ret;
 }

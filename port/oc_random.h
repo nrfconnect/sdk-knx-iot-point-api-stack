@@ -38,8 +38,12 @@
 #ifndef OC_RANDOM_H
 #define OC_RANDOM_H
 
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
+#elif defined(KNXIOT_SPAKE2P_PSA)
+#include <psa/crypto.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,11 +68,13 @@ unsigned int oc_random_value(void);
  */
 void oc_random_destroy(void);
 
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
 /**
  * @brief Get the mbedTLS platform RNG context
  *
  */
 mbedtls_ctr_drbg_context *oc_random_get_ctr_drbg_context(void);
+#endif
 
 #ifdef __cplusplus
 }

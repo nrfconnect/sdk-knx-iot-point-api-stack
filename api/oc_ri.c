@@ -35,6 +35,8 @@
 
 #include "security/oc_oscore.h"
 
+#include "strings.h"
+
 #ifdef OC_SERVER
 OC_LIST(app_resources);                // list root node for application endpoint resources (not stack), used e.g. for datapoints with /p/lsab/...
 OC_LIST(observe_callbacks);            // list root node for callback handlers 

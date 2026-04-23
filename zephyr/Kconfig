@@ -226,6 +226,18 @@ config KNX_SPAKE_ITERATIONS
     help
       Number of SHA256 iterations used in SPAKE2+. Default 50000.
 
+config KNXIOT_SPAKE2P_MBEDTLS
+    bool "Enable implementation of SPAKE2+ through MbedTLS"
+    default y
+    help
+      Enables implementation of SPAKE2+ through MbedTLS. Default ON.
+
+config KNXIOT_SPAKE2P_PSA
+    bool "Enable implementation of SPAKE2+ through PSA"
+    default n
+    help
+      Enables implementation of SPAKE2+ through PSA Crypto. Default OFF.
+
 config KNX_RESPONSE_TIME_SECONDS
     int "KNX reset Process Time (seconds)"
     default 2

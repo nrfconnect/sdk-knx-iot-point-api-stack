@@ -1,4 +1,3 @@
-/*
 // Copyright (c) 2022 Cascoda Ltd.
 // Copyright 2026 NXP
 //
@@ -13,7 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-/**
+/*
  * @file
  * @brief SPAKE2+ Password-Authenticated Key Exchange for KNX IoT
  *
@@ -27,8 +26,18 @@
 #ifndef OC_SPAKE2PLUS_H
 #define OC_SPAKE2PLUS_H
 
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
 #include "mbedtls/bignum.h"
 #include "mbedtls/ecp.h"
+#elif defined(KNXIOT_SPAKE2P_PSA)
+// In mbedTLS v4.0, ECP and bignum function declarations moved to private headers.
+// These are only needed for the mbedTLS-based SPAKE2+ fallback. Platforms with a
+// PSA SPAKE2+ driver don't need these private headers.
+#define MBEDTLS_DECLARE_PRIVATE_IDENTIFIERS
+#include <mbedtls/private/bignum.h>
+#include <mbedtls/private/ecp.h>
+#endif
+
 #include "oc_helpers.h"
 #include "oscore_constants.h"
 

@@ -55,6 +55,9 @@ if(NOT Zephyr_FOUND)
     # Set to ON if the Mbed TLS library provided by the KNX-IoT stack should be used,
     # set to OFF if the Mbed TLS library is provided in other ways (e.g. the OS).
     set(CONFIG_KNXIOT_MBEDTLS_BUILTIN ON CACHE BOOL "Use the Mbed TLS library provided by the KNX-IoT stack.")
+    # Targeted for Zephyr OS compatibility. Zephyr 4.4 uses PSA crypto instead of legacy MbedTLS APIs.
+    set(CONFIG_KNXIOT_SPAKE2P_MBEDTLS ON CACHE BOOL "Set the usage of MbedTLS library APIs when using MbedTLS up to version 3.6.5")
+    set(CONFIG_KNXIOT_SPAKE2P_PSA OFF CACHE BOOL "Set the usage of PSA Crypto library APIs when using MbedTLS versions higher than 4.0")
 
     ## External porting layer
     # Set to ON if the port layer from /port folder should be used,
@@ -110,6 +113,8 @@ else()
             $<$<BOOL:${CONFIG_USE_CONSOLE}>:USE_CONSOLE>
             $<$<BOOL:${CONFIG_OC_REPLAY_PROTECTION_ENABLED}>:OC_REPLAY_PROTECTION>
             $<$<BOOL:${CONFIG_KNX_LOG_CAST_64_BIT_INTS}>:KNX_LOG_CAST_64_BIT_INTS>
+            $<$<BOOL:${CONFIG_KNXIOT_SPAKE2P_MBEDTLS}>:KNXIOT_SPAKE2P_MBEDTLS>
+            $<$<BOOL:${CONFIG_KNXIOT_SPAKE2P_PSA}>:KNXIOT_SPAKE2P_PSA>
 
             # Integer values - direct assignment
             GOT_MAX_ENTRIES=${CONFIG_KNX_GOT_MAX_ENTRIES}
@@ -156,8 +161,14 @@ else()
         target_include_directories(knx-include INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/security)
         target_include_directories(knx-include INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/apps)
         target_include_directories(knx-include INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/apps/knx)
-	# Need to get a better include path of MBEDTLS from Zephyr
-        target_include_directories(knx-include INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/../../crypto/mbedtls/include/)
+        # Need to get a better include path of MBEDTLS from Zephyr
+        if(CONFIG_KNXIOT_SPAKE2P_MBEDTLS)
+            target_include_directories(knx-include INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/../../crypto/mbedtls/include/)
+        endif()
+        if(CONFIG_KNXIOT_SPAKE2P_PSA)
+            target_include_directories(knx-include INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/../../crypto/tf-psa-crypto/include/)
+        endif()
+        zephyr_library_link_libraries_ifdef(CONFIG_MBEDTLS mbedTLS)
     endif()
 endif()
 
@@ -268,6 +279,14 @@ if(NOT Zephyr_FOUND)
 
     if(KNXIOT_KNX_LOG_TO_FILE)
         target_compile_definitions(kis-common INTERFACE OC_LOG_TO_FILE KNX_LOG_TO_FILE)
+    endif()
+
+    if(CONFIG_KNXIOT_SPAKE2P_MBEDTLS)
+        target_compile_definitions(kis-common INTERFACE KNXIOT_SPAKE2P_MBEDTLS)
+    endif()
+
+    if(CONFIG_KNXIOT_SPAKE2P_PSA)
+        target_compile_definitions(kis-common INTERFACE KNXIOT_SPAKE2P_PSA)
     endif()
 endif()
 

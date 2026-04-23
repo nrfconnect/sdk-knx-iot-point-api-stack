@@ -18,13 +18,15 @@
 
 #ifdef OC_SPAKE
 
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
 #include "mbedtls/md.h"
-#include "mbedtls/ecp.h"
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/hkdf.h"
 #include "mbedtls/pkcs5.h"
 #include "mbedtls/sha256.h"
+#endif // KNXIOT_SPAKE2P_MBEDTLS
+
 #include <assert.h>
 #include "oc_spake2plus.h"
 #include "port/oc_random.h"
@@ -34,7 +36,9 @@
 
 #define OUTPUT_LEN 80
 
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
 static mbedtls_ctr_drbg_context* pointer_to_ctr_drbg_ctx;
+#endif
 static mbedtls_ecp_group grp;
 
 // clang-format off
@@ -80,12 +84,38 @@ int oc_spake_init(void)
     mbedtls_ecp_group_init(&grp);
 
     MBEDTLS_MPI_CHK(mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_SECP256R1));
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
     pointer_to_ctr_drbg_ctx = oc_random_get_ctr_drbg_context();
+#elif defined(KNXIOT_SPAKE2P_PSA)
+    psa_status_t status = psa_crypto_init();
+    if (status != PSA_SUCCESS)
+    {
+        OC_ERR("psa_crypto_init failed with status %d", status);
+        ret = -1;
+        goto cleanup;
+    }
+#endif
 
     // jumped from inside macro
 cleanup:
     return ret;
 }
+
+#ifdef KNXIOT_SPAKE2P_PSA
+static int oc_spake_psa_drbg_get_bytes(void* rng, uint8_t* output, size_t output_len)
+{
+    (void)rng;
+    psa_status_t status = PSA_SUCCESS;
+
+    if (output == NULL || output_len == 0)
+    {
+        return -1;
+    }
+
+    status = psa_generate_random(output, output_len);
+    return (status == PSA_SUCCESS) ? 0 : -1;
+}
+#endif
 
 int oc_spake_free(void)
 {
@@ -149,6 +179,7 @@ int oc_spake_encode_pubkey(mbedtls_ecp_point* P, uint8_t out[kPubKeySize])
 
 int oc_spake_parameter_exchange(uint8_t* rand, uint8_t* salt)
 {
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
     // used AND assigned inside macro
     int ret = 0;
 
@@ -158,6 +189,19 @@ int oc_spake_parameter_exchange(uint8_t* rand, uint8_t* salt)
     // jumped from inside macro
 cleanup:
     return ret;
+#elif defined(KNXIOT_SPAKE2P_PSA)
+    psa_status_t status;
+
+    status = psa_generate_random(rand, KNX_RNG_LEN);
+    if (status != PSA_SUCCESS) {
+        return -1;
+    }
+
+    status = psa_generate_random(salt, KNX_SALT_LEN);
+    if (status != PSA_SUCCESS) {
+        return -1;
+    }
+#endif
 }
 
 /**
@@ -201,6 +245,7 @@ static int oc_spake_calc_w0_w1(const char* pw, size_t len_salt, const uint8_t* s
     len_input += encode_string("", input + len_input); // null idProver
     len_input += encode_string("", input + len_input); // null idVerifier
 
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
     mbedtls_md_context_t ctx;
 
     mbedtls_md_init(&ctx);
@@ -208,7 +253,54 @@ static int oc_spake_calc_w0_w1(const char* pw, size_t len_salt, const uint8_t* s
     MBEDTLS_MPI_CHK(mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1));
     MBEDTLS_MPI_CHK(mbedtls_pkcs5_pbkdf2_hmac(&ctx, input, len_input, salt,
                     len_salt, it, OUTPUT_LEN, output));
+#elif defined(KNXIOT_SPAKE2P_PSA)
+    psa_status_t status = PSA_SUCCESS;
+    psa_key_id_t keyId = PSA_KEY_ID_NULL;
+    psa_algorithm_t algorithm  = PSA_ALG_PBKDF2_HMAC(PSA_ALG_SHA_256);
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_key_derivation_operation_t operation = PSA_KEY_DERIVATION_OPERATION_INIT;
 
+    // Setup PBKDF2-HMAC-SHA256 derivation
+    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_DERIVE);
+    psa_set_key_lifetime(&attributes, PSA_KEY_LIFETIME_VOLATILE);
+    psa_set_key_algorithm(&attributes, algorithm);
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_PASSWORD);
+    psa_set_key_bits(&attributes, PSA_BYTES_TO_BITS(len_input));
+
+    status = psa_import_key(&attributes, input, len_input, &keyId);
+    if(status != PSA_SUCCESS) {
+        goto cleanup;
+    }
+
+    status = psa_key_derivation_setup(&operation, algorithm);
+    if(status != PSA_SUCCESS) {
+        goto cleanup;
+    }
+
+    // Input iteration count (cost)
+    status = psa_key_derivation_input_integer(&operation, PSA_KEY_DERIVATION_INPUT_COST, it);
+    if(status != PSA_SUCCESS) {
+        goto cleanup;
+    }
+
+    // Input salt
+    status = psa_key_derivation_input_bytes(&operation, PSA_KEY_DERIVATION_INPUT_SALT, salt, len_salt);
+    if(status != PSA_SUCCESS) {
+        goto cleanup;
+    }
+
+    // Input password
+    status = psa_key_derivation_input_key(&operation, PSA_KEY_DERIVATION_INPUT_PASSWORD, keyId);
+    if(status != PSA_SUCCESS) {
+        goto cleanup;
+    }
+
+    // Derive key material
+    status = psa_key_derivation_output_bytes(&operation, (uint8_t *)&output, OUTPUT_LEN);
+    if(status != PSA_SUCCESS) {
+        goto cleanup;
+    }
+#endif
     // extract w0s and w1s from the output
     MBEDTLS_MPI_CHK(mbedtls_mpi_read_binary(&w0s, output, OUTPUT_LEN / 2));
     MBEDTLS_MPI_CHK(mbedtls_mpi_read_binary(&w1s, output + OUTPUT_LEN / 2, OUTPUT_LEN / 2));
@@ -220,7 +312,16 @@ static int oc_spake_calc_w0_w1(const char* pw, size_t len_salt, const uint8_t* s
     MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(w1, &w1s, &grp.N));
 
 cleanup:
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
     mbedtls_md_free(&ctx);
+#elif defined(KNXIOT_SPAKE2P_PSA)
+    psa_reset_key_attributes(&attributes);
+    psa_key_derivation_abort(&operation);
+    if (keyId != PSA_KEY_ID_NULL)
+    {
+        psa_destroy_key(keyId);
+    }
+#endif
     mbedtls_mpi_free(&w0s);
     mbedtls_mpi_free(&w1s);
     free(input);
@@ -250,7 +351,11 @@ static int oc_spake_calc_w0_L(const char* pw, size_t len_salt, const uint8_t* sa
     mbedtls_mpi w1;
     mbedtls_mpi_init(&w1);
     MBEDTLS_MPI_CHK(oc_spake_calc_w0_w1(pw, len_salt, salt, it, w0, &w1));
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
     MBEDTLS_MPI_CHK(mbedtls_ecp_mul(&grp, L, &w1, &grp.G, mbedtls_ctr_drbg_random, pointer_to_ctr_drbg_ctx));
+#elif defined(KNXIOT_SPAKE2P_PSA)
+    MBEDTLS_MPI_CHK(mbedtls_ecp_mul(&grp, L, &w1, &grp.G, oc_spake_psa_drbg_get_bytes, NULL));
+#endif
 
 cleanup:
     mbedtls_mpi_free(&w1);
@@ -279,7 +384,11 @@ int oc_spake_get_w0_L_params(size_t len_salt, const uint8_t *salt, uint32_t it, 
 
 int oc_spake_gen_keypair(mbedtls_mpi* y, mbedtls_ecp_point* pub_y)
 {
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
     return mbedtls_ecp_gen_keypair(&grp, y, pub_y, mbedtls_ctr_drbg_random, pointer_to_ctr_drbg_ctx);
+#elif defined(KNXIOT_SPAKE2P_PSA)
+    return mbedtls_ecp_gen_keypair(&grp, y, pub_y, oc_spake_psa_drbg_get_bytes, NULL);
+#endif
 }
 
 // generic formula for pX = pubX + wX * L
@@ -341,7 +450,11 @@ static int calculate_JfKgL(mbedtls_ecp_point* J, const mbedtls_mpi* f, const mbe
     MBEDTLS_MPI_CHK(mbedtls_ecp_muladd(&grp, &K_minus_g_L, &one, K, &negative_g, L));
 
     // J = f * (K_minus_g_L)
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
     MBEDTLS_MPI_CHK(mbedtls_ecp_mul(&grp, J, f, &K_minus_g_L, mbedtls_ctr_drbg_random, pointer_to_ctr_drbg_ctx));
+#elif defined(KNXIOT_SPAKE2P_PSA)
+    MBEDTLS_MPI_CHK(mbedtls_ecp_mul(&grp, J, f, &K_minus_g_L, oc_spake_psa_drbg_get_bytes, NULL));
+#endif
 
 cleanup:
     mbedtls_mpi_free(&negative_g);
@@ -408,7 +521,11 @@ int calc_transcript_responder(spake_data_t* spake_data, const uint8_t shareP_enc
     MBEDTLS_MPI_CHK(calculate_Z_M(&Z, &spake_data->y, &shareP, &spake_data->w0));
 
     // V = h*y*L, where L = w1*P
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
     MBEDTLS_MPI_CHK(mbedtls_ecp_mul(&grp, &V, &spake_data->y, &spake_data->L, mbedtls_ctr_drbg_random, pointer_to_ctr_drbg_ctx));
+#elif defined(KNXIOT_SPAKE2P_PSA)
+    MBEDTLS_MPI_CHK(mbedtls_ecp_mul(&grp, &V, &spake_data->y, &spake_data->L, oc_spake_psa_drbg_get_bytes, NULL));
+#endif
 
     // calculate transcript
     ttlen += encode_string(context, ttbuf + ttlen);
@@ -438,12 +555,21 @@ int calc_transcript_responder(spake_data_t* spake_data, const uint8_t shareP_enc
     ttlen += encode_mpi(&spake_data->w0, ttbuf + ttlen);
 
     // calculate hash
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
 #if defined(MBEDTLS_DEPRECATED_REMOVED) && (MBEDTLS_VERSION_NUMBER < 0x03000000)
     mbedtls_sha256_ret(ttbuf, ttlen, spake_data->K_main, 0);
 #else
     mbedtls_sha256(ttbuf, ttlen, spake_data->K_main, 0);
 #endif
+#elif defined(KNXIOT_SPAKE2P_PSA)
+    size_t out_len = 0;
+    const psa_status_t status =
+        psa_hash_compute(PSA_ALG_SHA_256, ttbuf, ttlen, spake_data->K_main, PSA_HASH_LENGTH(PSA_ALG_SHA_256), &out_len);
 
+    if (status != PSA_SUCCESS) {
+        ret = -1;
+    }
+#endif
 
 cleanup:
     mbedtls_ecp_point_free(&Z);
@@ -507,12 +633,21 @@ int calc_transcript_initiator(mbedtls_mpi* w0, mbedtls_mpi* w1, mbedtls_mpi* x, 
     ttlen += encode_mpi(w0, ttbuf + ttlen);
 
     // calculate hash
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
 #if defined(MBEDTLS_DEPRECATED_REMOVED) && (MBEDTLS_VERSION_NUMBER < 0x03000000)
     mbedtls_sha256_ret(ttbuf, ttlen, K_main, 0);
 #else
     mbedtls_sha256(ttbuf, ttlen, K_main, 0);
 #endif
+#elif defined(KNXIOT_SPAKE2P_PSA)
+    size_t out_len = 0;
+    const psa_status_t status =
+        psa_hash_compute(PSA_ALG_SHA_256, ttbuf, ttlen, K_main, PSA_HASH_LENGTH(PSA_ALG_SHA_256), &out_len);
 
+    if (status != PSA_SUCCESS) {
+        ret = -1;
+    }
+#endif
 
 cleanup:
     mbedtls_ecp_point_free(&Y);
@@ -534,12 +669,74 @@ cleanup:
 static int oc_spake_hkdf_derive(const uint8_t* K_main, const char* info_string,
                                 uint8_t* output, size_t output_len)
 {
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
     return mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
                         NULL, 0,                           // No salt
                         K_main, 32,                        // Input key material
                         (const unsigned char*)info_string,
                         strlen(info_string),
                         output, output_len);
+#elif defined(KNXIOT_SPAKE2P_PSA)
+    int ret = -1;
+    psa_status_t status = PSA_SUCCESS;
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_key_id_t keyId;
+    psa_key_derivation_operation_t mOperation = PSA_KEY_DERIVATION_OPERATION_INIT;
+
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_DERIVE);
+    psa_set_key_algorithm(&attributes, PSA_ALG_HKDF(PSA_ALG_SHA_256));
+    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_DERIVE);
+
+    status = psa_import_key(&attributes, K_main, 32, &keyId);
+
+    psa_reset_key_attributes(&attributes);
+    if (status != PSA_SUCCESS)
+    {
+        goto cleanup;
+    }
+
+    status = psa_key_derivation_setup(&mOperation, PSA_ALG_HKDF(PSA_ALG_SHA_256));
+    if (status != PSA_SUCCESS)
+    {
+        goto cleanup;
+    }
+
+  // TODO if using salt
+  //  if (salt_length > 0)
+  //  {
+  //      status = psa_key_derivation_input_bytes(&mOperation, PSA_KEY_DERIVATION_INPUT_SALT, salt, salt_length);
+  //      if (status != PSA_SUCCESS)
+  //      {
+  //          goto cleanup;
+  //      }
+  //  }
+
+    status = psa_key_derivation_input_key(&mOperation, PSA_KEY_DERIVATION_INPUT_SECRET, keyId);
+    if (status != PSA_SUCCESS)
+    {
+        goto cleanup;
+    }
+
+    status = psa_key_derivation_input_bytes(&mOperation, PSA_KEY_DERIVATION_INPUT_INFO, info_string, strlen(info_string));
+    if (status != PSA_SUCCESS)
+    {
+        goto cleanup;
+    }
+
+    status = psa_key_derivation_output_bytes(&mOperation, output, output_len);
+    if (status == PSA_SUCCESS)
+    {
+        ret = 0;
+    }
+
+cleanup:
+    psa_key_derivation_abort(&mOperation);
+    if (keyId != PSA_KEY_ID_NULL)
+    {
+        psa_destroy_key(keyId);
+    }
+    return ret;
+#endif
 }
 
 /**
@@ -556,8 +753,40 @@ static int oc_spake_hmac_sha256(const uint8_t* key, size_t key_len,
                                 const uint8_t* input, size_t input_len,
                                 uint8_t* output)
 {
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
     return mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
                            key, key_len, input, input_len, output);
+#elif defined(KNXIOT_SPAKE2P_PSA)
+    int ret = -1;
+    const psa_algorithm_t algorithm = PSA_ALG_HMAC(PSA_ALG_SHA_256);
+    psa_status_t status = PSA_SUCCESS;
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_key_id_t keyId = 0;
+    size_t out_length;
+
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_HMAC);
+    psa_set_key_algorithm(&attributes, algorithm);
+    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_SIGN_HASH);
+
+    status = psa_import_key(&attributes, key, key_len, &keyId);
+    psa_reset_key_attributes(&attributes);
+    if (status != PSA_SUCCESS)
+    {
+        goto exit;
+    }
+
+    status = psa_mac_compute(keyId, algorithm, input, input_len, output, 32, &out_length);
+    if (status != PSA_SUCCESS)
+    {
+        ret = 0;
+    }
+exit:
+    if (keyId != PSA_KEY_ID_NULL)
+    {
+        psa_destroy_key(keyId);
+    }
+    return ret;
+#endif
 }
 
 int oc_spake_calc_confirmV(uint8_t* K_main, uint8_t confirmV[32], uint8_t bytes_shareP[kPubKeySize])
