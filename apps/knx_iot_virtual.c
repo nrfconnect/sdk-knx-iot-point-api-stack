@@ -491,24 +491,24 @@ int app_initialize_stack(const char* storage_folder_name)
     For a specific embedded OS usually this functionality needs to be adapted.
   */
 
+  #if defined(_WIN32) || defined(__unix__) || defined(__APPLE__)
   // current directory, storage = './' + folder name + '_' + serial number + '\0'
   char storage[2 + 64 + 1 + SERIAL_NUM_SIZE + 1];
-
-  #if defined(_WIN32) || defined(__unix__) || defined(__APPLE__)
 
   (void)snprintf(storage, sizeof(storage), "./%s_%s", storage_folder_name, sn_lower_case);
 
   #ifdef OC_DEBUG
-
   char dir[FILENAME_MAX] = "";
   GetCurrentDir(dir, FILENAME_MAX);
   OC_INF("Current path is: '%s'", dir);
-
-  #endif
-
   #endif
 
   oc_storage_config(storage);
+  #else
+  (void)storage_folder_name;
+  /* Zephyr/FreeRTOS */
+  oc_storage_config(NULL);
+  #endif
 
   // initialize the 'application' runtime variables
   initialize_variables();
