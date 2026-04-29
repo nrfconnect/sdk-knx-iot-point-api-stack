@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2021-2022 Cascoda Ltd.
  * Copyright (c) 2024-2026 KNX Association
+ * Copyright 2026 NXP
  *            
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -684,8 +685,8 @@ oc_ip_status_t knx_resolve_via_coap_discovery(oc_group_table_t* recipient) {
     // Note: needs to update mid/token
     cb->timestamp = now;
     cb->mid = coap_get_next_mid();
-    const uint32_t a = oc_random_value(); memcpy(cb->token + 0, &a, sizeof(a));
-    const uint32_t b = oc_random_value(); memcpy(cb->token + 4, &b, sizeof(b));
+    const uint32_t a = oc_random_uint32_value(); memcpy(cb->token + 0, &a, sizeof(a));
+    const uint32_t b = oc_random_uint32_value(); memcpy(cb->token + 4, &b, sizeof(b));
 
     OC_INF("CoAP discovery: Timeout, Resending Discovery Request");
   }

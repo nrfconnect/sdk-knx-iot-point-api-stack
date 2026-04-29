@@ -58,9 +58,16 @@ void oc_random_init(void);
 /**
  *@brief  Calculate a pseudo random number.
  *
- * @return A pseudo-random number.
+ * @return A pseudo-random unsigned integer number.
  */
-unsigned int oc_random_value(void);
+unsigned int oc_random_uint32_value(void);
+
+/**
+ *@brief  Calculate a pseudo random number stored as array.
+ *
+ * @return A pseudo-random number stored as array in buffer pointer.
+ */
+void oc_random_array_value(uint8_t * buffer, size_t buffer_size);
 
 /**
  * @brief destroy the pseudo-random generator

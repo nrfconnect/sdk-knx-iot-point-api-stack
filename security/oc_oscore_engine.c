@@ -1038,12 +1038,8 @@ static int oc_oscore_send_unicast_message(oc_message_t* msg)
 
         // mc echo data = random
         unsigned char rnd[10];
-#ifdef KNXIOT_SPAKE2P_MBEDTLS
-        mbedtls_ctr_drbg_context* ctr_drbg_context = oc_random_get_ctr_drbg_context();
-        mbedtls_ctr_drbg_random(ctr_drbg_context, rnd, sizeof(rnd));
-#elif defined(KNXIOT_SPAKE2P_PSA)
-        psa_generate_random(rnd, sizeof(rnd));
-#endif
+        oc_random_array_value((uint8_t *)rnd, sizeof(rnd));
+
         // echo response - use s-mode (former) request SSN as Partial IV
         uint64_t ssn_from_request; // piv -> ssn
         oscore_read_piv(from_org_msg_cloned_outgoing_msg->endpoint.request_piv,

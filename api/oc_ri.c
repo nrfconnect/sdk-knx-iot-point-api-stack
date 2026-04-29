@@ -2,6 +2,7 @@
  * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2021 Cascoda Ltd
  * Copyright (c) 2024-2026 KNX Association
+ * Copyright 2026 NXP
  *            
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -1738,8 +1739,8 @@ oc_client_cb_t* oc_ri_alloc_client_cb(const char* uri, oc_endpoint_t * endpoint,
   // note that token/mid of a created callback  must be filled later in the corresponding (outbound) message
   cb->mid = coap_get_next_mid();
   cb->token_len = 8;
-  const uint32_t a = oc_random_value(); memcpy(cb->token + 0, &a, sizeof(a));
-  const uint32_t b = oc_random_value(); memcpy(cb->token + 4, &b, sizeof(b));
+  const uint32_t a = oc_random_uint32_value(); memcpy(cb->token + 0, &a, sizeof(a));
+  const uint32_t b = oc_random_uint32_value(); memcpy(cb->token + 4, &b, sizeof(b));
 
   oc_new_string(&cb->uri, uri, strlen(uri));
   cb->method = method;

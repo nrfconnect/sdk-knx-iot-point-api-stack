@@ -1,5 +1,6 @@
 /*
 // Copyright (c) 2016 Intel Corporation
+// Copyright 2026 NXP
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -154,11 +155,11 @@ oc_blockwise_alloc_response_buffer(const char *href, size_t href_len,
       &oc_blockwise_response_states_s, href, href_len, endpoint, method, role);
   if (buffer) {
     int i = COAP_ETAG_LEN;
-    uint32_t r = oc_random_value();
+    uint32_t r = oc_random_uint32_value();
     while (i > 0) {
       memcpy(buffer->etag, &r, MIN((int)sizeof(r), i));
       i -= sizeof(r);
-      r = oc_random_value();
+      r = oc_random_uint32_value();
     }
 #ifdef OC_CLIENT
     buffer->observe_seq = -1;

@@ -2,6 +2,7 @@
  * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2021-2023 Cascoda Ltd
  * Copyright (c) 2024-2026 KNX Association
+ * Copyright 2026 NXP
  *            
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -130,8 +131,8 @@ bool oc_init_s_mode_message_update(const oc_endpoint_t* s_mode_message_ep, const
   coap_udp_init_message(udp_coap_request, type, OC_POST, coap_get_next_mid());
   coap_set_header_accept(udp_coap_request, APPLICATION_CBOR);
 
-  uint32_t a = oc_random_value();
-  uint32_t b = oc_random_value();
+  uint32_t a = oc_random_uint32_value();
+  uint32_t b = oc_random_uint32_value();
 
   // set here fix 8 byte token len
   udp_coap_request->token_len = 8; 

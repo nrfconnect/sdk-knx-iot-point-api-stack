@@ -1,6 +1,7 @@
 /* 
  * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2024-2025 KNX Association
+ * Copyright 2026 NXP
  *            
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -183,7 +184,7 @@ void coap_send_transaction(coap_transaction_t *t)
 
       if (t->retransmit_counter == 0) 
       {
-        t->retransmit_timer.timer.interval = COAP_RESPONSE_TIMEOUT_TICKS + oc_random_value() % (oc_clock_time_t)COAP_RESPONSE_TIMEOUT_BACKOFF_MASK;
+        t->retransmit_timer.timer.interval = COAP_RESPONSE_TIMEOUT_TICKS + oc_random_uint32_value() % (oc_clock_time_t)COAP_RESPONSE_TIMEOUT_BACKOFF_MASK;
         OC_DBG("interval initialized %d", (int)t->retransmit_timer.timer.interval);
       }
       else 

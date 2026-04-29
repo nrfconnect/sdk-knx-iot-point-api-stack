@@ -2,6 +2,7 @@
  * Copyright (c) 2016, 2020 Intel Corporation
  * Copyright (c) 2021 Cascoda Ltd.
  * Copyright (c) 2024-2026 KNX Association
+ * Copyright 2026 NXP
  *            
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -1053,7 +1054,7 @@ void coap_tcp_parse_message_length(const uint8_t* data, size_t* message_length,
 void coap_init_connection(void) 
 {
 	// initialize coap mid 
-	current_mid = (uint16_t) oc_random_value();
+	current_mid = (uint16_t) oc_random_uint32_value();
 }
 
 // get next message id

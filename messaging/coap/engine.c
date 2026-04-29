@@ -2,6 +2,7 @@
  * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2021-2022 Cascoda Ltd
  * Copyright (c) 2024-2025 KNX Association
+ * Copyright 2026 NXP
  *            
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -1022,8 +1023,8 @@ int coap_receive(oc_message_t* incoming_message)
 
           // sets 8 byte NEW random token, actual message token size may be less than 8
           // real msg token len decides how many token bytes are used from that 8 bytes
-          unsigned int a = oc_random_value(); memcpy(re_request_coap_packet->token + 0, &a, sizeof(a));
-          unsigned int b = oc_random_value(); memcpy(re_request_coap_packet->token + 4, &b, sizeof(b));
+          unsigned int a = oc_random_uint32_value(); memcpy(re_request_coap_packet->token + 0, &a, sizeof(a));
+          unsigned int b = oc_random_uint32_value(); memcpy(re_request_coap_packet->token + 4, &b, sizeof(b));
 
           // get next mid
           re_request_coap_packet->mid = coap_get_next_mid();
@@ -1393,7 +1394,7 @@ int coap_receive(oc_message_t* incoming_message)
           uint32_t r;
           while (i < COAP_TOKEN_LEN)
           {
-            r = oc_random_value();
+            r = oc_random_uint32_value();
             memcpy(outgoing_coap_response->token + i, &r, sizeof(r));
             i += sizeof(r);
           }

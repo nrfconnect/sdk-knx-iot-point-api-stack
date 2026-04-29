@@ -35,7 +35,15 @@ oc_random_init(void)
     mbedtls_ctr_drbg_init(&ctr_drbg_ctx);
     mbedtls_ctr_drbg_seed(&ctr_drbg_ctx, mbedtls_entropy_func, &entropy_ctx, NULL, 0);
 #elif defined(KNXIOT_SPAKE2P_PSA)
-    psa_status_t status = psa_crypto_init();
+    psa_status_t status;
+
+    if (psa_initialized == true)
+    {
+        /* Already initialized */
+        return;
+    }
+
+    status = psa_crypto_init();
 
     if (status == PSA_SUCCESS)
     {
@@ -45,7 +53,7 @@ oc_random_init(void)
 }
 
 unsigned int
-oc_random_value(void)
+oc_random_uint32_value(void)
 {
     unsigned int random_value = 0;
     uint8_t random_bytes[4] = {0};
@@ -61,6 +69,22 @@ oc_random_value(void)
 #endif
 
     return random_value;
+}
+
+void
+oc_random_array_value(uint8_t * buffer, size_t buffer_size)
+{
+    assert(buffer != NULL);
+    assert(buffer_size != 0);
+
+#ifdef KNXIOT_SPAKE2P_MBEDTLS
+    mbedtls_ctr_drbg_random(&ctr_drbg_ctx, buffer, buffer_size);
+#elif defined(KNXIOT_SPAKE2P_PSA)
+    if (psa_initialized)
+    {
+        psa_generate_random(buffer, buffer_size);
+    }
+#endif
 }
 
 void

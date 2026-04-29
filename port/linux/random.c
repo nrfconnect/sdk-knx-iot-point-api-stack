@@ -38,7 +38,7 @@ oc_random_init(void)
 }
 
 unsigned int
-oc_random_value(void)
+oc_random_uint32_value(void)
 {
   unsigned int rand = 0;
   int ret = read(urandom_fd, &rand, sizeof(rand));
@@ -47,6 +47,19 @@ oc_random_value(void)
   (void)ret;
 #endif
   return rand;
+}
+
+void
+oc_random_array_value(uint8_t * buffer, size_t buffer_size)
+{
+  assert(buffer != NULL);
+  assert(buffer_size != 0);
+
+  int ret = read(urandom_fd, buffer, buffer_size);
+  assert(ret != -1);
+#ifndef DEBUG
+  (void)ret;
+#endif
 }
 
 void

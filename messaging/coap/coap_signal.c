@@ -1,6 +1,7 @@
 /****************************************************************************
  *
  * Copyright 2018 Samsung Electronics All Rights Reserved.
+ * Copyright 2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +30,7 @@ coap_make_token(coap_packet_t *packet)
   int i = 0;
   uint32_t r;
   while (i < packet->token_len) {
-    r = oc_random_value();
+    r = oc_random_uint32_value();
     memcpy(packet->token + i, &r, sizeof(r));
     i += sizeof(r);
   }

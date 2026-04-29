@@ -1,5 +1,6 @@
 /*
 // Copyright (c) 2016 Intel Corporation
+// Copyright 2026 NXP
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -115,7 +116,7 @@ oc_gen_uuid(oc_uuid_t *uuid)
   uint32_t r;
 
   for (i = 0; i < 4; i++) {
-    r = oc_random_value();
+    r = oc_random_uint32_value();
     memcpy((uint8_t *)&uuid->id[i * 4], (uint8_t *)&r, sizeof(r));
   }
 
