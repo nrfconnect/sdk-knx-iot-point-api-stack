@@ -36,6 +36,8 @@
 #define MBEDTLS_DECLARE_PRIVATE_IDENTIFIERS
 #include <mbedtls/private/bignum.h>
 #include <mbedtls/private/ecp.h>
+//#include <mbedtls/bignum.h>
+//#include <mbedtls/ecp.h>
 #endif
 
 #include "oc_helpers.h"

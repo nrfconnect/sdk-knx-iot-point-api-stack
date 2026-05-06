@@ -204,8 +204,9 @@ typedef struct
  A FB can be also defined on channel oriented structure, such as used for the LSAB/LSSB demos.
 
 */
-
-#define NUM_CHANNELS (2)    // common data for LSAB/LSSB/EITT
+#ifndef LSXB_NUM_CHANNELS
+#define LSXB_NUM_CHANNELS (2)    // common data for LSAB/LSSB/EITT
+#endif
 #define NUM_CEM_POINTS (2)  // common data for CEM
 
 typedef struct
@@ -238,7 +239,7 @@ typedef struct
   uint8_t fb_instance;
   uint8_t fb_number_of_datapoints;
 
-  bool_datapoint_t point[NUM_CHANNELS];
+  bool_datapoint_t point[LSXB_NUM_CHANNELS];
 } bool_array_functional_block_t, lsxb_channel_t; // see Functional Block Notes
 
 #ifdef _WIN32

@@ -41,21 +41,25 @@ const char dev_model[] KNX_TOOL_WEAK = "6800";              // mask version for 
 const uint32_t mid KNX_TOOL_WEAK = 0x00fa;                  // manufacturer id, here KNXA
 
 /*
- 
+
  Below defined datapoints and test parameters for functional block 421 (LSSB) command/control.
  Details see on 'lsxb_channel_t' definition.
 
  */
 
 // define LSSB channel 0..1 + included EPs switch control/status
-lsxb_channel_t lsxb[NUM_CHANNELS] = 
+lsxb_channel_t lsxb[LSXB_NUM_CHANNELS] =
 {
+#if defined(LSXB_NUM_CHANNELS) && (LSXB_NUM_CHANNELS > 0)
   {421, 1, NUM_POINTS,{
    {false, "/p/lssb/0/soo", "urn:knx:dpa.421.61", ":dpt.switch", (0 << 8) + 0},
    {false, "/p/lssb/0/ioo", "urn:knx:dpa.421.53", ":dpt.switch", (0 << 8) + 1}}},
+#endif
+#if defined(LSXB_NUM_CHANNELS) && (LSXB_NUM_CHANNELS > 1)
   {421, 2, NUM_POINTS,{
    {false, "/p/lssb/1/soo", "urn:knx:dpa.421.61", ":dpt.switch", (1 << 8) + 0},
    {false, "/p/lssb/1/ioo", "urn:knx:dpa.421.53", ":dpt.switch", (1 << 8) + 1}}}
+#endif
 };
 
 // additional parameters
@@ -66,7 +70,7 @@ void register_resources(void)
 {
   PRINT("Register LSSB 0...1 channel control/status resource");
 
-  for (int i = 0; i < NUM_CHANNELS; i++)
+  for (int i = 0; i < LSXB_NUM_CHANNELS; i++)
   {
     oc_resource_t* soo_resource = oc_new_resource(lsxb[i].point[SOO].resource_path, 1);
     oc_resource_t* ioo_resource = oc_new_resource(lsxb[i].point[IOO].resource_path, 1);

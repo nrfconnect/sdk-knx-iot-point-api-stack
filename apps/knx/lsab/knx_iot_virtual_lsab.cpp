@@ -32,7 +32,7 @@
 #include "port/oc_network_interface.h"
 #include "port/oc_storage.h"
 
-extern lsxb_channel_t lsxb[NUM_CHANNELS];
+extern lsxb_channel_t lsxb[LSXB_NUM_CHANNELS];
 
 class CustomDialog : public wxDialog
 {

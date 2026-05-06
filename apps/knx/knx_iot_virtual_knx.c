@@ -542,11 +542,15 @@ void app_restart_handler(void *data)
 {
   (void)data;
 
-  for (int i = 0; i < NUM_CHANNELS; i++)
+  for (int i = 0; i < LSXB_NUM_CHANNELS; i++)
   {
+#if defined(LSXB_NUM_CHANNELS) && (LSXB_NUM_CHANNELS > 0)
     // set default runtime values after restart, note
     lsxb[i].point[0].value = false;
+#endif
+#if defined(LSXB_NUM_CHANNELS) && (LSXB_NUM_CHANNELS > 1)
     lsxb[i].point[1].value = false;
+#endif
   }
 }
 
