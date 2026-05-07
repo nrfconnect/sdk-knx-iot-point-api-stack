@@ -31,7 +31,6 @@
 // common data for LSAB/LSSB 
 #define SOO (0)
 #define IOO (1)
-#define NUM_POINTS (2)
 
 // common data for EITT, for the mixture of EITT (test template) channel definitions
 #define LSSB (1)

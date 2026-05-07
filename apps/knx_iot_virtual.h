@@ -205,9 +205,16 @@ typedef struct
 
 */
 #ifndef LSXB_NUM_CHANNELS
+#ifdef CONFIG_LSXB_NUM_CHANNELS
+#define LSXB_NUM_CHANNELS CONFIG_LSXB_NUM_CHANNELS
+#else
 #define LSXB_NUM_CHANNELS (2)    // common data for LSAB/LSSB/EITT
 #endif
+#endif
 #define NUM_CEM_POINTS (2)  // common data for CEM
+
+/* Number of datapoints per functional block instance */
+#define NUM_POINTS (2)
 
 typedef struct
 {
@@ -239,7 +246,7 @@ typedef struct
   uint8_t fb_instance;
   uint8_t fb_number_of_datapoints;
 
-  bool_datapoint_t point[LSXB_NUM_CHANNELS];
+  bool_datapoint_t point[NUM_POINTS];
 } bool_array_functional_block_t, lsxb_channel_t; // see Functional Block Notes
 
 #ifdef _WIN32
