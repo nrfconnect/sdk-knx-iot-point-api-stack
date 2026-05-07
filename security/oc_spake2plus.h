@@ -33,11 +33,13 @@
 // In mbedTLS v4.0, ECP and bignum function declarations moved to private headers.
 // These are only needed for the mbedTLS-based SPAKE2+ fallback. Platforms with a
 // PSA SPAKE2+ driver don't need these private headers.
-#define MBEDTLS_DECLARE_PRIVATE_IDENTIFIERS
+#if defined(MBEDTLS_DECLARE_PRIVATE_IDENTIFIERS)
 #include <mbedtls/private/bignum.h>
 #include <mbedtls/private/ecp.h>
-//#include <mbedtls/bignum.h>
-//#include <mbedtls/ecp.h>
+#else
+#include <mbedtls/bignum.h>
+#include <mbedtls/ecp.h>
+#endif //MBEDTLS_DECLARE_PRIVATE_IDENTIFIERS
 #endif
 
 #include "oc_helpers.h"
