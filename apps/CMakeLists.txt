@@ -155,7 +155,7 @@ if(WIN32 OR UNIX)
 endif()
 
 if(Zephyr_FOUND)
-    if(CONFIG_KNXIOT_LIB)
+    if(CONFIG_KNXIOT_LIB AND CONFIG_KNXIOT_LIB_DEMO_APPS)
         zephyr_library_named(knx_iot_lsxb_sources)
 
         set(KNX_APP_SOURCES
