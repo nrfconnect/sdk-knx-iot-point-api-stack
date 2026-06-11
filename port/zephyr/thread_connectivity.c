@@ -65,7 +65,7 @@ int oc_connectivity_init(void)
 {
     otError error = OT_ERROR_NONE;
     otSockAddr sockaddr = {0};
-    otNetifIdentifier netif = OT_NETIF_THREAD_INTERNAL;
+    otNetifIdentifier netif = OT_NETIF_THREAD;
     int ret = -1; // Set default return to fail
 
 	sInstance = openthread_get_default_instance();
