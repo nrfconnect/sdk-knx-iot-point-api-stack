@@ -51,7 +51,7 @@ if(NOT Zephyr_FOUND)
         )
     endif()
 else()
-    if(CONFIG_NET_L2_OPENTHREAD)
+    if(CONFIG_NET_L2_OPENTHREAD OR CONFIG_OPENTHREAD)
         list(APPEND PORT_SOURCES
             ${PORT_DIR}/thread_connectivity.c
             ${PORT_DIR}/dns-sd-thread.c
