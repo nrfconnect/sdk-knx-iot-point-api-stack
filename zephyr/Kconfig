@@ -58,6 +58,16 @@ config KNX_THREAD_STACK_SIZE
     int "KNX thread stack size"
     default 12288
 
+config KNXIOT_LIB_DEMO_APPS
+    bool "Build the bundled KNX IoT demo application layer"
+    default y
+    help
+      Compiles the example application layer shipped with the stack
+      (apps/knx_iot_virtual*.c and the LSAB/LSSB role files) into the
+      Zephyr build. Disable this when the downstream application provides
+      its own application layer (register_resources, app_initialize_stack,
+      datapoint tables, device identity) so the demo symbols don't collide.
+
 menu "KNX IoT Options"
 
 menu "Common"
