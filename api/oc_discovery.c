@@ -849,8 +849,8 @@ const oc_resource_t core_resource_well_known_core =																					 		// th
 	{ NULL, NULL, OC_ACL_NONE, OC_IF_NONE },											 		// put callback, if not defined use if.none, to return 4.05 instead of 4.01
 	{ NULL, NULL, OC_ACL_NONE, OC_IF_NONE },											 		// post callback, if not defined use if.none, to return 4.05 instead of 4.01
 	{ NULL, NULL, OC_ACL_NONE, OC_IF_NONE },											 		// delete callback, if not defined use if.none, to return 4.05 instead of 4.01
-	{ NULL, NULL },																										 		// property get callback
-	{ NULL, NULL },																										 		// property set callback 
+	{ { NULL }, NULL },																								 		// property get callback
+	{ { NULL }, NULL },																								 		// property set callback 
 	0,																																												 		// observe period
 	0,																																												 		// FB instance
 	true,																																											 		// is static precompiled resource

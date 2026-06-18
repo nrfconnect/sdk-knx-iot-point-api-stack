@@ -30,7 +30,7 @@ extern const char application_name[];
 static int knx_ia_get(const struct shell *sh, size_t argc, char **argv)
 {
     oc_device_info_t *device = oc_core_get_device_info();
-    shell_print(sh, "Device individual address: %lu", device->ia);
+    shell_print(sh, "Device individual address: %u", (unsigned int)device->ia);
     return 0;
 }
 
@@ -58,7 +58,7 @@ static int knx_ia_set(const struct shell *sh, size_t argc, char **argv)
 /* KNX IID command handlers */
 static int knx_iid_get(const struct shell *sh, size_t argc, char **argv)
 {
-    shell_print(sh, "Device installation id: %ld", (uint32_t)oc_core_get_device_iid());
+    shell_print(sh, "Device installation id: %u", (unsigned int)oc_core_get_device_iid());
     return 0;
 }
 
@@ -87,7 +87,7 @@ static int knx_iid_set(const struct shell *sh, size_t argc, char **argv)
 static int knx_fid_get(const struct shell *sh, size_t argc, char **argv)
 {
     oc_device_info_t *device = oc_core_get_device_info();
-    shell_print(sh, "Fabric identifier: %ld", (uint32_t)device->fid);
+    shell_print(sh, "Fabric identifier: %u", (unsigned int)device->fid);
     return 0;
 }
 

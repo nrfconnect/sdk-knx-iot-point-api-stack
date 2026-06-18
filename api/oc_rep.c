@@ -255,14 +255,13 @@ oc_parse_single_entity(CborValue *value, oc_rep_t **rep, CborError *err)
 static void
 oc_parse_rep_value(CborValue *value, oc_rep_t **rep, CborError *err)
 {
-  size_t k, len;
-  CborValue map, array;
+  size_t len;
   *rep = _alloc_rep();
   if (*rep == NULL) {
     *err = CborErrorOutOfMemory;
     return;
   }
-  oc_rep_t *cur = *rep, **prev = 0;
+  oc_rep_t *cur = *rep;
   cur->next = 0;
   cur->value.object_array = 0;
 
@@ -316,7 +315,6 @@ oc_parse_rep_value_object(CborValue *value, oc_rep_t **rep, CborError *err)
     *err |= CborErrorIllegalType;
     return;
   }
-  size_t k, len;
   CborValue map;
   if (*rep == NULL)
     *rep = _alloc_rep();
@@ -324,7 +322,7 @@ oc_parse_rep_value_object(CborValue *value, oc_rep_t **rep, CborError *err)
     *err = CborErrorOutOfMemory;
     return;
   }
-  oc_rep_t *cur = *rep, **prev = 0;
+  oc_rep_t *cur = *rep;
   cur->next = 0;
   cur->value.object_array = 0;
 
@@ -1188,7 +1186,7 @@ static size_t oc_rep_to_json_format(oc_rep_t *rep, char *buf, size_t buf_size, i
       break;
     }
     case OC_REP_FLOAT: {
-      num_char_printed = snprintf(buf, buf_size, "%f", rep->value.float_p);
+      num_char_printed = snprintf(buf, buf_size, "%f", (double)rep->value.float_p);
       OC_JSON_UPDATE_BUFFER_AND_TOTAL;
       break;
     }
@@ -1282,7 +1280,7 @@ static size_t oc_rep_to_json_format(oc_rep_t *rep, char *buf, size_t buf_size, i
                                  &float_array_size);
       }
       for (size_t i = 0; i < float_array_size; i++) {
-        num_char_printed = snprintf(buf, buf_size, "%f", float_array[i]);
+        num_char_printed = snprintf(buf, buf_size, "%f", (double)float_array[i]);
         OC_JSON_UPDATE_BUFFER_AND_TOTAL;
         if (i < float_array_size - 1) {
           num_char_printed = (pretty_print) ? snprintf(buf, buf_size, ", ")

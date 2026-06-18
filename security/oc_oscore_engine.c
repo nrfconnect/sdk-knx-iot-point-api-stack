@@ -734,8 +734,7 @@ static int oc_oscore_send_multicast_message(oc_message_t* msg)
   memcpy(from_org_msg_cloned_outgoing_msg->data, msg->data, msg->length);
   memcpy(&from_org_msg_cloned_outgoing_msg->endpoint, &msg->endpoint, sizeof(oc_endpoint_t));
   
-  // save if original msg is 'tracked' AND remove one reference (either 'msg' is just released or still present)
-  bool original_msg_is_currently_tracked = msg->ref_count > 1;
+  // remove one reference (either 'msg' is just released or still present)
   oc_message_unref(msg);
 
   // create local CoAP packet

@@ -36,12 +36,11 @@ static void oc_malloc(
     mmem_initialized = true;
   }
 
-  size_t alloc_ret = _oc_mmem_alloc(
+  (void)_oc_mmem_alloc(
 #ifdef OC_MEMORY_TRACE
           func,
 #endif
           block, num_items, pool_type);
-  // oc_assert(alloc_ret > 0);
 }
 
 static void oc_free(

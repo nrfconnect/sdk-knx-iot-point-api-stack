@@ -117,20 +117,17 @@ else()
             $<$<BOOL:${CONFIG_KNXIOT_SPAKE2P_PSA}>:KNXIOT_SPAKE2P_PSA>
             $<$<BOOL:${CONFIG_MBEDTLS_DECLARE_PRIVATE_IDENTIFIERS}>:KNXIOT_MBEDTLS_PRIVATE_IDENTIFIERS>
 
-            # Integer values - direct assignment
-            GOT_MAX_ENTRIES=${CONFIG_KNX_GOT_MAX_ENTRIES}
-            GPT_MAX_ENTRIES=${CONFIG_KNX_GPT_MAX_ENTRIES}
-            GRT_MAX_ENTRIES=${CONFIG_KNX_GRT_MAX_ENTRIES}
-            G_AT_MAX_ENTRIES=${CONFIG_KNX_SEC_MAX_ENTRIES}
-            PAGE_SIZE=${CONFIG_KNX_PAGE_SIZE}
-            OC_SPAKE_IT=${CONFIG_KNX_SPAKE_ITERATIONS}
-            KNX_RESPONSE_TIME_SECONDS=${CONFIG_KNX_RESPONSE_TIME_SECONDS}
+            # Integer values - direct assignment.
+            # Only OC_SENDER_MULTICAST_SCOPE is kept on the global interface, as it
+            # is also referenced by the add-on glue (subsys/knx). The table-size and
+            # pagination defines (PAGE_SIZE, *_MAX_ENTRIES, ...) are used solely by the
+            # stack sources and are attached to the kisClientServer library below, so
+            # they no longer leak onto zephyr_interface (PAGE_SIZE in particular
+            # collided with Zephyr's own PAGE_SIZE in unrelated drivers).
             OC_SENDER_MULTICAST_SCOPE=${CONFIG_OC_SENDER_MULTICAST_SCOPE}
         )
 
         target_compile_definitions(kis-common INTERFACE OC_SPAKE)
-
-        target_compile_definitions(app PUBLIC kis-common)
     endif()
 endif()
 
@@ -326,6 +323,19 @@ else()
 
         # Stack can send + receive
         target_compile_definitions(kisClientServer PUBLIC OC_CLIENT OC_SERVER)
+
+        # Table-size / pagination defines are only consumed by the stack sources,
+        # so keep them PRIVATE to this library instead of leaking them globally via
+        # zephyr_interface (avoids e.g. PAGE_SIZE colliding with Zephyr drivers).
+        target_compile_definitions(kisClientServer PRIVATE
+            GOT_MAX_ENTRIES=${CONFIG_KNX_GOT_MAX_ENTRIES}
+            GPT_MAX_ENTRIES=${CONFIG_KNX_GPT_MAX_ENTRIES}
+            GRT_MAX_ENTRIES=${CONFIG_KNX_GRT_MAX_ENTRIES}
+            G_AT_MAX_ENTRIES=${CONFIG_KNX_SEC_MAX_ENTRIES}
+            PAGE_SIZE=${CONFIG_KNX_PAGE_SIZE}
+            OC_SPAKE_IT=${CONFIG_KNX_SPAKE_ITERATIONS}
+            KNX_RESPONSE_TIME_SECONDS=${CONFIG_KNX_RESPONSE_TIME_SECONDS}
+        )
 
         # Specifies include directories to use when compiling a given target
         target_include_directories(kisClientServer PUBLIC ${KNX_INCLUDE_DIRS})

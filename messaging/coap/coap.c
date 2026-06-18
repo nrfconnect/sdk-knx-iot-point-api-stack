@@ -1879,7 +1879,7 @@ uint32_t coap_get_payload(void* packet, const uint8_t** payload) {
 uint32_t coap_set_payload(void* packet, const uint8_t* payload, size_t length) {
   coap_packet_t* const coap_pkt = (coap_packet_t*)packet;
 
-  coap_pkt->payload = payload;
+  coap_pkt->payload = (uint8_t*)payload;
   #ifdef OC_TCP
   if (coap_pkt->transport_type == COAP_TRANSPORT_TCP) {
     coap_pkt->payload_len = (uint32_t) length;

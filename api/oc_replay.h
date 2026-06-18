@@ -71,13 +71,6 @@ void oc_oscore_free_all_replay_records(void);
  */
 replay_state_t oc_replay_check_client(uint64_t rx_ssn, oc_string_t rx_kid, oc_string_t rx_kid_ctx);
 
-/**
- * @brief Get the first available (not used) record
- *
- * @return oc_replay_record*
- */
-static struct oc_replay_record *get_empty_record(void);
-
 #ifdef __cplusplus
 }
 #endif

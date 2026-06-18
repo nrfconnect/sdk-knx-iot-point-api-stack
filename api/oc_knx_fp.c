@@ -677,8 +677,8 @@ const oc_resource_t core_resource_knx_fp_g = {(oc_resource_t*)&core_resource_knx
                                               {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                               {oc_core_fp_g_post_handler, NULL, OC_ACL_C, OC_IF_C | OC_IF_B},
                                               {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                              {NULL, NULL},
-                                              {NULL, NULL},
+                                              { { NULL }, NULL },
+                                              { { NULL }, NULL },
                                               0,
                                               0,
                                               1,
@@ -782,8 +782,8 @@ const oc_resource_t core_resource_knx_fp_g_x = {(oc_resource_t*)&core_resource_k
                                                 {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                 {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                 {oc_core_fp_g_x_del_handler, NULL, OC_ACL_C, OC_IF_C},
-                                                {NULL, NULL},
-                                                {NULL, NULL},
+                                                { { NULL }, NULL },
+                                                { { NULL }, NULL },
                                                 0,
                                                 0,
                                                 1,
@@ -804,8 +804,8 @@ const oc_resource_t core_resource_knx_fp_g_x = {(oc_resource_t*)&core_resource_k
                                                 {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                 {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                 {oc_core_fp_g_x_del_handler, NULL, OC_ACL_C, OC_IF_C},
-                                                {NULL, NULL},
-                                                {NULL, NULL},
+                                                { { NULL }, NULL },
+                                                { { NULL }, NULL },
                                                 0,
                                                 0,
                                                 1,
@@ -1263,8 +1263,8 @@ const oc_resource_t core_resource_knx_fp_p = {(oc_resource_t*)&core_resource_knx
                                               {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                               {oc_core_fp_p_post_handler, NULL, OC_ACL_C, OC_IF_C | OC_IF_B},
                                               {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                              {NULL, NULL},
-                                              {NULL, NULL},
+                                              { { NULL }, NULL },
+                                              { { NULL }, NULL },
                                               0,
                                               0,
                                               1,
@@ -1398,8 +1398,8 @@ const oc_resource_t core_resource_knx_fp_p_x = {(oc_resource_t*)&core_resource_k
                                                 {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                 {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                 {oc_core_fp_p_x_del_handler, NULL, OC_ACL_C, OC_IF_C},
-                                                {NULL, NULL},
-                                                {NULL, NULL},
+                                                { { NULL }, NULL },
+                                                { { NULL }, NULL },
                                                 0,
                                                 0,
                                                 1,
@@ -1869,8 +1869,8 @@ const oc_resource_t core_resource_knx_fp_r = {(oc_resource_t*)&core_resource_knx
                                               {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                               {oc_core_fp_r_post_handler, NULL, OC_ACL_C, OC_IF_C | OC_IF_B},
                                               {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                              {NULL, NULL},
-                                              {NULL, NULL},
+                                              { { NULL }, NULL },
+                                              { { NULL }, NULL },
                                               0,
                                               0,
                                               1,
@@ -2005,8 +2005,8 @@ const oc_resource_t core_resource_knx_fp_r_x = {(oc_resource_t*)&core_resource_k
                                                 {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                 {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                 {oc_core_fp_r_x_del_handler, NULL, OC_ACL_C, OC_IF_C},
-                                                {NULL, NULL},
-                                                {NULL, NULL},
+                                                { { NULL }, NULL },
+                                                { { NULL }, NULL },
                                                 0,
                                                 0,
                                                 1,
@@ -2966,7 +2966,7 @@ void oc_register_group_multicasts(void)
     const oc_cflag_mask_t cflags = g_got[index].cflags;
 
     // check if the GA is used for any receiving action, e.g. one of r/w/u
-    if (cflags & OC_CFLAG_WRITE + OC_CFLAG_UPDATE + OC_CFLAG_READ)
+    if (cflags & (OC_CFLAG_WRITE | OC_CFLAG_UPDATE | OC_CFLAG_READ))
     {
       for (int i = 0; i < g_got[index].ga_len; i++)
       {
@@ -2998,7 +2998,7 @@ void oc_unregister_group_multicasts(void)
   {
     const oc_cflag_mask_t cflags = g_got[index].cflags;
 
-    if (cflags & OC_CFLAG_WRITE + OC_CFLAG_UPDATE + OC_CFLAG_READ)
+    if (cflags & (OC_CFLAG_WRITE | OC_CFLAG_UPDATE | OC_CFLAG_READ))
     {
       for (int i = 0; i < g_got[index].ga_len; i++)
       {

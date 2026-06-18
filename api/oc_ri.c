@@ -394,8 +394,8 @@ int oc_ri_get_query_nth_key_value(const char* query, size_t query_len, char** ke
 
   if (current) {
     *key_len = current - start;
-    *key = start;
-    *value = current + 1;
+    *key = (char*)start;
+    *value = (char*)(current + 1);
 
     current = (char*)memchr(*value, '&', end - *value);
 
@@ -414,7 +414,7 @@ int oc_ri_get_query_nth_key_value(const char* query, size_t query_len, char** ke
       *key_len = 0;
     } else {
       // there is no value
-      *key = start;
+      *key = (char*)start;
       *key_len = current - start;
     }
   }
@@ -479,7 +479,7 @@ int oc_ri_query_nth_key_exists(const char* query, size_t query_len, char** key, 
     size_t value_len;
     
     *key_len = current - start;
-    *key = start;
+    *key = (char*)start;
 
     const char* value = current + 1;
     current = (char*)memchr(value, '&', end - value);
@@ -498,7 +498,7 @@ int oc_ri_query_nth_key_exists(const char* query, size_t query_len, char** key, 
     }
 
     // there is no value 
-    *key = start;
+    *key = (char*)start;
     *key_len = current - start;
     next_pos = (int) (*key_len + 1);
   }
@@ -742,7 +742,7 @@ bool oc_ri_add_resource_block(const oc_resource_t* resource) {
             resource->observe_period_seconds == 0) {
       valid = false;
     }
-  } while (it = oc_ri_resource_next(it));
+  } while ((it = oc_ri_resource_next(it)));
 
   if (valid) {
     oc_list_add_block(app_resources, (void*) resource);
@@ -958,6 +958,17 @@ static void free_all_event_timers(void) {
     event_cb = oc_list_pop(timed_callbacks);
   }
 }
+
+/* Defined here and referenced (via extern) by the CoAP engine. */
+#ifdef OC_BLOCK_WISE
+bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
+        oc_blockwise_state_t** request_state,
+        oc_blockwise_state_t** response_state, uint16_t block2_size,
+        oc_endpoint_t* endpoint);
+#else
+bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
+        uint8_t* buffer, oc_endpoint_t* endpoint);
+#endif
 
 #ifdef OC_BLOCK_WISE
 bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
