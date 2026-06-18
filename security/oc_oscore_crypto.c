@@ -160,7 +160,9 @@ static int HKDF_Expand(const uint8_t *prk,
                 &okm_buffer[i * HMAC_SHA256_HASHLEN]);
     }
 
-    memcpy(okm, okm_buffer, okm_len);
+    // okm is an output buffer that the public HKDF API exposes as const; the
+    // cast keeps that (unusual) signature intact while writing the result.
+    memcpy((uint8_t *)okm, okm_buffer, okm_len);
     return 0;
 }
 
@@ -279,7 +281,7 @@ int oc_oscore_compose_AAD(
 }
 
 #if defined(KNXIOT_SPAKE2P_PSA)
-psa_key_id_t oc_oscore_encryption_init(uint8_t *key, size_t key_len,
+static psa_key_id_t oc_oscore_encryption_init(uint8_t *key, size_t key_len,
                                         psa_key_usage_t flags,
                                         psa_algorithm_t algorithm) {
     psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;

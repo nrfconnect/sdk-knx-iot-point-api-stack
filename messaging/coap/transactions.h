@@ -64,8 +64,8 @@ extern "C" {
 #define COAP_RESPONSE_TIMEOUT_TICKS (OC_CLOCK_SECOND * COAP_RESPONSE_TIMEOUT)
 #define COAP_RESPONSE_TIMEOUT_BACKOFF_MASK                                     \
   (long)(((OC_CLOCK_SECOND * COAP_RESPONSE_TIMEOUT *                           \
-           ((float)COAP_RESPONSE_RANDOM_FACTOR - 1.0)) +                       \
-          0.5) +                                                               \
+           ((float)COAP_RESPONSE_RANDOM_FACTOR - 1.0f)) +                      \
+          0.5f) +                                                              \
          1)
 
 /**

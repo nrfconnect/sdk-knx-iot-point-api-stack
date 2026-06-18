@@ -104,11 +104,11 @@ static void oc_ipv6_endpoint_to_string(oc_endpoint_t* endpoint, oc_string_t* end
   }
 
   if (max_zeros_start != 0) {
-    // ']:' + 16 bit port = 7
-    (void)snprintf(&ip[str_idx + 1],2 + 5, "]:%u", endpoint->addr.ipv6.port);
+    // ']:' + 16 bit port (max 5 digits) + NUL = 8
+    (void)snprintf(&ip[str_idx + 1],2 + 5 + 1, "]:%u", endpoint->addr.ipv6.port);
   } else {
-    // ']:' + 16 bit port = 7
-    (void)snprintf(&ip[str_idx],2 + 5, "]:%u", endpoint->addr.ipv6.port);
+    // ']:' + 16 bit port (max 5 digits) + NUL = 8
+    (void)snprintf(&ip[str_idx],2 + 5 + 1, "]:%u", endpoint->addr.ipv6.port);
   }
 
 #ifdef OC_TCP

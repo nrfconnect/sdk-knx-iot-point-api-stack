@@ -171,6 +171,7 @@ int oc_spake_encode_pubkey(mbedtls_ecp_point* P, uint8_t out[kPubKeySize]) {
 int oc_spake_parameter_exchange(uint8_t* rand, uint8_t* salt) {
     oc_random_array_value(rand, KNX_RNG_LEN);
     oc_random_array_value(salt, KNX_SALT_LEN);
+    return 0;
 }
 
 /**
