@@ -29,6 +29,9 @@ if(NOT Zephyr_FOUND)
 else()
     if(CONFIG_KNXIOT_LIB)
         zephyr_library_named(kis-port)
+        target_compile_definitions(kis-port PRIVATE
+            $<$<BOOL:${CONFIG_KNX_LOG_TO_ZEPHYR}>:KNX_LOG_TO_ZEPHYR>
+        )
     endif()
     ## KNX-IoT Stack - Zephyr Port ##
     set(PORT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/zephyr CACHE STRING "Platform port directory")

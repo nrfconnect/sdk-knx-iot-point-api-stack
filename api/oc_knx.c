@@ -631,7 +631,9 @@ static void oc_core_knx_k_post_handler(oc_request_t* request, oc_interface_mask_
     return;
   }
 
-  const oc_device_info_t* const  device = oc_core_get_device_info();
+#ifdef OC_PRINT
+  const oc_device_info_t* const device = oc_core_get_device_info();
+#endif
 
   // scan received payload for sia/st/ga/value
   oc_rep_t* rep = request->request_payload;
