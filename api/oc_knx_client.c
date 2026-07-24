@@ -285,7 +285,9 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
     return -1;
   }
 
+#ifdef OC_PRINT
   const oc_device_info_t* const device = oc_core_get_device_info();
+#endif
 
   if (!oc_is_device_in_runtime())
   {

@@ -328,6 +328,7 @@ else()
         # so keep them PRIVATE to this library instead of leaking them globally via
         # zephyr_interface (avoids e.g. PAGE_SIZE colliding with Zephyr drivers).
         target_compile_definitions(kisClientServer PRIVATE
+            $<$<BOOL:${CONFIG_KNX_LOG_TO_ZEPHYR}>:KNX_LOG_TO_ZEPHYR>
             GOT_MAX_ENTRIES=${CONFIG_KNX_GOT_MAX_ENTRIES}
             GPT_MAX_ENTRIES=${CONFIG_KNX_GPT_MAX_ENTRIES}
             GRT_MAX_ENTRIES=${CONFIG_KNX_GRT_MAX_ENTRIES}
