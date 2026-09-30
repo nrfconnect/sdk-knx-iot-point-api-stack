@@ -931,9 +931,10 @@ coap_status_t coap_oscore_parse_options(void* packet, uint8_t* data,
       
       case COAP_OPTION_ECHO:
         // NOT listed as class E option: OSCORE RFC 8613, clause 4.1.1
-        if (!accept_inner_options || option_length > COAP_ECHO_LEN) 
+        // echo options in requests must be OSCORE-encrypted for the deduplication to work,
+        // an echo challenge in a response may also be sent as outer option.
+        if ((!accept_inner_options && coap_pkt->code <= COAP_FETCH) || option_length > COAP_ECHO_LEN) 
         {
-          // echo options must be OSCORE-encrypted for the deduplication to work
            return BAD_OPTION_4_02;
         }
 
