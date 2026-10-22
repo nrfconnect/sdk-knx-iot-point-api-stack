@@ -50,6 +50,15 @@ static inline bool otIp6IsLinkLocalUnicast(const otIp6Address *aAddress)
 
 #define COAP_PORT_UNSECURED (5683)
 
+/* All CoAP nodes multicast addresses (RFC 7252 §12.8), three scopes.
+ * Joined unconditionally so CoAP discovery requests can reach the device */
+static const uint8_t ALL_COAP_NODES_LL[] = { 0xff, 0x02, 0, 0, 0, 0, 0, 0,
+                                             0,    0,    0, 0, 0, 0, 0, 0xFD };
+static const uint8_t ALL_COAP_NODES_RL[] = { 0xff, 0x03, 0, 0, 0, 0, 0, 0,
+                                             0,    0,    0, 0, 0, 0, 0, 0xFD };
+static const uint8_t ALL_COAP_NODES_SL[] = { 0xff, 0x05, 0, 0, 0, 0, 0, 0,
+                                             0,    0,    0, 0, 0, 0, 0, 0xFD };
+
 static void HandleUdpReceive(void *aContext, otMessage *aMessage, const otMessageInfo *aMessageInfo);
 
 K_MUTEX_DEFINE(network_mutex);
@@ -127,6 +136,9 @@ int oc_connectivity_init(void)
 			}
 			else
 			{
+				otIp6SubscribeMulticastAddress(sInstance, (const otIp6Address *) ALL_COAP_NODES_LL);
+				otIp6SubscribeMulticastAddress(sInstance, (const otIp6Address *) ALL_COAP_NODES_RL);
+				otIp6SubscribeMulticastAddress(sInstance, (const otIp6Address *) ALL_COAP_NODES_SL);
 				ret = 0;
 			}
 		}
