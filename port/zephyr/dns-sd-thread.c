@@ -23,6 +23,7 @@
 #include <ctype.h>
 
 #include "oc_core_res.h"
+#include "oc_helpers.h"
 #include "port/dns-sd.h"
 #include "port/oc_assert.h"
 #include "port/oc_log.h"
@@ -50,7 +51,6 @@ static otSrpClientBuffersServiceEntry *entry = NULL;
 const char *srpSubtype[NUMBER_OF_SUBTYPES] = {NULL};
 
 static bool isInitialized = false;
-static bool isUpdating = false;
 
 static void handle_srp_client_callback(otError aError, const otSrpClientHostInfo *aHostInfo,
                                     const otSrpClientService *aServices, const otSrpClientService  *aRemovedServices,
@@ -63,22 +63,7 @@ static void handle_srp_client_callback(otError aError, const otSrpClientHostInfo
 
     if (aError == OT_ERROR_NONE)
     {
-        if (isUpdating == true)
-        {
-            otInstance * thrInstancePtr = openthread_get_default_instance();
-
-            OC_DBG("KNX IoT SRP service entry deleted, updating service entry.\n");
-            if (entry != NULL)
-            {
-                otSrpClientAddService(thrInstancePtr, &entry->mService);
-            }
-
-            isUpdating = false;
-        }
-        else
-        {
-            OC_INF("KNX IoT SRP registration successful.\n");
-        }
+        OC_INF("KNX IoT SRP registration successful.\n");
     }
     else
     {
@@ -91,21 +76,18 @@ static void srp_client_cb(const otSockAddr *aServerSockAddr, void *aContext)
     OC_INF("KNX IoT SRP client cb\n");
 }
 
-static void knx_set_srp_host(otInstance *thrInstancePtr, const char *serial_no)
+static void knx_set_srp_host(otInstance *thrInstancePtr, const char *serial_no, const char *hostname)
 {
   uint16_t size;
 
     strncpy(serial_no_lowercase, serial_no, 19);
     for (int i = 0; i < strlen(serial_no_lowercase); ++i) {
-        /* make sure that the serial number is used in upper case */
-        serial_no_lowercase[i] = toupper(serial_no_lowercase[i]);
+        /* make sure that the serial number is used in lower case */
+        serial_no_lowercase[i] = tolower(serial_no_lowercase[i]);
     }
 
-    /* Set up the hostname as <serial_number>.knx.local */
-    char *hostname_format_string = "%s.knx";
-
-    snprintf(serial_no_hostname, sizeof(serial_no_hostname), hostname_format_string,
-             serial_no_lowercase);
+    /* The SRP client keeps a pointer to the hostname, so it needs its own copy */
+    snprintf(serial_no_hostname, sizeof(serial_no_hostname), "%s", hostname);
 
     /* Enable SRP client auto start */
     otSrpClientEnableAutoStartMode(thrInstancePtr, srp_client_cb, NULL);
@@ -138,12 +120,12 @@ static void knx_set_srp_host(otInstance *thrInstancePtr, const char *serial_no)
     /* This function returns a pointer to the string buffer for service instance name from a service entry */
     stringBuffer = otSrpClientBuffersGetServiceEntryInstanceNameString(entry, &size);
 
-    if(strlen(serial_no) >= size)
+    if(strlen(serial_no_lowercase) >= size)
     {
         abort_impl();
     }
     /* Copy the service instance name into the pointer for the buffer */
-    strcpy(stringBuffer, serial_no);
+    strcpy(stringBuffer, serial_no_lowercase);
 
     entry->mService.mPort = KNX_SRP_PORT;
     entry->mService.mPriority = 0;
@@ -168,13 +150,17 @@ static void knx_set_static_subtypes(void)
     srpSubtype[1] = serial_no_subtype;
 }
 
-static void knx_set_dynamic_subtypes(uint32_t iid, uint32_t ia, bool pm)
+static void knx_set_dynamic_subtypes(uint64_t iid, uint32_t ia, bool pm)
 {
+    char iid_hex[17];
+
+    oc_conv_uint64_to_hex_string(iid_hex, iid);
+
     /* Set up the subtype for
        --subtype=_ia{installationid}-{ia}._sub._knx._udp */
-    char *installation_format_string = "_ia%x-%x";
+    char *installation_format_string = "_ia%s-%x";
     snprintf(installation_subtype, sizeof(installation_subtype),
-             installation_format_string, iid, ia);
+             installation_format_string, iid_hex, ia);
 
     /* Set SRP subtype for installation */
     srpSubtype[0] = installation_subtype;
@@ -217,7 +203,7 @@ int knx_dns_sd_update_service(const char *serial_no, uint64_t iid, uint16_t ia, 
     if (isInitialized == false)
     {
         /* Set SRP Client Host name and */
-        knx_set_srp_host(thrInstancePtr, device->serialnumber);
+        knx_set_srp_host(thrInstancePtr, device->serialnumber, oc_string_checked(device->iot_hostname));
 
         /* Set SRP static subtypes */
         knx_set_static_subtypes();
@@ -226,32 +212,14 @@ int knx_dns_sd_update_service(const char *serial_no, uint64_t iid, uint16_t ia, 
     /* Set or update subtypes */
     knx_set_dynamic_subtypes(device->iid, device->ia, device->pm);
 
-    /* srpSubtype are populated with static or dynamic entries */
-    entry->mService.mSubTypeLabels = srpSubtype;
-
     if (isInitialized == true)
     {
-        const otSrpClientService *service = otSrpClientGetServices(thrInstancePtr);
-
-        while (service != NULL)
-        {
-            if (!strcmp(service->mInstanceName, device->serialnumber) && !strcmp(service->mName, KNX_SRP_SERVICE_NAME))
-            {
-                break;
-            }
-            service = service->mNext;
-        }
-
-        if (service != NULL)
-        {
-            otSrpClientRemoveService(thrInstancePtr, (otSrpClientService *) service);
-            isUpdating = true;
-        }
+        otSrpClientClearService(thrInstancePtr, &entry->mService);
     }
-    else
-    {
-        otSrpClientAddService(thrInstancePtr, &entry->mService);
-    }
+
+    /* srpSubtype are populated with static or dynamic entries */
+    entry->mService.mSubTypeLabels = srpSubtype;
+    otSrpClientAddService(thrInstancePtr, &entry->mService);
 
     if (isInitialized == false)
     {

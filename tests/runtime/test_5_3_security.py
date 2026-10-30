@@ -156,13 +156,13 @@ def _cleanup_at_entries(coap, oscore_ctx):
 class TestAuthResourceList:
     """5.3.4.1: GET /auth → link-format listing auth sub-resources."""
 
-    def test_5_3_4_1_get_auth_without_oscore_returns_403(self, coap):
-        """GET /auth without OSCORE must return 4.03 Forbidden."""
+    def test_5_3_4_1_get_auth_without_oscore_returns_401(self, coap):
+        """GET /auth without OSCORE must return 4.01 Unauthorized."""
         resp = coap.get("auth", accept=LINK_FORMAT)
         if resp is None:
             pytest.skip("Server did not respond to GET /auth (timeout)")
-        assert resp.is_forbidden, (
-            f"GET /auth without OSCORE should return 4.03, got {resp.code}")
+        assert resp.code == "4.01", (
+            f"GET /auth without OSCORE should return 4.01, got {resp.code}")
 
     def test_5_3_4_1_get_auth_link_format(self, coap, oscore_ctx):
         """GET /auth with OSCORE → 2.05 with link-format listing.
@@ -191,15 +191,15 @@ class TestWriteAccessToken:
     """5.3.8.1: Write entry to the access token list."""
 
     def test_5_3_8_1b_post_auth_at_without_oscore_fails(self, coap):
-        """POST /auth/at without OSCORE must fail (4.03 or non-success)."""
+        """POST /auth/at without OSCORE must return 4.01."""
         payload = cbor2.dumps([{0: "NoSec", 9: ["if.sec"], 38: 2,
                                 8: {4: {0: b"nosec", 2: os.urandom(16)}}}])
         resp = coap.post("auth/at", payload=payload,
                          content_format=APPLICATION_CBOR)
         if resp is None:
             pytest.skip("Server did not respond to POST /auth/at (timeout)")
-        assert not resp.is_successful, (
-            f"POST /auth/at without OSCORE should fail, got {resp.code}")
+        assert resp.code == "4.01", (
+            f"POST /auth/at without OSCORE should return 4.01, got {resp.code}")
 
     def test_5_3_8_1_write_at_and_verify(self, coap, oscore_ctx):
         """POST /auth/at with a valid AT → 2.01, then verify via GET."""
@@ -551,18 +551,18 @@ class TestWriteAccessToken:
 class TestReadAccessTokenList:
     """5.3.9: Read list of access tokens."""
 
-    def test_5_3_9_3a_get_auth_at_without_oscore_returns_403(self, coap):
-        """GET /auth/at without OSCORE must return 4.03."""
+    def test_5_3_9_3a_get_auth_at_without_oscore_returns_401(self, coap):
+        """GET /auth/at without OSCORE must return 4.01."""
         resp = coap.get("auth/at", accept=LINK_FORMAT)
         if resp is None:
             pytest.skip("Server did not respond to GET /auth/at (timeout)")
-        assert resp.is_forbidden, (
-            f"GET /auth/at without OSCORE should return 4.03, "
+        assert resp.code == "4.01", (
+            f"GET /auth/at without OSCORE should return 4.01, "
             f"got {resp.code}")
 
     def test_5_3_9_3b_get_auth_at_without_oscore_configured_device(
             self, coap, oscore_ctx):
-        """GET /auth/at without OSCORE on configured device → 4.03.
+        """GET /auth/at without OSCORE on configured device → 4.01.
 
         EITT 5.3.9.3b: Same as 5.3.9.3a but after provisioning ATs,
         the unsecured request is still rejected.
@@ -578,9 +578,9 @@ class TestReadAccessTokenList:
         resp = coap.get("auth/at", accept=LINK_FORMAT)
         if resp is None:
             pytest.skip("Server did not respond (timeout)")
-        assert not resp.is_successful, (
+        assert resp.code == "4.01", (
             f"GET /auth/at without OSCORE on configured device should "
-            f"fail, got {resp.code}")
+            f"return 4.01, got {resp.code}")
 
     def test_5_3_9_1_get_auth_at_link_format(self, coap, oscore_ctx):
         """GET /auth/at → 2.05 with link-format listing.
@@ -606,17 +606,13 @@ class TestReadAccessTokenList:
 class TestReadAccessTokenById:
     """5.3.10: Read a specific access token by its token id."""
 
-    def test_5_3_10_2a_get_at_without_oscore_returns_403(self, coap):
-        """GET /auth/at/{id} without OSCORE → 4.03.
-
-        EITT 5.3.10.2a: stack returns 4.03 (EITT planned 4.01 but accepts
-        4.03 — see trace EvalResult).
-        """
+    def test_5_3_10_2a_get_at_without_oscore_returns_401(self, coap):
+        """GET /auth/at/{id} without OSCORE → 4.01."""
         resp = coap.get("auth/at/RuntimeTest", accept=APPLICATION_CBOR)
         if resp is None:
             pytest.skip("Server did not respond (timeout)")
-        assert resp.is_forbidden, (
-            f"GET /auth/at/RuntimeTest without OSCORE should return 4.03, "
+        assert resp.code == "4.01", (
+            f"GET /auth/at/RuntimeTest without OSCORE should return 4.01, "
             f"got {resp.code}")
 
     def test_5_3_10_1_get_at_by_id(self, coap, oscore_ctx):
@@ -746,13 +742,13 @@ class TestDeleteAccessToken:
 class TestOscoreResourceList:
     """5.3.12.1: GET /auth/o → link-format listing OSCORE sub-resources."""
 
-    def test_5_3_12_1_get_auth_o_without_oscore_returns_403(self, coap):
-        """GET /auth/o without OSCORE must return 4.03."""
+    def test_5_3_12_1_get_auth_o_without_oscore_returns_401(self, coap):
+        """GET /auth/o without OSCORE must return 4.01."""
         resp = coap.get("auth/o", accept=LINK_FORMAT)
         if resp is None:
             pytest.skip("Server did not respond to GET /auth/o (timeout)")
-        assert resp.is_forbidden, (
-            f"GET /auth/o without OSCORE should return 4.03, "
+        assert resp.code == "4.01", (
+            f"GET /auth/o without OSCORE should return 4.01, "
             f"got {resp.code}")
 
     def test_5_3_12_1_get_auth_o_link_format(self, coap, oscore_ctx):
@@ -781,13 +777,13 @@ class TestOscoreResourceList:
 class TestReplayWindowSize:
     """5.3.13.1: GET /auth/o/replwdo → CBOR integer value."""
 
-    def test_5_3_13_1_get_replwdo_without_oscore_returns_403(self, coap):
-        """GET /auth/o/replwdo without OSCORE must return 4.03."""
+    def test_5_3_13_1_get_replwdo_without_oscore_returns_401(self, coap):
+        """GET /auth/o/replwdo without OSCORE must return 4.01."""
         resp = coap.get("auth/o/replwdo", accept=APPLICATION_CBOR)
         if resp is None:
             pytest.skip("Server did not respond (timeout)")
-        assert resp.is_forbidden, (
-            f"GET /auth/o/replwdo without OSCORE should return 4.03, "
+        assert resp.code == "4.01", (
+            f"GET /auth/o/replwdo without OSCORE should return 4.01, "
             f"got {resp.code}")
 
     def test_5_3_13_1_get_replwdo(self, coap, oscore_ctx):
@@ -816,13 +812,13 @@ class TestReplayWindowSize:
 class TestOscoreDelay:
     """5.3.15.1 / 5.3.16.1: Read and write the OSCORE delay."""
 
-    def test_5_3_15_1_get_osndelay_without_oscore_returns_403(self, coap):
-        """GET /auth/o/osndelay without OSCORE must return 4.03."""
+    def test_5_3_15_1_get_osndelay_without_oscore_returns_401(self, coap):
+        """GET /auth/o/osndelay without OSCORE must return 4.01."""
         resp = coap.get("auth/o/osndelay", accept=APPLICATION_CBOR)
         if resp is None:
             pytest.skip("Server did not respond (timeout)")
-        assert resp.is_forbidden, (
-            f"GET /auth/o/osndelay without OSCORE should return 4.03, "
+        assert resp.code == "4.01", (
+            f"GET /auth/o/osndelay without OSCORE should return 4.01, "
             f"got {resp.code}")
 
     def test_5_3_15_1_get_osndelay(self, coap, oscore_ctx):

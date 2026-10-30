@@ -1004,7 +1004,7 @@ bool oc_ri_invoke_coap_entity_handler(void* request, void* response, uint8_t* bu
 #endif
 
   // flags that capture status along various stages of processing the request.
-  bool method_impl = true, bad_request = false, success = false, forbidden = false, entity_too_large = false;
+  bool method_impl = true, bad_request = false, success = false, forbidden = false, unauthorized = false, entity_too_large = false;
 
   // parsed CoAP PDU structure
   coap_packet_t* const packet = (coap_packet_t*)request;
@@ -1218,8 +1218,15 @@ bool oc_ri_invoke_coap_entity_handler(void* request, void* response, uint8_t* bu
     // check access, use as payload the CBOR data
     if (!oc_knx_sec_check_acl(method, matching_resource, endpoint, new_request.request_payload))
     {
-      // access scope NOT ok, 4.03 forbidden ...
-      forbidden = true;
+      // access NOT ok, 4.01 unauthorized without valid OSCORE credentials, otherwise 4.03 forbidden
+      if ((endpoint->flags & (OSCORE | OSCORE_DECRYPTED)) == (OSCORE | OSCORE_DECRYPTED))
+      {
+        forbidden = true;
+      }
+      else
+      {
+        unauthorized = true;
+      }
     }
     else
     {
@@ -1280,6 +1287,12 @@ bool oc_ri_invoke_coap_entity_handler(void* request, void* response, uint8_t* bu
     OC_WRN("forbidden request");
     response_buffer.response_length = 0;
     response_buffer.code = oc_status_code(OC_STATUS_FORBIDDEN);
+  }
+  else if (unauthorized)
+  {
+    OC_WRN("unauthorized request");
+    response_buffer.response_length = 0;
+    response_buffer.code = oc_status_code(OC_STATUS_UNAUTHORIZED);
   }
   else if (entity_too_large)
   {
