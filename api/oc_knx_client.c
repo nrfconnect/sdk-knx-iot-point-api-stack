@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2021-2022 Cascoda Ltd.
  * Copyright (c) 2024-2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,7 +13,7 @@
 #include "security/spake2plus.h"
 
 #include "oc_core_res.h"
-#include <errno.h>
+#include "oc_knx_helpers.h"
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
@@ -63,7 +63,11 @@ static bool ipv6_for_ia_is_resolved(char service_type, oc_group_table_t* recipie
       recipient->ipv6_res.group_object = group_object;
       recipient->ipv6_res.service_type = service_type;
 
-    // fall through intended ...
+    /* Note: The wording of the comment below is what suppresses -Wimplicit-fallthrough.
+     * GCC only accepts a fixed set of phrasings in the comment directly above the next
+     * case label, and everything after a dash is free text.
+     */
+    // intentional fall through - TIMED_OUT continues with the DATA_ERROR handling below
     case OC_IP_STATUS_DATA_ERROR:  // NOLINT(clang-diagnostic-implicit-fallthrough)
       // DATA_ERROR: keep the original GO + service - the response was invalid, retry for the same target
 
@@ -123,6 +127,41 @@ static void oc_issue_s_mode_message(const oc_endpoint_t* endpoint, const char* p
                                     uint32_t group_address, char service_type, const uint8_t* value_data,
                                     int value_size, oc_group_table_t* recipient);
 
+/*
+  Re-entrance guard for the internal group object update ('loopback') below in
+  oc_send_s_mode_mc_or_uc_message.
+
+  1. After an s-mode write is on the wire, all GOs carrying the sending GA are updated internally by
+     calling their application PUT handler. 
+  
+  2. A product PUT handler is generally allowed (= application developer decision) to issue on a write 
+     a status update (= write) of its own
+     
+  3. A MaC may legally map an input and its status output onto the SAME GA), which
+     re-enters this function -> sends again -> loops back again -> unbounded recursion, one multicast
+     and one OC_MAX_APP_DATA_SIZE allocation per level until the stack or the message pool is gone
+
+  MaC/ User Misconfiguration Example:
+
+  -> Inbound  Write GA 20 - GO 0 (I+W) + GA 20, 21 = SOO (switch) - Put Handler -> Write GO Value + Sends IOO 
+  <- Outbound Write GA 21 - GO 1 (O+T) + GA 21     = IOO (status) - stack runs 'loopback' 
+     - finds GO 0 with GA 20, 21 (= misconfiguration), 
+     - calls its PUT handler again 
+     - sends again IOO 
+     - stack runs 'loopback'
+     = unbounded recursion
+  
+  The guard makes the loopback strictly single level
+  
+  - the outermost/first write still updates every internal GO exactly once 
+    (the legitimate case, incl. updating a DIFFERENT input on the same GA)
+  
+  - an s-mode write issued from within such a 'loopback' transmits an s-mode message and informs possible observers, 
+    it does not start a second loopback round 
+  
+*/
+static bool g_iam_in_the_internal_go_update_loopback_mode = false;
+
 int oc_is_redirected_request_from(const oc_request_t* request)
 {
   if (!request || request->uri_path_len == 0)
@@ -162,13 +201,13 @@ void oc_send_s_mode_unicast_message(uint32_t group_address, char service_type,
 
   if (recipient->ia == -1)
   {
-    OC_ERR("Cannot send unicast: invalid IA in recipient table for GA %u", group_address);
+    OC_ERR("Cannot send unicast: invalid IA in recipient table for GA %" PRIu32, group_address);
     return;
   }
 
   if (!ipv6_for_ia_is_resolved(service_type, recipient, group_object))
   {
-    OC_WRN("Cannot send unicast: IPv6 address resolver still in progress for GA %u", group_address);
+    OC_WRN("Cannot send unicast: IPv6 address resolver still in progress for GA %" PRIu32, group_address);
     return; 
   }
 
@@ -184,6 +223,13 @@ void oc_send_s_mode_unicast_message(uint32_t group_address, char service_type,
   // set for the EP the sending group_address
   group_ucast_endpoint.group_address = group_address;
 
+  /*
+    carry the originating group object plus the service type on the endpoint: the OSCORE layer copies both into the
+    echo ring anchor, a 4.01 echo response regenerates the re-request payload from it (a unicast NON drops its PDU)
+  */
+  group_ucast_endpoint.s_mode_group_object = group_object;
+  group_ucast_endpoint.s_mode_service_type = service_type;
+
   OC_INF("Sending s-mode unicast %c", service_type);
 
   // send unicast message, confirmable or non-confirmable by 'non' flag in recipient table entry
@@ -192,7 +238,8 @@ void oc_send_s_mode_unicast_message(uint32_t group_address, char service_type,
 }
 
 void oc_send_s_mode_multicast_message(uint8_t scope, uint32_t group_address, char service_type,
-                                      const uint8_t* value_data, int value_size, oc_group_table_t* recipient)
+                                      const uint8_t* value_data, int value_size, oc_group_table_t* recipient,
+                                      const oc_group_object_table_t* group_object)
 {
   
   // 'recipient' and 'recipient->grpid' CANT BE invalid here, all tested before this method call -> no extra test here
@@ -207,7 +254,7 @@ void oc_send_s_mode_multicast_message(uint8_t scope, uint32_t group_address, cha
       method are guarded by grpid > 0, hence multicast, hence non-confirmable = true
   */
   const uint32_t grpid = recipient->grpid;
-  const uint64_t iid = recipient->iid >= 0 ? recipient->iid : oc_core_get_device_info()->iid;
+  const uint64_t iid = recipient->iid >= 0 ? (uint64_t)recipient->iid : oc_core_get_device_info()->iid;
   recipient->non = true;
 
   /*
@@ -222,9 +269,60 @@ void oc_send_s_mode_multicast_message(uint8_t scope, uint32_t group_address, cha
   // set for the EP the sending group_address
   group_mcast_endpoint.group_address = group_address;
 
+  /*
+    carry the originating group object plus the service type on the endpoint: the OSCORE layer copies both
+    into the echo ring anchor, so a late 4.01 echo response can regenerate the re-request payload
+  */
+  group_mcast_endpoint.s_mode_group_object = group_object;
+  group_mcast_endpoint.s_mode_service_type = service_type;
+
   OC_INF("Sending s-mode multicast %c", service_type);
 
   oc_issue_s_mode_message(&group_mcast_endpoint, "/k", group_address, service_type, value_data, value_size, (oc_group_table_t*)recipient);
+}
+
+
+/*
+  Encodes the s-mode envelope { 4: <sia>, 5: { 7: <ga>, 6: <st>, 1: <value> } } into the CURRENT rep encoder.
+
+  The caller owns the encoder target: the send path gets it from 'oc_init_s_mode_message_update', the echo
+  re-request regeneration points it at its own buffer with 'oc_rep_new' beforehand.
+
+  'value_data' is the raw buffer filled by the resource GET callback, which wraps the value in its own
+  BF ... FF object:
+    (a) [0]                 = open object = BF, not copied, the 'value_map' created here already opens one
+    (b) [1 ... size - 2]    = the payload data (1: xxx), this is what gets copied
+    (c) [size - 1]          = close object = FF, not copied, closed here instead
+
+  Passing no value (NULL or size <= 2) yields the read request form without a value member.
+*/
+static void oc_encode_s_mode_envelope(uint32_t group_address, char service_type, const uint8_t* value_data, int value_size)
+{
+  // convert the single char into a string with '\0' for the cbor encoder
+  const char service[] = {service_type, '\0'};
+
+  oc_rep_begin_root_object();                       // BF (1st level)
+  oc_rep_i_set_int(root, KNX_SMODE_KEY_SIA, oc_core_get_device_info()->ia);
+
+  oc_rep_i_set_key(&root_map, KNX_SMODE_KEY_S);     // 5:
+
+  CborEncoder value_map;                            // BF (a)
+  cbor_encoder_create_map(&root_map, &value_map, CborIndefiniteLength);
+
+  oc_rep_i_set_int(value, KNX_SMODE_KEY_GA, group_address);        // ga
+
+  oc_rep_i_set_text_string(value, KNX_SMODE_KEY_ST, service);      // 'r/w/a'
+
+  if (value_data && value_size > 2)
+  {
+    // (b)
+    oc_rep_encode_raw_encoder(&value_map, &value_data[1], value_size - 2);
+  }
+
+  // (c)
+  cbor_encoder_close_container_checked(&root_map, &value_map);
+
+  oc_rep_end_root_object();                         // FF (1st level)
 }
 
 // sends a mc (non) or uc (con/non) s-mode message ('non' flag is set by caller in case of mc)
@@ -233,61 +331,21 @@ static void oc_issue_s_mode_message(const oc_endpoint_t* endpoint, const char* p
 {
   if (oc_init_s_mode_message_update(endpoint, path, recipient->non))
   {
-    // get local device info (sia) -> always the same
-    const uint16_t sia = oc_core_get_device_info()->ia;
-
-    // convert the single char into a string with '\0' for the cbor encoder
-    const char service[] = {service_type, '\0'};
-    
-    // { 4: <sia>, 5: { 6: <st>, 7: <ga>, 1: <value> } }
-
-    oc_rep_begin_root_object();                       // BF (1st level)
-    oc_rep_i_set_int(root, 4, sia);                   // 4: <sia>
-
-    oc_rep_i_set_key(&root_map, 5);                   // 5:
-
-    CborEncoder value_map;                            // BF (a)
-    cbor_encoder_create_map(&root_map, &value_map, CborIndefiniteLength);
-
-    oc_rep_i_set_int(value, 7, group_address);        // ga
-
-    oc_rep_i_set_text_string(value, 6, service);      // 'r/w/a'
-
-    /* 
-       - on value data && value size > 2 it is a self triggered write request / read response with data
-       - otherwise a read request without data
-       - other combinations = error (no value data and size > 2, ...)
+    /*
+      - on value data && value size > 2 it is a self triggered write request / read response with data
+      - otherwise a read request without data
     */
-    if (value_data && value_size > 2)
-    {
-      /* 
-         copies raw data, the data are prepared by the callback handler with the leading '1' such as with GET to a bool = oc_rep_i_set_boolean (root, 1, true)
+    oc_encode_s_mode_envelope(group_address, service_type, value_data, value_size);
 
-         (a) [0] = open object = BF (not extra copied, see above 'value_map')
-         (b) [1...size - 1] = payload data (1: xxx)  -> size - 2 , exclude BF/FF
-         (c) [size] = close object = FF
-
-      */
-
-      // (b)
-      oc_rep_encode_raw_encoder(&value_map, &value_data[1], value_size - 2);
-    }
-
-    // (c)
-    cbor_encoder_close_container_checked(&root_map, &value_map);
-
-    // FF (1st level)
-    oc_rep_end_root_object();
-
-    const int16_t smode_payload_len = (int16_t)oc_rep_get_encoded_payload_size();
+    const int size = oc_rep_get_encoded_payload_size();
 
     #ifdef OC_DEBUG
 
     OC_INF("send s-mode to ipv6 address   : ");
     PRINTipaddr(*endpoint);
 
-    OC_INF("send s-mode CBOR payload (%d) : ", smode_payload_len);
-    OC_LOGbytes_OSCORE(oc_rep_get_encoder_buf(), smode_payload_len);
+    OC_INF("send s-mode CBOR payload (%d) : ", size);
+    OC_LOGbytes_OSCORE(oc_rep_get_encoder_buf(), size);
 
     #endif
 
@@ -303,10 +361,10 @@ static void oc_issue_s_mode_message(const oc_endpoint_t* endpoint, const char* p
     uint8_t smode_payload[OC_MAX_OBSERVE_SIZE];
     
     // > 0 also guards for a returned cbor error code -1 
-    const bool smode_payload_size_ok = smode_payload_len > 0 && smode_payload_len <= OC_MAX_OBSERVE_SIZE;
+    const bool smode_payload_size_ok = size > 0 && size <= OC_MAX_OBSERVE_SIZE;
     if (smode_payload_size_ok)
     {
-      memcpy(smode_payload, oc_rep_get_encoder_buf(), (size_t)smode_payload_len);
+      memcpy(smode_payload, oc_rep_get_encoder_buf(), (size_t)size);
     }
 
     // step 1: called only in case the static buffer was allocated 
@@ -315,10 +373,34 @@ static void oc_issue_s_mode_message(const oc_endpoint_t* endpoint, const char* p
     // step 2: notify /k observers ONLY on s-mode write -- forward the full S-Mode envelope captured above
     if (service_type == 'w' && smode_payload_size_ok)
     {
-      coap_notify_k_observers(smode_payload, smode_payload_len);
+      coap_notify_k_observers(smode_payload, size);
     }
   }
 }
+
+/*
+  Worst case size of the s-mode envelope { 4: <sia>, 5: { 7: <ga>, 6: <st> } } WITHOUT the value:
+
+    BF                            root map, indefinite length                  = 1
+    04 + sia                      key 4 + uint16 (0x19 xx xx)                  = 1 + 3
+    05                            key 5                                        = 1
+    BF                            value map, indefinite length                 = 1
+    07 + ga                       key 7 + uint32 (0x1A xx xx xx xx)            = 1 + 5
+    06 + st                       key 6 + one char text string (0x61 xx)       = 1 + 2
+    FF FF                         close value map + close root map             = 2
+
+  The value is inserted into the value map as raw CBOR, so the encoder must have this many bytes left on
+  top of it. Rounded up to give the encoder headroom.
+*/
+#define OC_S_MODE_ENVELOPE_OVERHEAD (24)
+
+/*
+  Value budget derived from the budget of the buffer the ENVELOPE is encoded into. Handing the GET handler
+  the full envelope budget would allow a datapoint to produce a value that cannot be wrapped anymore, so
+  the overhead is reserved up front and the overflow is prevented instead of merely detected.
+*/
+#define OC_S_MODE_MAX_VALUE_SIZE(envelope_budget) \
+  ((envelope_budget) > OC_S_MODE_ENVELOPE_OVERHEAD ? (uint16_t)((envelope_budget) - OC_S_MODE_ENVELOPE_OVERHEAD) : (uint16_t)0)
 
 /*
   @brief copies the resource data to a buffer by invoking the GET resource callback handler (see notes)
@@ -372,6 +454,100 @@ static int oc_s_mode_get_resource_value(const char* resource_path, uint8_t* buff
   return oc_rep_get_encoded_payload_size();
 }
 
+/*
+  Re-entrance guard for the echo re-request payload regeneration below.
+
+  The regeneration calls the application GET handler, which is allowed to issue an s-mode message of its
+  own. A nested regeneration is not expected to occur - the 4.01 + Echo of such an outbound message arrives
+  in a later inbound dispatch, not on this stack call - but the application handler is out of our control,
+  so the guard stays as a cheap assertion.
+
+  A nested attempt ABANDONS the re-request (-1) instead of answering: the inner call would overwrite the
+  buffer of the outer one, so emitting a valid looking payload would only mask the corrupted state.
+*/
+static bool g_iam_regenerating_an_echo_payload = false;
+
+int oc_create_s_mode_payload_for_go(const oc_group_object_table_t* group_object, char service_type, uint8_t* buffer)
+{
+  // the buffer cant be NULL here, the caller must have allocated a buffer of OC_MAX_APP_DATA_SIZE for the re-request payload
+
+  // (a) go must be present otherwise we never would have been sent the org. message (an anchor can never 'survive' a GOT reconfiguration)
+  if (!group_object)
+  {
+    return -1;
+  }
+
+  // skip when we are already regenerating (re-entrance, see the guard above)
+  if (g_iam_regenerating_an_echo_payload)
+  {
+    OC_ERR("echo re-request payload: re-entrant regeneration, abandoning the re-request");
+    return -1;
+  }
+
+  
+  // see (a) above, the anchor MUST be present 
+  const char* resource_path = oc_string(group_object->href);
+  const uint32_t group_address = group_object->ga[0];
+
+  /*
+    Regenerate the CURRENT datapoint value. It may differ from the value of the original multicast; that is
+    intended and covered by clause 3.6.4.1.3 ("the value is not valid anymore").
+  */
+  int value_size = 0;
+  uint8_t* value_data = NULL;
+
+  /*
+    The value must leave room for the envelope it is wrapped into, see OC_S_MODE_MAX_VALUE_SIZE.
+    The envelope budget is OC_MAX_APP_DATA_SIZE, the very same budget 'oc_init_s_mode_message_update'
+    gives the original s-mode send, so this folds to a compile time constant.
+  */
+  const uint16_t max_value_size = OC_S_MODE_MAX_VALUE_SIZE(OC_MAX_APP_DATA_SIZE);
+
+  // only for 'a' or 'w', 'r' does not have a value
+  if (service_type != 'r' && max_value_size > 0)
+  {
+    value_data = (uint8_t*)malloc(max_value_size);
+    if (!value_data)
+    {
+      /*
+        no buffer, no re-request, 
+        - the inbound echo response is still valid
+        - the outbound re-request is skipped until RAM is available 
+      */
+      OC_ERR("echo re-request payload: resource value buffer cannot be allocated, abandoning the re-request");
+      return -1;
+    }
+
+    g_iam_regenerating_an_echo_payload = true;
+    value_size = oc_s_mode_get_resource_value(resource_path, value_data, max_value_size);
+    g_iam_regenerating_an_echo_payload = false;
+  }
+
+  // same envelope as the s-mode send path: { 4: <sia>, 5: { 7: <ga>, 6: <st>, 1: <value> } }
+
+  oc_rep_new(buffer, (int)OC_MAX_APP_DATA_SIZE);
+
+  oc_encode_s_mode_envelope(group_address, service_type, value_data, value_size);
+
+  free(value_data);
+
+  const int size = oc_rep_get_encoded_payload_size();
+  // 'size <= 0' catches the encoder error (-1) and the empty payload (0), neither can be re-requested
+  if (size <= 0)
+  {
+    /*
+      the value was capped to 'OC_MAX_APP_DATA_SIZE - OC_S_MODE_ENVELOPE_OVERHEAD' above, so a size driven overflow
+      cannot occur here; this only triggers on an internal encoder error, which would hit a 'sia' only
+      payload just the same, so the re-request is abandoned
+    */
+    OC_ERR("echo re-request payload: encoding failed, abandoning the re-request");
+    return -1;
+  }
+
+  OC_DBG("echo re-request payload: regenerated %d byte for ga %04" PRIX32 " service %c", size, group_address, service_type);
+  return size;
+}
+
 int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, char srv_type)
 {
   OC_DBG("scope = %d url = %s service type = %c", scope, resource_path, srv_type);
@@ -420,7 +596,7 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
           OC_DBG("grpid > 0, send mc via sending ga");
 
           // multicast read, NO value data needed
-          oc_send_s_mode_multicast_message(scope, sending_ga, srv_type, NULL, 0, recipient);
+          oc_send_s_mode_multicast_message(scope, sending_ga, srv_type, NULL, 0, recipient, go_entry);
         }
         else
         {
@@ -439,8 +615,13 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
     {
       // issue a write request, with a sending GA that is able to transmit...
 
-      // allocate max resource application value size
-      uint8_t* resource_value_buffer = (uint8_t*)malloc(OC_MAX_APP_DATA_SIZE);
+      /*
+        allocate the resource application value size that still leaves room for the s-mode envelope;
+        the envelope is encoded by 'oc_init_s_mode_message_update' into a buffer of OC_MAX_APP_DATA_SIZE
+      */
+      const uint16_t max_value_size = OC_S_MODE_MAX_VALUE_SIZE(OC_MAX_APP_DATA_SIZE);
+
+      uint8_t* resource_value_buffer = (uint8_t*)malloc(max_value_size);
       if (!resource_value_buffer)
       {
         OC_ERR("resource value buffer cannot be allocated");
@@ -448,7 +629,7 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
       }
 
       // copy resource value to buffer, return value size  -> buffer must be big enough to carry resource value!
-      const int resource_value_size = oc_s_mode_get_resource_value(resource_path, resource_value_buffer, OC_MAX_APP_DATA_SIZE);
+      const int resource_value_size = oc_s_mode_get_resource_value(resource_path, resource_value_buffer, max_value_size);
       if (recipient)
       {
         if (recipient->grpid > 0)
@@ -456,24 +637,43 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
           // mc: request -> grpid is used from RCP table (configured by MaC)
 
           // multicast write, value data needed
-          oc_send_s_mode_multicast_message(scope, sending_ga, srv_type, resource_value_buffer, resource_value_size, recipient);
+          oc_send_s_mode_multicast_message(scope, sending_ga, srv_type, resource_value_buffer, resource_value_size, recipient, go_entry);
         }
         else
         {
           // uc: request -> ia is used from RCP table (configured by MaC)
 
           // unicast write, value data needed
-          oc_send_s_mode_unicast_message(sending_ga, srv_type,
-                                         resource_value_buffer, resource_value_size,
-                                         recipient, go_entry);
+          oc_send_s_mode_unicast_message(sending_ga, srv_type, resource_value_buffer, resource_value_size, recipient, go_entry);
         }
       }
 
-      // update internal GOs on any (uc/mc) write request
-      OC_INF("checking & updating internal group objects");
+      /* 
+        
+        (a) we need a local bool copy per call, the call that enters the loopback MUST clear it at the end, 
+            any nested calls must not clear it
 
-      // get FIRST GO index with that GA included (one out of 0...max of GO array)
-      int go_table_index_where_ga_is_used = oc_core_find_first_go_table_index_with_ga(sending_ga);
+        (b) true when this very call was reached FROM a 'loopback' PUT handler that sends a next s-mode message
+            (is legal outside 'loopback' call, but illegal inside the 'loopback' call)
+
+      */
+      const bool nested_write = g_iam_in_the_internal_go_update_loopback_mode;
+
+      // (b) by default, no GO table index is found with the sending GA included
+      int go_table_index_where_ga_is_used = -1;
+
+      OC_DBG("internal group object update - %s", nested_write ? "skip, we are in a 'loopback' call" : "run, check/update linked GOs");
+
+      if (!nested_write)
+      {
+        OC_INF("internal group object update - run, check/update linked GOs");
+
+        // (a))
+        g_iam_in_the_internal_go_update_loopback_mode = true;
+
+        // get FIRST GO index with that GA included (one out of 0...max of GO array)
+        go_table_index_where_ga_is_used = oc_core_find_first_go_table_index_with_ga(sending_ga);
+      }
 
       while (go_table_index_where_ga_is_used != -1)
       {
@@ -485,7 +685,7 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
         // NULL also if res. len = 0, so no need to test this in addition
         if (tmp_resource)
         /*
-          - group object table and application resource definition see above
+          - group object table and application resource definition see oc_knc.c, post handler
           - POST /k with write on GA 39
           - if the first GO href entry does not have a matching application resource
             option 1 :
@@ -502,8 +702,23 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
           const oc_cflag_mask_t cflags = oc_core_get_cflags_from_group_object_table_index(go_table_index_where_ga_is_used);
 
           if (cflags & OC_CFLAG_WRITE && tmp_resource->put_handler.cb)
-          { // update the resource internally, BUT only all GOs with w-cflag set
+          { /*
             
+            - update the resource internally, BUT only all GOs with w-cflag set
+
+              Note that a GO resource that uses if.i and if.o together, will NOT be able to create, see
+              oc_ri_add_resource(), the stack will reject it. So the originator is always a single point (an input with a transmitting GO),
+              never one resource acting as input and output at once (on interface mask level).
+            
+            - the w- and t-cflags live in the GO table, NOT IN THE INTERFACE MASK, so the GO of the ORIGINATOR resource may carry both.
+              If it does, the 'loopback' walk finds that GO too and updates THIS originator resource, even if the point may have already
+              another value from the application (such as on a high frequent data producer)
+
+              This is a (wrong or intended) application behavior, set by the mac/user and will NOT be prevented here. 
+              
+
+            */
+
             // copy in CBOR object the CBOR encoded resource data from original write request
             oc_rep_t* cbor_object_ptr;
             
@@ -529,9 +744,7 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
             };
 
             // call application handler with own interface/user data (it makes no sense to call it with a fix vale)
-            tmp_resource->put_handler.cb(&new_request,
-                                                                 tmp_resource->put_handler.interface_mask,
-                                                                 tmp_resource->put_handler.user_data);
+            tmp_resource->put_handler.cb(&new_request, tmp_resource->put_handler.interface_mask, tmp_resource->put_handler.user_data);
 
             oc_free_rep(cbor_object_ptr);
           }
@@ -541,7 +754,13 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
         go_table_index_where_ga_is_used = oc_core_find_next_go_table_index_with_ga(sending_ga, go_table_index_where_ga_is_used);
       }
 
-      /* 
+      // release the guard only in that call that was setting it (first), nested calls must not clear it
+      if (!nested_write)
+      {
+        g_iam_in_the_internal_go_update_loopback_mode = false;
+      }
+
+      /*
         /p notification - send possible notification to subscribers of the original 
                           resource, forward path on application triggered write requests 
                           (/k notification - see 'coap_notify_k_observers')
@@ -634,17 +853,12 @@ static void knx_coap_discovery_response_handler(oc_client_response_t* data)
 
       */
 
+      #define EP_LEN_DOT_IA (12)   // ep=knx://ia. 
       #define LEN_DOT_SN (16)      // <>;ep="knx://sn.
-      #define LEN_SN (12)          // 00fa12345678, leading zeros NOT omitted, clause 2.6.1.4
-      #define LEN_DOT_IA (9)       // knx://ia.
 
-      #define IID_STR_LEN_MAX (10) // max IID length, hex coded ASCII if no leading zeros are omitted (5 octets 40 bit)
-      #define IID_STR_LEN_MIN (1)  // min IID length, hex coded ASCII if leading zeros are omitted (1 octet = 8 bit), clause 2.6.1.4
-      #define IA_STR_LEN_MAX (4)   // max IA length in hex coded ASCII (2 octets = 16 bit)
-      #define IA_STR_LEN_MIN (1)   // min IA length in hex coded ASCII (1 octet = 8 bit), clause 2.6.1.4
       #define LEN_QUOTE_END (1)    // closing " of ep="..."
 
-      #define LL_MIN_LEN (LEN_DOT_SN + LEN_SN + 1 + LEN_DOT_IA + IID_STR_LEN_MIN + 1 + IA_STR_LEN_MIN + LEN_QUOTE_END)
+      #define LL_MIN_LEN (LEN_DOT_SN + SN_STR_LEN_MAX + 1 + LEN_DOT_IA + IID_STR_LEN_MIN + 1 + IA_STR_LEN_MIN + LEN_QUOTE_END)
 
     if (data->_payload && data->_payload_len >= LL_MIN_LEN && data->content_format == APPLICATION_LINK_FORMAT)
     {// LL format and valid min sizes ...
@@ -653,53 +867,35 @@ static void knx_coap_discovery_response_handler(oc_client_response_t* data)
       const oc_device_info_t* const device = oc_core_get_device_info();
 
       // find first 'i' in 'knx://ia.', assume heading some SN with at least with one char
-      char* iid_start_pos = oc_strnchr((char*)data->_payload, 'i', LEN_DOT_SN + LEN_SN + 1 + LEN_DOT_IA);
+      const char* iid_start_pos = oc_strnchr((const char*)data->_payload, 'i', LEN_DOT_SN + SN_STR_LEN_MAX + 1 + LEN_DOT_IA);
       if (iid_start_pos) {iid_start_pos += 3;} // + 3 = 'ia.' -> start of IID, only when the 'i' of 'ia.' was found
 
       // find the '.' between IID and IA, + 1 -> start of IA, only when the IID start and the '.' were found
-      char* ia_start_pos = iid_start_pos ? oc_strnchr(iid_start_pos, '.', IID_STR_LEN_MAX + 1) : NULL;
+      const char* ia_start_pos = iid_start_pos ? oc_strnchr(iid_start_pos, '.', IID_STR_LEN_MAX + 1) : NULL;
       if (ia_start_pos) {ia_start_pos += 1;}  // + 1 = '.' -> start of IA, only when the IID start and the '.' were found
 
       if (iid_start_pos && ia_start_pos)
       {
         // convert only when both the IID start ('i' of 'ia.') and the IA start (the IID/IA '.') were found
 
-        // empty max len IID + string termination '\0'
-        char iid_str[IID_STR_LEN_MAX + 1] = "";
-
         // IID can be of 1..10 chars (valid) or > 10 (attack/error)
         // Note: -1 for the '.' before the ia
         const size_t iid_len = ia_start_pos - 1 - iid_start_pos;
 
-        // copy IID size 0..10 , but don't copy > 10 chars
-        strncpy(iid_str, iid_start_pos, iid_len > IID_STR_LEN_MAX ? IID_STR_LEN_MAX : iid_len);
-
-        errno = 0;
-        // String is hex formatted, on conversion error = 0 device will not 
-        // have IID = 0 -> ignores request.
-        const uint64_t iid = strtoull(iid_str, NULL, 16);
+        uint64_t iid = 0;
 
         // test device IID first since many devices (from same installation) will have the same IID
-        if (errno == 0 && iid == device->iid) 
+        if (oc_parse_uint64_from_base16_string(iid_start_pos, (int)iid_len, &iid) && iid == device->iid)
         {
-          // empty max len IA + string termination '\0'
-          char ia_str[IA_STR_LEN_MAX + 1] = "";
-
           // IA can be of 0..4 chars (valid) or > 4 (attack/error)
           // Note: -1 for escaped " at the end '\"'
           const char* ia_end_pos = (const char*)data->_payload + data->_payload_len - 1;
           const size_t ia_len = ia_end_pos - ia_start_pos;
 
-          // copy IA size 0..4 , but don't copy > 4 chars
-          strncpy(ia_str, ia_start_pos, ia_len > IA_STR_LEN_MAX ? IA_STR_LEN_MAX : ia_len);
+          uint16_t ia = 0;
 
-          errno = 0;
-          // string is hex formatted
-          const uint16_t ia = (uint16_t)strtoul(ia_str, NULL, 16);
-
-          // Converted ia = 0 is accepted, but usually the recipient device will 
-          // not have 0 assigned.
-          if (errno == 0 && ia == recipient->ia)
+          // Converted ia = 0 is accepted, but usually the recipient device will not have 0 assigned.
+          if (oc_parse_uint16_from_base16_string(ia_start_pos, (int)ia_len, &ia) && ia == recipient->ia)
           {
             ia_and_iid_valid_and_present = true;
           }
@@ -737,8 +933,13 @@ static void knx_coap_discovery_response_handler(oc_client_response_t* data)
     recipient->ipv6_adr.port = data->endpoint->addr.ipv6.port;
     recipient->ipv6_adr.interface_index = data->endpoint->interface_index;
 
-    // allocate max resource application value size
-    uint8_t* resource_value_buffer = (uint8_t*)malloc(OC_MAX_APP_DATA_SIZE);
+    /*
+      allocate the resource application value size that still leaves room for the s-mode envelope;
+      the envelope is encoded by 'oc_init_s_mode_message_update' into a buffer of OC_MAX_APP_DATA_SIZE
+    */
+    const uint16_t max_value_size = OC_S_MODE_MAX_VALUE_SIZE(OC_MAX_APP_DATA_SIZE);
+
+    uint8_t* resource_value_buffer = (uint8_t*)malloc(max_value_size);
     if (!resource_value_buffer)
     {
       OC_ERR("resource value buffer cannot be allocated");
@@ -747,15 +948,15 @@ static void knx_coap_discovery_response_handler(oc_client_response_t* data)
 
     OC_INF("IPv6 resolved for IA 0x%04x", (uint16_t)recipient->ia);
 
-    const char* resource_path = oc_string(recipient->ipv6_res.group_object->href);
-    const uint32_t group_address = recipient->ipv6_res.group_object->ga[0];
-    const char service_type = recipient->ipv6_res.service_type;
+    const char* href = oc_string(recipient->ipv6_res.group_object->href);
+    const uint32_t ga = recipient->ipv6_res.group_object->ga[0];
+    const char srv = recipient->ipv6_res.service_type;
 
     // copy resource value to buffer, return value size, -> buffer must be big enough to carry resource value!
-    const int resource_value_size = oc_s_mode_get_resource_value(resource_path, resource_value_buffer, OC_MAX_APP_DATA_SIZE);
+    const int resource_value_size = oc_s_mode_get_resource_value(href, resource_value_buffer, max_value_size);
 
     // since the IPV6 resolving is done, this below call does not end in an endless loop
-    oc_send_s_mode_unicast_message(group_address, service_type, resource_value_buffer, resource_value_size, recipient, NULL);
+    oc_send_s_mode_unicast_message(ga, srv, resource_value_buffer, resource_value_size, recipient, recipient->ipv6_res.group_object);
 
     // release value buffer, free ignores NULL ptr
     free(resource_value_buffer);
@@ -796,16 +997,9 @@ oc_event_callback_retval_t knx_add_ipv6_address_coap_discovery_handler(void* dat
   const uint64_t iid = oc_core_get_device_info()->iid;
   const uint16_t ia = (uint16_t)recipient->ia;
 
-  // ep=knx://ia.
-  #define EP_STR_LEN_DOT_IA (12)
-  // max IID length in hex coded ASCII if no leading zeros are omitted, note: 5 octets = 40 bit
-  #define IID_STR_LEN_MAX (10)
-  // max IA length in hex coded ASCII, note: 2 octets = 16 bit
-  #define IA_STR_LEN_MAX (4)
-
   // build URI and query: /.well-known/core?ep=knx://ia.<iid>.<ia>
   const char uri[] = "/.well-known/core";
-  char query[EP_STR_LEN_DOT_IA + IID_STR_LEN_MAX + 1 + IA_STR_LEN_MAX + 1];
+  char query[EP_LEN_DOT_IA + IID_STR_LEN_MAX + 1 + IA_STR_LEN_MAX + 1];
 
   (void)snprintf(query, sizeof(query), "ep=knx://ia.%" PRIx64 ".%x", iid, ia);
 

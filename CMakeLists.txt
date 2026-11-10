@@ -1,6 +1,49 @@
 cmake_minimum_required (VERSION 3.21)
 project(knx-iot-stack) 
 
+### Instrumentation ###
+# Must run BEFORE any target or add_subdirectory() call: a target's COMPILE_OPTIONS
+# property is initialised from the directory property at target creation time, so
+# flags added later do not reach targets that already exist. Placing this block at
+# the end of the file instrumented only tests/, leaving the stack itself and the
+# FetchContent dependencies uninstrumented.
+option(BUILD_TESTING "Build unit tests (requires a C++ compiler)" OFF)
+option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(BUILD_FUZZERS "Build the libFuzzer harnesses in tests/fuzz (clang only, implies BUILD_TESTING)" OFF)
+option(ENABLE_COVERAGE "Enable gcov-compatible source coverage instrumentation (GCC or Clang)" OFF)
+
+if(BUILD_FUZZERS)
+    if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "BUILD_FUZZERS requires clang: -fsanitize=fuzzer is not implemented in GCC.")
+    endif()
+    # The harnesses reuse kis-app-stubs / kisClientServer_tail from tests/unit.
+    set(BUILD_TESTING ON CACHE BOOL "" FORCE)
+endif()
+
+if(ENABLE_COVERAGE AND NOT CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    message(FATAL_ERROR "ENABLE_COVERAGE requires GCC or Clang; both emit gcov-compatible .gcno/.gcda via --coverage. With Clang, read them with 'gcovr --gcov-executable \"llvm-cov gcov\"'.")
+endif()
+
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    if(ENABLE_SANITIZERS)
+        add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+        add_link_options(-fsanitize=address,undefined)
+    endif()
+    if(BUILD_FUZZERS)
+        # fuzzer-no-link: coverage instrumentation everywhere, libFuzzer's main()
+        # is linked into the harness executables only (see tests/fuzz).
+        add_compile_options(-fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -g)
+        add_link_options(-fsanitize=address,undefined)
+    endif()
+    if(ENABLE_COVERAGE)
+        # -O0: instrumented counters must map 1:1 to source lines: an optimising
+        # build inlines and reorders code, which makes gcov attribute hits to the
+        # wrong line or merge lines together.
+        add_compile_options(--coverage -O0 -g)
+        add_link_options(--coverage)
+    endif()
+endif()
+
 ### Compiler ###
 # Compiler options (please do not forget to add own options such as to reduce enum sizes, such as for gcc -fshort-enums).
 if(CMAKE_COMPILER_IS_GNUCC AND UNIX)
@@ -15,13 +58,13 @@ if(MSVC)
   # Warning-level flags (such as /W4 /WX-) are intentionally NOT set here.
   #
   # - 'add_compile_options' is directory-scoped and would leak into the FetchContent
-  #   third-party dependencies (such as Mbed TLS,TinyCBOR, mDNS, googletest, ...)
+  #   third-party dependencies (such as Mbed TLS, TinyCBOR, googletest, ...)
   #
   # - Mbed TLS uses its own /W3 and /WX on its targets, the HERE leaked flags would cause 
   #   MSVC D9025 "overriding" warnings on every Mbed TLS source file
   #
-  # - The stack warning flags are attached to the kis-common INTERFACE target below, 
-  #   which only the stack's own targets consume.
+  # - The stack warning and hardening flags are applied PRIVATE to the stack libraries
+  #   below (KNX_STACK_C_FLAGS), see ## KNX-IoT Stack Options ##.
 
 endif()
 
@@ -42,7 +85,6 @@ add_compile_definitions(OC_CLIENT OC_SERVER)
 set(CLANG_TIDY_ENABLED OFF CACHE BOOL "Enable clang-tidy analysis during compilation.")
 set(KNX_LOG_CAST_64_BIT_INTS_ENABLED OFF CACHE BOOL "Cast int64_t and uint64_t values to (int) if platform doesn't support 64 bit int format specifiers")
 set(OC_PUBLISHER_TABLE_ENABLED ON CACHE BOOL "Enable publisher table, with this a device can (also) receive (OFF: for plain senders).")
-set(OC_PKI_ENABLED OFF CACHE BOOL "Enable PKI security")
 
 ## External Libraries
 # Mbed TLS
@@ -67,9 +109,27 @@ set(USE_CONSOLE ON CACHE BOOL "Enables the console as a logging output also for 
 set(KNX_GOT_MAX_ENTRIES "50" CACHE STRING "Maximum number of group object table entries")
 set(KNX_GPT_MAX_ENTRIES "20" CACHE STRING "Maximum number of group publisher table entries")
 set(KNX_GRT_MAX_ENTRIES "20" CACHE STRING "Maximum number of group recipient table entries")
-set(KNX_SEC_MAX_ENTRIES "20" CACHE STRING "Maximum number of access token table entries")
+set(KNX_ATT_MAX_ENTRIES "20" CACHE STRING "Maximum number of access token table entries")
 set(KNX_PAGE_SIZE "20" CACHE STRING "Server default page size for pagination")
-set(KNX_PAYLOAD_SIZE "1024" CACHE STRING "Maximum payload bytes, allocated by stack/applications per default (see notes below on compile defintion)" FORCE)
+set(KNX_PAYLOAD_SIZE "768" CACHE STRING "CoAp PDU bytes, allocated by stack/applications per CoAP message" FORCE)
+set(KNX_ECHO_RING_SIZE "64" CACHE STRING "Echo ring size, used buffers to defend against replayed 4.01 unicast echo responses")
+
+## KNX payload size (bytes)
+# 768 is chosen so that the total CoAP PDU (payload + outer header + inner header = 768 + 272 = 1040)
+# stays below COAP_MAX_MESSAGE_SIZE (1152), the RFC 7252 clause 4.6 guidance for an unknown path MTU (1280)
+#  - used for stack AND application 'malloc/calloc' calls
+#    such as for application read responses or stack discovery responses
+#  - must be carefully chosen since stack resources usually need more bytes than application datapoints
+#    (such as for discovery linked list responses, here it depends on how many application resources
+#     are defined and responded)
+#  - can be overwritten at runtime by applications with oc_set_pdu_size()
+
+## KNX_ECHO_RING_SIZE 
+#  The size should be carefully chosen for an embedded device, in accordance to the 
+#  individual outgoing senders and its possible 4.01 echo responders. Each ring buffer hosts 
+#  some security data and a reference to the original (outgoing) group object reference / sending group address.
+#  Each ring buffer keeps the request alive until the slot will be overwritten. 
+#  Details see 'ECHO RING'.  
 
 # Network
 # IPv6 unicast port
@@ -115,7 +175,6 @@ set(API_SOURCES
     ${PROJECT_SOURCE_DIR}/api/oc_replay.c
     ${PROJECT_SOURCE_DIR}/api/oc_ri.c
     ${PROJECT_SOURCE_DIR}/api/oc_server_api.c
-    ${PROJECT_SOURCE_DIR}/api/oc_session_events.c
     ${PROJECT_SOURCE_DIR}/api/oc_uuid.c
     ${PROJECT_SOURCE_DIR}/api/oc_knx.c
     ${PROJECT_SOURCE_DIR}/api/oc_knx_client.c
@@ -145,13 +204,11 @@ set(CORE_SOURCES
     ${PROJECT_SOURCE_DIR}/security/oc_oscore_context.c
     ${PROJECT_SOURCE_DIR}/security/oc_oscore_crypto.c
     ${PROJECT_SOURCE_DIR}/security/oc_oscore_engine.c
-    ${PROJECT_SOURCE_DIR}/security/oc_tls.c
     ${PROJECT_SOURCE_DIR}/security/spake2plus.c
 )
 
 set(COAP_SOURCES
     ${PROJECT_SOURCE_DIR}/messaging/coap/coap.c
-    ${PROJECT_SOURCE_DIR}/messaging/coap/coap_signal.c
     ${PROJECT_SOURCE_DIR}/messaging/coap/engine.c
     ${PROJECT_SOURCE_DIR}/messaging/coap/observe.c
     ${PROJECT_SOURCE_DIR}/messaging/coap/oscore.c
@@ -163,32 +220,48 @@ set(COAP_SOURCES
 # virtual library targets, used to provide common (compile) settings 
 add_library(kis-common INTERFACE)
 
-# - stack warning flags are attached to the kis-common INTERFACE target 
-#   (consumed only by the stack's own targets) instead of via directory-scoped 
-#   add_compile_options / CMAKE_C_FLAGS, they do NOT leak into the FetchContent 
-#   third-party dependencies (see details above on ### Compiler ###). 
-#
-# - the GNU/Clang flags are guarded with # $<COMPILE_LANGUAGE:C> because they are not
-#   valid for C++ (the unit tests consume kis-common transitively).
-
+# ── Warning policy and hardening of the stack sources ─────────────────────────
+# - Applied PRIVATE to the stack libraries (kisClientServer, kis-port, kisTestControl): The
+#   flags neither leak into the FetchContent third-party dependencies nor propagate to the
+#   applications linking the stack, the demos apply the same flags to their executables in
+#   their own build file.
+# - One set for Debug and Release, with one exception: _FORTIFY_SOURCE needs the optimiser
+#   and is Release only.
+# - The warning policy is the same as on Zephyr (zephyr/CMakeLists.txt) and ESP-IDF
+#   (esp-idf/knx_iot/CMakeLists.txt), the documentation checks of clang stay warnings.
+# - -fstack-protector-strong: A canary between the local buffers and the return address,
+#   checked on return, an overflow that overwrote it aborts the program.
+# - _FORTIFY_SOURCE=2: glibc replaces memcpy, strcpy, snprintf, ... by checking variants
+#   where the destination size is known, an overflow aborts at runtime.
+# - Position independent code: The objects can be linked into a PIE executable. The
+#   executables link with -pie (random load address on every start, ASLR for the program
+#   itself) and full RELRO (-z relro -z now: The relocation tables are read-only once the
+#   loader is done), both belong to the application, see the demos.
 if(MSVC)
     # W4 = max warn level, WX- = do NOT treat warnings as errors (MSVC default).
-    target_compile_options(kis-common INTERFACE /W4 /WX-)
-endif()
-if(CMAKE_COMPILER_IS_GNUCC)
-    target_compile_options(kis-common INTERFACE
-        $<$<COMPILE_LANGUAGE:C>:-Wmissing-declarations>
-        $<$<COMPILE_LANGUAGE:C>:-Wmissing-prototypes>
+    set(KNX_STACK_C_FLAGS /W4 /WX-)
+elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    set(KNX_STACK_C_FLAGS
+        -Wall -Wextra -Werror -Wshadow -Wformat=2 -Wstrict-prototypes -Wundef -Wvla
+        -Wdouble-promotion -Wnull-dereference -Wpointer-arith
+        -Wmissing-declarations -Wmissing-prototypes
     )
-endif()
-if(CMAKE_COMPILER_IS_CLANG)
-    target_compile_options(kis-common INTERFACE
-        $<$<COMPILE_LANGUAGE:C>:-Wmissing-declarations>
-        $<$<COMPILE_LANGUAGE:C>:-Wmissing-prototypes>
-        $<$<COMPILE_LANGUAGE:C>:-Wdocumentation>
-        $<$<COMPILE_LANGUAGE:C>:-Wno-documentation-deprecated-sync>
-        $<$<COMPILE_LANGUAGE:C>:-Wunreachable-code>
-    )
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+        list(APPEND KNX_STACK_C_FLAGS
+            -Wdocumentation -Wno-documentation-deprecated-sync -Wunreachable-code
+            -Wno-error=documentation -Wno-error=documentation-html
+        )
+    endif()
+    if(UNIX)
+        list(APPEND KNX_STACK_C_FLAGS -fstack-protector-strong)
+        set(KNX_STACK_C_DEFINITIONS $<$<CONFIG:Release>:_FORTIFY_SOURCE=2>)
+    endif()
+    if(WIN32)
+        # MinGW: printf and snprintf are checked by gcc as builtins with the Microsoft format
+        # rules, which have no %zu. Without the builtins gcc checks the MinGW declaration with
+        # the gnu_printf attribute (__USE_MINGW_ANSI_STDIO=1), the C99 rules the runtime follows.
+        list(APPEND KNX_STACK_C_FLAGS -fno-builtin-printf -fno-builtin-snprintf)
+    endif()
 endif()
 
 if(OC_PRINT_ENABLED)
@@ -240,15 +313,19 @@ if(CONFIG_KNXIOT_TINYCBOR_BUILTIN)
     target_link_libraries(kisClientServer PUBLIC tinycbor)
 endif()
 target_link_libraries(kisClientServer PUBLIC kis-port)
+target_compile_options(kisClientServer PRIVATE ${KNX_STACK_C_FLAGS})
+target_compile_definitions(kisClientServer PRIVATE ${KNX_STACK_C_DEFINITIONS})
+set_target_properties(kisClientServer PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 ## Process individual stack/application behavior ##
 target_compile_definitions(kis-common INTERFACE
     ## Sizes (tables, pagination, ...)
-    GOT_MAX_ENTRIES=${KNX_GOT_MAX_ENTRIES}     # group object table size
-    GPT_MAX_ENTRIES=${KNX_GPT_MAX_ENTRIES}     # publisher table size
-    GRT_MAX_ENTRIES=${KNX_GRT_MAX_ENTRIES}     # recipient table size
-    G_AT_MAX_ENTRIES=${KNX_SEC_MAX_ENTRIES}    # access token table size
-    PAGE_SIZE=${KNX_PAGE_SIZE}                 # server default page size
+    KNX_GOT_MAX_ENTRIES=${KNX_GOT_MAX_ENTRIES} # group object table size
+    KNX_GPT_MAX_ENTRIES=${KNX_GPT_MAX_ENTRIES} # publisher table size
+    KNX_GRT_MAX_ENTRIES=${KNX_GRT_MAX_ENTRIES} # recipient table size
+    KNX_ATT_MAX_ENTRIES=${KNX_ATT_MAX_ENTRIES} # access token table size
+    KNX_PAGE_SIZE=${KNX_PAGE_SIZE}             # server default page size
+    KNX_ECHO_RING_SIZE=${KNX_ECHO_RING_SIZE}   # echo ring size
 
     ## Network
     # IPv6 unicast port
@@ -264,13 +341,7 @@ target_compile_definitions(kis-common INTERFACE
     KNX_RESPONSE_TIME_SECONDS=${KNX_RESPONSE_TIME_SECONDS}
 
     
-    ## KNX payload size (bytes)
-    #  - defines the default value that is used for stack AND application 'malloc/calloc' calls
-    #    such as for application read responses or stack discovery responses
-    #  - must be carfully choosen since stack resources may need much more bytes than application datapoints
-    #    (stack needs a minimum of 1k for discovery responses + extra buffer,
-    #     this depends on how many application resources are defined and responded)
-    #  - cannot be overwritten at runtime by applications
+    # see notes on defintion above
     KNX_PAYLOAD_SIZE=${KNX_PAYLOAD_SIZE}
 )
 
@@ -281,16 +352,13 @@ target_compile_definitions(kis-common INTERFACE
 add_library(kisTestControl STATIC ${PROJECT_SOURCE_DIR}/api/oc_test_control.c)
 target_include_directories(kisTestControl PUBLIC ${PROJECT_SOURCE_DIR}/api)
 target_link_libraries(kisTestControl PUBLIC kisClientServer)
+target_compile_options(kisTestControl PRIVATE ${KNX_STACK_C_FLAGS})
+target_compile_definitions(kisTestControl PRIVATE ${KNX_STACK_C_DEFINITIONS})
+set_target_properties(kisTestControl PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 ### Unit Tests ###
-option(BUILD_TESTING "Build unit tests (requires a C++ compiler)" OFF)
-option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 if(BUILD_TESTING)
     enable_language(CXX)
     enable_testing()
-    if(ENABLE_SANITIZERS AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-        add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
-        add_link_options(-fsanitize=address,undefined)
-    endif()
     add_subdirectory(tests)
 endif()

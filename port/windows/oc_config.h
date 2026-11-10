@@ -1,13 +1,12 @@
-/* 
+/*
  * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2021 Cascoda Ltd
- * Copyright (c) 2025 KNX Association
+ * Copyright (c) 2026 KNX Association
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef OC_CONFIG_H
-#define OC_CONFIG_H
+#pragma once
 
 // Time resolution
 #include <stdint.h>
@@ -28,9 +27,6 @@ typedef uint64_t oc_clock_time_t;
 // Maximum number of concurrent requests
 #define OC_MAX_NUM_CONCURRENT_REQUESTS (20)
 
-// Add support for passing TCP/TLS/DTLS session connection events to the app.
-#define OC_SESSION_EVENTS
-
 // Add support for dns lookup to the endpoint.
 #define OC_DNS_LOOKUP
 
@@ -41,9 +37,6 @@ typedef uint64_t oc_clock_time_t;
 // The maximum size of a response to an OBSERVE request, in bytes.
 #define OC_MAX_OBSERVE_SIZE 512
 
-// Dynamic memory allocation.
-#define OC_BLOCK_WISE
-
 // Maximum number of callbacks for Network interface event monitoring.
 #define OC_MAX_NETWORK_INTERFACE_CBS (2)
 
@@ -52,6 +45,4 @@ typedef uint64_t oc_clock_time_t;
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

@@ -214,15 +214,23 @@ void oc_test_control_register(oc_test_control_set_dp_fn set_dp,
 
   oc_resource_t *res;
 
+  /*
+    The test control endpoints stand in for an operator's hand (a button,
+    the power switch), not for a client of the device: they are accessible
+    WITHOUT OSCORE, so a test tool can use them without spending the
+    sequence numbers of a security context the test case itself checks.
+    Protected requests work as well. Test builds only (kisTestControl).
+  */
+
   /* /test/restart — soft restart (same as EITT GUI "Restart Device") */
   res = oc_new_resource((char *)"/test/restart", 1);
   oc_resource_bind_resource_type(res, "urn:knx:test.ctrl");
   oc_resource_bind_content_type(res, APPLICATION_CBOR, CONTENT_NONE);
   oc_resource_set_request_handler(res, COAP_POST, post_test_restart, NULL,
-                                  OC_ACL_I, OC_IF_I);
+                                  OC_ACL_NONE, OC_IF_NONE);
   oc_add_resource(res);
 
-  /* /test/factory-reset — clear AT table (accessible WITHOUT OSCORE) */
+  /* /test/factory-reset — clear AT table */
   res = oc_new_resource((char *)"/test/factory-reset", 1);
   oc_resource_bind_resource_type(res, "urn:knx:test.ctrl");
   oc_resource_bind_content_type(res, APPLICATION_CBOR, CONTENT_NONE);
@@ -235,7 +243,7 @@ void oc_test_control_register(oc_test_control_set_dp_fn set_dp,
   oc_resource_bind_resource_type(res, "urn:knx:test.ctrl");
   oc_resource_bind_content_type(res, APPLICATION_CBOR, CONTENT_NONE);
   oc_resource_set_request_handler(res, COAP_POST, post_test_trigger, NULL,
-                                  OC_ACL_I, OC_IF_I);
+                                  OC_ACL_NONE, OC_IF_NONE);
   oc_add_resource(res);
 
   /* /test/sleep-period — set mDNS TXT SP= value */
@@ -243,7 +251,7 @@ void oc_test_control_register(oc_test_control_set_dp_fn set_dp,
   oc_resource_bind_resource_type(res, "urn:knx:test.ctrl");
   oc_resource_bind_content_type(res, APPLICATION_CBOR, CONTENT_NONE);
   oc_resource_set_request_handler(res, COAP_POST, post_test_sleep_period, NULL,
-                                  OC_ACL_I, OC_IF_I);
+                                  OC_ACL_NONE, OC_IF_NONE);
   oc_add_resource(res);
 
   printf("[test-ctrl] Test control endpoints registered: "

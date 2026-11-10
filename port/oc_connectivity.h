@@ -1,8 +1,8 @@
 
-/* 
+/*
  * Copyright (c) 2016, 2018, 2020 Intel Corporation
  * Copyright (c) 2024-2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,14 +10,12 @@
   @brief platform abstraction of networking
   @file
 */
-#ifndef OC_CONNECTIVITY_H
-#define OC_CONNECTIVITY_H
+#pragma once
 #include "oc_config.h"
 
 #include "oc_buffer_settings.h"
 #include "oc_endpoint.h"
 #include "oc_network_events.h"
-#include "oc_session_events.h"
 #include "port/oc_log.h"
 #include <stdint.h>
 
@@ -25,11 +23,7 @@
 extern "C" {
 #endif
 
-#ifdef OC_TCP
-#define OC_PDU_SIZE (oc_get_max_app_data_size() + 2 * COAP_MAX_HEADER_SIZE)
-#else  
-#define OC_PDU_SIZE (oc_get_mtu_size())
-#endif 
+#define OC_PDU_SIZE (oc_get_pdu_size())
 
 #define OC_BLOCK_SIZE (oc_get_block_size())
 #define OC_MAX_APP_DATA_SIZE (oc_get_max_app_data_size())
@@ -37,16 +31,10 @@ extern "C" {
 struct oc_message_s
 {
   struct oc_message_s *next;
-  oc_endpoint_t endpoint;
-  oc_ipv6_addr_t mcast_dest;
+  oc_endpoint_t endpoint;   // message endpoint (address, port, flags)
   size_t length;            // total message length (includes header, options and payload from message->data 'stream')
   uint8_t ref_count;        // check how many times a msg is referenced (tracked) by a caller (one=1, two=2)
   uint8_t* data;            // points to an allocated buffer containing the coap packet (= binary data with no structure, hence not necessarily a CoAP packet)
-  #ifdef OC_TCP
-  size_t read_offset;
-  #endif 
-  uint8_t encrypted;        // used to mark if a message was received via a 'secured' IP adapter socket (this does not mean OSCORE security)
-  void (*soft_ref_cb)(struct oc_message_s *); // used to define the 'to be used de allocator method' for a message in case it needs to be (auto) released by the OS
 };
 
 /**
@@ -85,13 +73,6 @@ void oc_connectivity_shutdown(void);
  * @param message the message
  */
 void oc_send_discovery_request(oc_message_t *message);
-
-/**
- * @brief end session for the specific endpoint
- *
- * @param endpoint the endpoint to close the session for
- */
-void oc_connectivity_end_session(oc_endpoint_t *endpoint);
 
 #ifdef OC_DNS_LOOKUP
 /**
@@ -139,15 +120,6 @@ int oc_connectivity_get_new_port(void);
 void handle_network_interface_event_callback(oc_interface_event_t event);
 
 /**
- * @brief the session callback
- *
- * @param endpoint the endpoint for the session
- * @param state the state of the session
- */
-void handle_session_event_callback(const oc_endpoint_t *endpoint,
-                                   oc_session_state_t state);
-
-/**
  * @brief Subscribe to a multicast address
  *
  * @param address endpoint describing the address to subscribe to.
@@ -165,38 +137,6 @@ void oc_connectivity_subscribe_mcast_ipv6(oc_endpoint_t *address);
  */
 void oc_connectivity_unsubscribe_mcast_ipv6(oc_endpoint_t *address);
 
-#ifdef OC_TCP
-/**
- * @brief The CSM states
- *
- */
-typedef enum {
-  CSM_NONE,       ///< None
-  CSM_SENT,       ///< Send
-  CSM_DONE,       ///< Done
-  CSM_ERROR = 255 ///< Error
-} tcp_csm_state_t;
-
-/**
- * @brief retrieve the cms state
- *
- * @param endpoint the endpoint
- * @return tcp_csm_state_t the cms state
- */
-tcp_csm_state_t oc_tcp_get_csm_state(oc_endpoint_t *endpoint);
-
-/**
- * @brief update the csm state on the tcp connection
- *
- * @param endpoint the endpoint
- * @param csm the cms state
- * @return int 0 = success
- */
-int oc_tcp_update_csm_state(oc_endpoint_t *endpoint, tcp_csm_state_t csm);
-#endif
-
 #ifdef __cplusplus
 }
-#endif
-
 #endif

@@ -1,25 +1,14 @@
 /*
-// Copyright (c) 2021-2022 Cascoda Ltd
-// Copyright (c) 2024-2025 KNX Association
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
+ * Copyright (c) 2021-2022 Cascoda Ltd
+ * Copyright (c) 2026 KNX Association
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 /**
   @brief knx /fp resource implementations
   @file
 */
-#ifndef OC_KNX_FP_INTERNAL_H
-#define OC_KNX_FP_INTERNAL_H
+#pragma once
 
 #include "oc_client_state.h"
 #include "oc_helpers.h"
@@ -29,6 +18,16 @@
 extern "C"
 {
 #endif
+
+  // PUB/RCV/GOT storage keys, max 15 characters (ESP-IDF NVS limit, NVS_KEY_NAME_MAX_SIZE 16
+  // including NUL). '_99999' is the table index budget. GPT and GRT share the generic table
+  // entry helpers, their base keys have the same length, so the helpers use the GPT size for both.
+  #define KNX_STORAGE_KEY_GPT_ENTRY "gpt_e"  // PUB table base key
+  #define KNX_STORAGE_KEY_GPT_ENTRY_SIZE (sizeof(KNX_STORAGE_KEY_GPT_ENTRY) + 6)
+  #define KNX_STORAGE_KEY_GRT_ENTRY "grt_e"  // RCV table base key
+  #define KNX_STORAGE_KEY_GRT_ENTRY_SIZE (sizeof(KNX_STORAGE_KEY_GRT_ENTRY) + 6)
+  #define KNX_STORAGE_KEY_GOT_ENTRY "got_e"  // GO table base key
+  #define KNX_STORAGE_KEY_GOT_ENTRY_SIZE (sizeof(KNX_STORAGE_KEY_GOT_ENTRY) + 6)
 
   /**
    * @brief cflag masks
@@ -543,13 +542,12 @@ extern "C"
    * @brief add points to the well-known core discovery response
    *  when the request has query option
    * .well-known/core?d=urn:knx:g.s.[group-address]
-   * @param request The request
    * @param group_address the parsed group address from the query option
    * @param response_length the response length
    * @return true
    * @return false
    */
-  bool oc_add_points_from_group_object_table_to_response(oc_request_t* request, uint32_t group_address,  size_t* response_length);
+  bool oc_add_points_from_group_object_table_to_response(uint32_t group_address,  size_t* response_length);
 
   /**
    * @brief checks if the href (url) belongs to the device,
@@ -626,6 +624,4 @@ extern "C"
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

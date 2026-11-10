@@ -2,14 +2,20 @@
  * Unit tests for messaging/coap/separate.c — CoAP separate-response store.
  *
  * Covers the public OC_SERVER API on stack structs:
- *   coap_separate_accept  — allocate/find a per-request separate-response store
- *                           (NON request path; the CON path additionally sends an
- *                           empty ACK over the network and is integration-level)
+ *   coap_separate_accept  — allocate/find a per-request separate-response store,
+ *                           both the NON request path and the CON path (which
+ *                           additionally sends an empty ACK — exercised here via
+ *                           --wrap=coap_send_message so no real network I/O runs)
  *   coap_separate_resume  — initialize a response packet from a stored request
  *   coap_separate_clear   — remove a store from the handle list and free it
  *
- * separate.c is guarded by #ifdef OC_SERVER (ON in the test build) and uses
- * OC_BLOCK_WISE (ON), so coap_separate_accept takes the 5-argument signature.
+ * separate.c is guarded by #ifdef OC_SERVER (ON in the test build), so
+ * coap_separate_accept takes the 5-argument signature.
+ *
+ * Not covered: the coap_send_response_with_empty_ack() failure branch in
+ * engine.c (oc_allocate_message() returning NULL). oc_allocate_message() is a
+ * plain calloc/malloc with no fixed pool, so that branch is only reachable
+ * under real OOM — not practically testable without mocking malloc.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -25,11 +31,31 @@ extern "C" {
 #include "oc_helpers.h"
 #include "util/oc_list.h"
 #include "util/oc_mmem.h"
+#include "oc_buffer.h"
+}
+
+/*
+ * --wrap=coap_send_message redirects the real network send performed by
+ * coap_send_response_with_empty_ack() (engine.c) to this recorder, so the CON
+ * path in coap_separate_accept() can be exercised without a live socket.
+ */
+static int g_wrap_send_calls = 0;
+
+extern "C" void __wrap_coap_send_message(oc_message_t *message)
+{
+  g_wrap_send_calls++;
+  oc_message_unref(message);
 }
 
 class Separate : public ::testing::Test {
 protected:
-  void SetUp() override { oc_mmem_init(); }
+  void SetUp() override
+  {
+    oc_mmem_init();
+    oc_network_event_handler_mutex_init();
+    g_wrap_send_calls = 0;
+  }
+  void TearDown() override { oc_network_event_handler_mutex_destroy(); }
 
   /* Build a minimal CoAP request packet on the stack. */
   static void make_req(coap_packet_t *req, coap_message_type_t type,
@@ -134,6 +160,32 @@ TEST_F(Separate, AcceptDifferentObserveCreatesSecondStore)
   while ((s = (coap_separate_t *)oc_list_head(handle.requests)) != nullptr)
     coap_separate_clear(&handle, s);
   EXPECT_EQ(oc_list_head(handle.requests), nullptr);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * coap_separate_accept — CON request (sends empty ACK over the network)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+TEST_F(Separate, AcceptConRequestSendsEmptyAckAndCreatesStore)
+{
+  oc_separate_response_t handle;
+  memset(&handle, 0, sizeof(handle));
+  oc_endpoint_t ep;
+  memset(&ep, 0, sizeof(ep));
+
+  const uint8_t token[3] = {0x01, 0x02, 0x03};
+  coap_packet_t req;
+  make_req(&req, COAP_TYPE_CON, token, sizeof(token), "/p/4", COAP_GET);
+
+  int ret = coap_separate_accept(&req, &handle, &ep, 0, 0);
+  EXPECT_EQ(ret, 1);
+  EXPECT_EQ(g_wrap_send_calls, 1);
+
+  coap_separate_t *store = (coap_separate_t *)oc_list_head(handle.requests);
+  ASSERT_NE(store, nullptr);
+  EXPECT_EQ(store->type, COAP_TYPE_CON);
+
+  coap_separate_clear(&handle, store);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

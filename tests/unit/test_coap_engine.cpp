@@ -26,7 +26,6 @@ static void make_udp_packet(coap_packet_t *pkt, oc_endpoint_t *ep,
   memset(pkt, 0, sizeof(*pkt));
   memset(ep, 0, sizeof(*ep));
   pkt->mid = mid;
-  pkt->transport_type = COAP_TRANSPORT_UDP;
   ep->addr.ipv6.port = port;
   /* Set a distinguishing byte in the IPv6 address */
   ep->addr.ipv6.address[15] = addr_last_byte;

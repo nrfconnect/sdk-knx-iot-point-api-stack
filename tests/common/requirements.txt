@@ -1,0 +1,8 @@
+cbor2>=5.0
+cryptography>=41.0
+pytest>=7.0
+# zeroconf >= 0.151 enforces RFC 6763 clause 6 (a service is only complete once a TXT record has
+# been seen), which is the behaviour the mDNS discovery tests assert. The upper bound guards
+# against another silent major-version behaviour change.
+zeroconf>=0.151.3,<1.0
+PyYAML>=6.0

@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 KNX Association
+ *
  * SPDX-License-Identifier: Apache-2.0
  *
  * Unit tests for api/oc_base64.c

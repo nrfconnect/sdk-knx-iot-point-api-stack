@@ -1,0 +1,150 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander Burker <burker@ucs.at>
+Date: Tue, 23 Jun 2026 00:24:59 +0200
+Subject: [PATCH] settings: nvs: keyed settings_load_one and delete-aware name
+ cache
+
+---
+ subsys/settings/src/settings_nvs.c | 96 ++++++++++++++++++++++++++++++
+ 1 file changed, 96 insertions(+)
+
+diff --git a/subsys/settings/src/settings_nvs.c b/subsys/settings/src/settings_nvs.c
+index 1a1e8bb029..e1c446e996 100644
+--- a/subsys/settings/src/settings_nvs.c
++++ b/subsys/settings/src/settings_nvs.c
+@@ -33,9 +33,11 @@ static int settings_nvs_load(struct settings_store *cs,
+ static int settings_nvs_save(struct settings_store *cs, const char *name,
+ 			     const char *value, size_t val_len);
+ static void *settings_nvs_storage_get(struct settings_store *cs);
++static ssize_t settings_nvs_load_one(struct settings_store *cs, const char *name, char *buf, size_t buf_len);
+ 
+ static const struct settings_store_itf settings_nvs_itf = {
+ 	.csi_load = settings_nvs_load,
++	.csi_load_one = settings_nvs_load_one,
+ 	.csi_save = settings_nvs_save,
+ 	.csi_storage_get = settings_nvs_storage_get
+ };
+@@ -81,12 +83,42 @@ static void settings_nvs_cache_add(struct settings_nvs *cf, const char *name,
+ {
+ 	uint16_t name_hash = crc16_ccitt(0xffff, name, strlen(name));
+ 
++	/* Reuse a freed slot (a previously deleted entry) before consuming a
++	 * fresh ring position, so the ring never overwrites a still-live entry
++	 * while free slots remain.
++	 */
++	for (int i = 0; i < CONFIG_SETTINGS_NVS_NAME_CACHE_SIZE; i++) {
++		if (cf->cache[i].name_id == NVS_NAMECNT_ID) {
++			cf->cache[i].name_hash = name_hash;
++			cf->cache[i].name_id = name_id;
++			return;
++		}
++	}
++
+ 	cf->cache[cf->cache_next].name_hash = name_hash;
+ 	cf->cache[cf->cache_next++].name_id = name_id;
+ 
+ 	cf->cache_next %= CONFIG_SETTINGS_NVS_NAME_CACHE_SIZE;
+ }
+ 
++/* Remove a key from the name cache when it is deleted, freeing its slot and
++ * decrementing the live-entry count so delete + re-create churn cannot push
++ * cache_total past the cache size and force the O(N) full-store fallback.
++ */
++static void settings_nvs_cache_remove(struct settings_nvs *cf, uint16_t name_id)
++{
++	for (int i = 0; i < CONFIG_SETTINGS_NVS_NAME_CACHE_SIZE; i++) {
++		if (cf->cache[i].name_id == name_id) {
++			cf->cache[i].name_id = NVS_NAMECNT_ID; /* mark slot free */
++			if (cf->cache_total > 0) {
++				cf->cache_total--;
++			}
++
++			return;
++		}
++	}
++}
++
+ static uint16_t settings_nvs_cache_match(struct settings_nvs *cf, const char *name,
+ 					 char *rdname, size_t len)
+ {
+@@ -220,6 +252,66 @@ static int settings_nvs_load(struct settings_store *cs,
+ 	return ret;
+ }
+ 
++/* Keyed single-key read for the NVS settings backend.
++ *
++ * settings_load_one() uses this instead of the full-store enumeration that
++ * settings_nvs_load() performs. When the name cache is authoritative this is
++ * O(1): one cache lookup for name -> name_id, then one nvs_read of the value.
++ * Added downstream (KNX-IoT); not present in upstream Zephyr. See Zephyr issue
++ * #45591.
++ */
++static ssize_t settings_nvs_load_one(struct settings_store *cs, const char *name,
++				     char *buf, size_t buf_len)
++{
++	struct settings_nvs *cf = CONTAINER_OF(cs, struct settings_nvs, cf_store);
++	char rdname[SETTINGS_MAX_NAME_LEN + SETTINGS_EXTRA_LEN + 1];
++	uint16_t name_id;
++	ssize_t rc;
++
++	if (!name || !buf) {
++		return -EINVAL;
++	}
++
++#if CONFIG_SETTINGS_NVS_NAME_CACHE
++	/* Fast path: when the name cache is authoritative (fully loaded and not
++	 * overflowed) it lists every stored key, so a cache miss definitively
++	 * means the key is absent. Same authority check as settings_nvs_save().
++	 */
++	if (cf->loaded && !SETTINGS_NVS_CACHE_OVFL(cf)) {
++		name_id = settings_nvs_cache_match(cf, name, rdname, sizeof(rdname));
++		if (name_id == NVS_NAMECNT_ID) {
++			return 0;
++		}
++		return nvs_read(&cf->cf_nvs, name_id + NVS_NAME_ID_OFFSET, buf,
++				buf_len);
++	}
++#endif
++
++	/* Fallback (cache cold, overflowed, or disabled): scan the name space once
++	 * for this single key. Correct but O(N); only taken when the fast path
++	 * cannot prove absence. Mirrors the scan in settings_nvs_load().
++	 */
++	name_id = cf->last_name_id + 1;
++	while (1) {
++		name_id--;
++		if (name_id == NVS_NAMECNT_ID) {
++			break;
++		}
++		rc = nvs_read(&cf->cf_nvs, name_id, rdname, sizeof(rdname));
++		if (rc <= 0) {
++			continue;
++		}
++		rdname[rc] = '\0';
++		if (strcmp(rdname, name) != 0) {
++			continue;
++		}
++		return nvs_read(&cf->cf_nvs, name_id + NVS_NAME_ID_OFFSET, buf,
++				buf_len);
++	}
++
++	return 0;
++}
++
+ static int settings_nvs_save(struct settings_store *cs, const char *name,
+ 			     const char *value, size_t val_len)
+ {
+@@ -309,6 +401,10 @@ found:
+ 			return rc;
+ 		}
+ 
++#if CONFIG_SETTINGS_NVS_NAME_CACHE
++		settings_nvs_cache_remove(cf, name_id);
++#endif
++
+ 		if (name_id == cf->last_name_id) {
+ 			cf->last_name_id--;
+ 			rc = nvs_write(&cf->cf_nvs, NVS_NAMECNT_ID,
+-- 
+2.51.0.windows.1
+

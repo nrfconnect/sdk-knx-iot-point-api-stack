@@ -13,8 +13,11 @@
  */
 
 #include <gtest/gtest.h>
+#include <string>
+#include <vector>
 
 extern "C" {
+#include "oc_api.h"
 #include "oc_ri.h"
 #include "oc_rep.h"
 #include "oc_helpers.h"
@@ -28,6 +31,7 @@ extern const oc_resource_t core_resource_knx_p;
 /* ───────────────────────────── helpers ──────────────────────────────────── */
 
 struct PRequestCtx {
+  uint8_t buf[1024];
   oc_request_t request;
   oc_response_t response;
   oc_response_buffer_t response_buffer;
@@ -39,6 +43,47 @@ struct PRequestCtx {
     response.response_buffer = &response_buffer;
     request.response = &response;
     request.resource = (oc_resource_t *)&core_resource_knx_p;
+    response_buffer.buffer = buf;
+    response_buffer.buffer_size = sizeof(buf);
+  }
+};
+
+static int g_p_put_calls;
+
+static void p_put_handler(oc_request_t *request, oc_interface_mask_t, void *)
+{
+  g_p_put_calls++;
+  oc_prepare_no_format_response_no_payload(request, OC_STATUS_CHANGED);
+}
+
+class KnxPAppResources : public ::testing::Test {
+protected:
+  std::vector<oc_resource_t *> added;
+
+  void SetUp() override
+  {
+    oc_mmem_init();
+    g_p_put_calls = 0;
+  }
+
+  void TearDown() override
+  {
+    for (oc_resource_t *resource : added) {
+      oc_free_string(&resource->uri);
+      oc_ri_delete_resource(resource);
+    }
+  }
+
+  void add_resource(const char *uri)
+  {
+    oc_resource_t *resource = oc_ri_alloc_resource();
+    ASSERT_NE(resource, nullptr);
+    oc_new_string(&resource->uri, uri, strlen(uri));
+    resource->get_handler.cb = p_put_handler;
+    resource->put_handler.cb = p_put_handler;
+    resource->put_handler.interface_mask = OC_IF_I;
+    ASSERT_TRUE(oc_ri_add_resource(resource));
+    added.push_back(resource);
   }
 };
 
@@ -90,6 +135,36 @@ TEST(KnxPGet, ContentNoneAcceptIsAccepted)
   EXPECT_EQ(ctx.response_buffer.code, oc_status_code(OC_STATUS_BAD_REQUEST));
 }
 
+TEST_F(KnxPAppResources, GetReturnsRegisteredDatapointsWithPagination)
+{
+  add_resource("/p/one");
+  add_resource("/p/two");
+
+  PRequestCtx first_page;
+  first_page.request.accept = APPLICATION_LINK_FORMAT;
+  first_page.request.query = (char *)"pn=0&ps=1";
+  first_page.request.query_len = strlen(first_page.request.query);
+  oc_rep_new(first_page.buf, sizeof(first_page.buf));
+  call_p_get(&first_page.request);
+
+  EXPECT_EQ(first_page.response_buffer.code, oc_status_code(OC_STATUS_OK));
+  EXPECT_EQ(first_page.response_buffer.content_format, APPLICATION_LINK_FORMAT);
+  EXPECT_GT(first_page.response_buffer.response_length, 0U);
+  std::string first_payload((char *)first_page.buf,
+                            first_page.response_buffer.response_length);
+  EXPECT_NE(first_payload.find("p.next"), std::string::npos);
+
+  PRequestCtx second_page;
+  second_page.request.accept = APPLICATION_LINK_FORMAT;
+  second_page.request.query = (char *)"pn=1&ps=1";
+  second_page.request.query_len = strlen(second_page.request.query);
+  oc_rep_new(second_page.buf, sizeof(second_page.buf));
+  call_p_get(&second_page.request);
+
+  EXPECT_EQ(second_page.response_buffer.code, oc_status_code(OC_STATUS_OK));
+  EXPECT_GT(second_page.response_buffer.response_length, 0U);
+}
+
 /* ───────────────────────────── POST handler ─────────────────────────────── */
 
 TEST(KnxPPost, WrongAcceptReturnsBadRequest)
@@ -135,18 +210,32 @@ TEST(KnxPPost, UnknownHrefReturnsNotFound)
   oc_free_string(&entry.value.string);
 }
 
-/*
- * NOTE — GET success path / private helper oc_was_adding_data_points_to_response
- * is intentionally NOT unit-tested here.
- *
- * The append helper only executes once at least one application datapoint
- * resource is registered, which requires an initialised RI singleton
- * (oc_ri_init) plus the global oc_mmem pools. Driving that path in an isolated
- * unit harness aborts with "free(): invalid pointer" because oc_ri_init /
- * oc_ri_shutdown and the mmem pools are process-global singletons with no
- * isolated setup/teardown contract — registering a stack-owned resource and
- * tearing it down corrupts the shared allocator state. This path is therefore
- * exercised at integration level (full-stack GET /p), recorded in
- * tests/COVERAGE_LEDGER.md. The two handlers' own validation/branch logic is
- * fully covered by the unit tests above.
- */
+TEST_F(KnxPAppResources, PostDispatchesValueToMatchingPutHandler)
+{
+  add_resource("/p/one");
+
+  oc_rep_t value{};
+  value.iname = 1;
+  value.type = OC_REP_BOOL;
+  value.value.boolean = true;
+
+  oc_rep_t href{};
+  href.iname = 11;
+  href.type = OC_REP_STRING;
+  oc_new_string(&href.value.string, "/p/one", 6);
+  href.next = &value;
+
+  oc_rep_t object{};
+  object.type = OC_REP_OBJECT;
+  object.value.object = &href;
+
+  PRequestCtx ctx;
+  ctx.request.accept = APPLICATION_CBOR;
+  ctx.request.request_payload = &object;
+  call_p_post(&ctx.request);
+
+  EXPECT_EQ(g_p_put_calls, 1);
+  EXPECT_EQ(ctx.response_buffer.code, oc_status_code(OC_STATUS_CHANGED));
+  oc_free_string(&href.value.string);
+}
+

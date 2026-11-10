@@ -6,8 +6,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef OSCORE_H
-#define OSCORE_H
+#pragma once
 #include "port/oc_connectivity.h"
 
 #ifdef __cplusplus
@@ -18,32 +17,52 @@ extern "C"
   // send an oscore error as CoAP with a CoAP return code (as plain CoAP error or as secured OSCORE error)
   void oscore_send_error(void* packet, uint8_t code, oc_endpoint_t* endpoint, bool secured);
 
-  // read piv (src) and stores it to 64-bit ssn (dst), ssn is cleared first and result is converted by little/big endian 
-  int oscore_store_piv_to_ssn(uint8_t* piv, uint8_t piv_len, uint64_t* ssn);
+  // read big-endian piv into a 32-bit ssn (piv_len 0 gives 0); piv_len <= OSCORE_SSN_PIV_LEN_MAX is ensured by the OSCORE option parser
+  uint32_t oscore_piv_to_ssn(const uint8_t* piv, uint8_t piv_len);
 
-  // store 64-bit ssn (src) to piv (dst), piv is cleared first and result is converted by little/big endian
-  int oscore_store_ssn_to_piv(uint8_t* piv, uint8_t* piv_len, uint64_t ssn);
+  // store 32-bit ssn (src) to piv (dst) as minimal-length big-endian, piv is cleared first, piv_len is set always (1..4)
+  void oscore_store_ssn_to_piv(uint8_t* piv, uint8_t* piv_len, uint32_t ssn);
 
   // echo ring (single unified FIFO: anchor slots + seen-responder slots); exposed for unit testing and the send / receive paths
 
   // extra definition to avoid including coap.h in this header file (circular dependency)   
   struct coap_packet_t;
 
+  // extra definition to avoid including the group object table header here (circular dependency)
+  struct oc_group_object_table_t;
+
+  // extra definition to avoid including the OSCORE context header here
+  struct oc_oscore_context_t;
+
+  // frees all echo records in th echo ring
   void oc_oscore_free_all_echo_records(void);
 
-  // write an anchor slot (former whitelist append); takes own ref on msg (NULL-safe); caller must unref msg after
-  void oc_oscore_echo_whitelist_append(uint64_t ssn, const uint8_t* kid, uint8_t kid_len,
-                                       const uint8_t* token, uint8_t token_len,
-                                       oc_message_t* msg);
+  void oc_oscore_echo_whitelist_append(uint32_t ssn, const struct oc_oscore_context_t* ctx,
+                                       const struct coap_packet_t* pkt, const oc_endpoint_t* endpoint);
 
-  // look up the retained PLAINTEXT s-mode message by CoAP token; no ownership transfer; NULL if not found
-  oc_message_t* oc_oscore_echo_get_retained_plaintext(const struct coap_packet_t* pkt);
+  /*
+    Anchor of an inbound echo response, copied OUT of the echo ring by value.
 
-  // accept or reject an inbound echo response using the unified ring (anchor + seen-responder scan)
+    The ring is a FIFO whose slots are recycled, and the regeneration path calls the application GET
+    handler, which may send an s-mode message and thereby evict slots. The caller therefore gets a copy,
+    never a pointer into ring storage.
+
+    'go' references the group object table entry (owned by that table, no ownership transfer).
+  */
+  typedef struct
+  {
+    const struct oc_group_object_table_t* go;
+    char service_type;  // 'w', 'r' or 'a' of the original outbound request
+  } oc_echo_anchor_t;
+
+  
+  bool oc_oscore_echo_get_anchor(const struct coap_packet_t* pkt, oc_echo_anchor_t* anchor);
+
   bool oc_oscore_echo_check_and_consume(const struct coap_packet_t* pkt);
 
   bool oscore_is_oscore_message(oc_message_t* msg);
 
+  // parse the OSCORE option value into the packet, returns 0 on success, -1 if the option value is malformed
   int coap_parse_inner_oscore_option(void* packet, uint8_t* current_option, size_t option_length);
 
   size_t coap_serialize_oscore_option(unsigned int* current_number, void* packet, uint8_t* buffer);
@@ -58,6 +77,4 @@ extern "C"
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

@@ -2,7 +2,7 @@
  * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2021-2023 Cascoda Ltd
  * Copyright (c) 2024-2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,10 +11,6 @@
 #include "oc_api.h"
 #include "conf.h"
 #include "port/oc_random.h"
-
-#ifdef OC_TCP
-#include "messaging/coap/coap_signal.h"
-#endif 
 
 #ifdef OC_CLIENT
 
@@ -34,13 +30,17 @@ static oc_message_t* udp_message_update = NULL;
 
 bool oc_do_s_mode_message_update(void* recipient)
 {
-  const int payload_size = oc_rep_get_encoded_payload_size();
+  const int size = oc_rep_get_encoded_payload_size();
   bool ret = false;
 
-  if (payload_size > 0)
+  // 'size > 0' only: a failed encoding (-1) and an empty payload (0) stores nothing
+  if (size > 0)
   {
-    // udp message is initialized, coap payload gets ptr from message data (but data are NOT copied)
-    coap_set_payload(udp_coap_request, udp_message_update->data + COAP_MAX_HEADER_SIZE, payload_size);
+    /*
+      udp message is initialized, coap payload gets ptr from message data (but data are NOT copied)
+      the gap must be the plain budget: coap_serialize_message() below writes inner AND outer options into one flat message
+    */
+    coap_set_payload(udp_coap_request, udp_message_update->data + COAP_MAX_HEADER_SIZE, size);
 
     udp_message_update->length = coap_serialize_message(udp_coap_request, udp_message_update->data);
 
@@ -123,8 +123,16 @@ bool oc_init_s_mode_message_update(const oc_endpoint_t* s_mode_message_ep, const
   // no callback is possible to this (outbound) s-mode POST message, the message needs to generate its own token/mid
   memcpy(&udp_message_update->endpoint, s_mode_message_ep, sizeof(oc_endpoint_t));
 
-  // s-mode message MAY carry a payload, this step is needed
-  oc_rep_new(udp_message_update->data + COAP_MAX_HEADER_SIZE, OC_BLOCK_SIZE);
+  /*
+    s-mode message MAY carry a payload, this step is needed 
+    (same plain budget offset as used in oc_do_s_mode_message_update)
+
+    - the budget is the FULL application data size KNX_PAYLOAD_SIZE
+    - the message buffer is OC_PDU_SIZE, which is KNX_PAYLOAD_SIZE + OC_COAP_HEADER_BUDGET
+    - blockwise transfer is NOT used for s-mode messages, so the payload must fit into the message buffer
+      (otherwise KNX_PAYLOAD_SIZE must be increased)
+  */
+  oc_rep_new(udp_message_update->data + COAP_MAX_HEADER_SIZE, OC_MAX_APP_DATA_SIZE);
 
   // default it to an CON s-mode message
   coap_message_type_t type = COAP_TYPE_CON;
@@ -171,72 +179,16 @@ bool oc_init_well_known_message_update(const oc_endpoint_t* well_known_message, 
   coap_udp_init_message(udp_coap_request, non_confirmable ? COAP_TYPE_NON : COAP_TYPE_CON, COAP_GET, callback->mid);
   coap_set_header_accept(udp_coap_request, APPLICATION_LINK_FORMAT);
 
-  // well-known message DO NOT carry a payload (yet)
-
   // set here fix COAP_TOKEN_LEN byte token len
   udp_coap_request->token_len = COAP_TOKEN_LEN;
   memcpy(udp_coap_request->token + 0, callback->token + 0, 4);
   memcpy(udp_coap_request->token + 4, callback->token + 4, 4);
 
-  // well-known messages carries a uri + query + outgoing format
+  // well-known message DO NOT carry a payload (yet) - it is a GET message, so no Content-Format must be set (packet is wiped on init)
   coap_set_header_uri_query(udp_coap_request, query);
-  coap_set_header_content_format(udp_coap_request, CONTENT_NONE);
   coap_set_header_uri_path(udp_coap_request, uri, strlen(uri));
 
   return true;
-}
-
-#ifdef OC_TCP
-oc_event_callback_retval_t oc_remove_ping_handler(void *data) {
-  oc_client_cb_t *cb = (oc_client_cb_t *)data;
-
-  oc_client_response_t timeout_response;
-  timeout_response.code = OC_PING_TIMEOUT;
-  timeout_response.endpoint = &cb->endpoint;
-  timeout_response.user_data = cb->user_data;
-  cb->handler.response(&timeout_response);
-
-  return oc_ri_remove_client_cb(cb);
-}
-
-bool oc_send_ping(bool custody, oc_endpoint_t *endpoint, 
-        uint16_t timeout_seconds, oc_response_handler_t handler, 
-        void *user_data) {
-  oc_client_handler_t client_handler = {
-    .response = handler,
-  };
-
-  oc_client_cb_t *cb = oc_ri_alloc_client_cb(
-    "/ping", endpoint, 0, NULL, client_handler, LOW_QOS, user_data);
-  if (!cb) {
-    return false;
-  }
-
-  if (!coap_send_ping_message(endpoint, custody ? 1 : 0, cb->token,
-          cb->token_len)) {
-    oc_ri_remove_client_cb(cb);
-    return false;
-  }
-
-  oc_set_delayed_callback(cb, oc_remove_ping_handler, timeout_seconds);
-  return true;
-}
-#endif 
-
-void oc_close_session(oc_endpoint_t *endpoint) 
-{
-  if (endpoint->flags & SECURED) 
-  {
-    #ifdef KNX_TCP_TLS
-    oc_tls_close_connection(endpoint);
-    #endif 
-  }
-  else if (endpoint->flags & TCP)
-  {
-    #ifdef OC_TCP
-    oc_connectivity_end_session(endpoint);
-    #endif
-  }
 }
 
 int oc_lf_number_of_entries(const char *payload, int payload_len) {

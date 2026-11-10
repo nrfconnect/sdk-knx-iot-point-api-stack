@@ -1,4 +1,0 @@
-cbor2>=5.0
-cryptography>=41.0
-pytest>=7.0
-zeroconf>=0.100.0

@@ -1,17 +1,16 @@
 /*
  * Copyright (c) 2026 KNX Association
+ *
  * SPDX-License-Identifier: Apache-2.0
  *
  * Unit tests for api/oc_uuid.c
- *
  * Covers:
- *   oc_str_to_uuid - string -> binary parsing
- *   oc_uuid_to_str - binary -> string formatting
- *   oc_gen_uuid    - random version-4 UUID generation + validation
- *
+ * oc_str_to_uuid - string -> binary parsing
+ * oc_uuid_to_str - binary -> string formatting
+ * oc_gen_uuid    - random version-4 UUID generation + validation
  * Requirements:
- *   oc_gen_uuid draws randomness from psa_generate_random(), so PSA crypto
- *   must be initialized once before any generation test runs.
+ * oc_gen_uuid draws randomness from psa_generate_random(), so PSA crypto
+ * must be initialized once before any generation test runs.
  */
 
 #include <gtest/gtest.h>
@@ -80,6 +79,89 @@ TEST(UuidRoundTrip, StringToBinaryToString)
   EXPECT_STREQ(output, input);
 }
 
+/* Regression (found by tests/fuzz/fuzz_uuid_parse.c): the parse loop
+ * unconditionally indexes str[0..35] with no length check, reading past a
+ * NUL-terminated string shorter than 36 bytes. */
+TEST(UuidStrToUuid, ShorterThanUuidLenDoesNotOverread)
+{
+  oc_uuid_t uuid;
+  memset(&uuid, 0xAA, sizeof(uuid));
+  oc_str_to_uuid("short", &uuid);
+
+  for (int i = 0; i < 16; ++i) {
+    EXPECT_EQ(uuid.id[i], 0) << "byte " << i << " should be zeroed";
+  }
+}
+
+/* Regression (found by tests/fuzz/fuzz_uuid_parse.c): a high-bit byte (e.g.
+ * 0xce) used to reach isalpha() as a signed char, sign-extending to a
+ * negative int outside EOF/unsigned-char range - undefined behavior in
+ * glibc's ctype table lookup. The rewritten parser no longer calls isalpha()
+ * (or any ctype.h function) at all, so this is checked directly: a string
+ * with no dashes at the required positions is rejected outright, and the
+ * output is deterministically zeroed rather than merely "did not crash". */
+TEST(UuidStrToUuid, HighBitByteDoesNotMisbehave)
+{
+  oc_uuid_t uuid;
+  memset(&uuid, 0xAA, sizeof(uuid));
+  char str[37];
+  memset(str, 'a', 36);
+  str[14] = '\xce';
+  str[36] = '\0';
+  oc_str_to_uuid(str, &uuid);
+
+  for (int i = 0; i < 16; ++i) {
+    EXPECT_EQ(uuid.id[i], 0) << "byte " << i << " should be zeroed";
+  }
+}
+
+/* Regression (found by tests/fuzz/fuzz_uuid_parse.c): a 36-byte string with
+ * fewer/misplaced dashes than the expected 4 yields more than 32 hex
+ * digits, previously overflowing the 16-byte uuid->id array by one byte.
+ *
+ * The rewritten parser rejects any dash placement other than the canonical
+ * 8-13-18-23 positions before parsing a single hex digit, so this is now
+ * structurally impossible rather than guarded against; the canary is kept
+ * to make that guarantee explicit instead of only checking "did not crash".
+ */
+TEST(UuidStrToUuid, TooFewDashesDoesNotOverwrite)
+{
+  struct
+  {
+    oc_uuid_t uuid;
+    uint32_t canary;
+  } frame;
+  memset(&frame, 0xAA, sizeof(frame));
+  frame.canary = 0xDEADBEEF;
+
+  const char *str = "q628fb13ce-4ed\xce\xc9"
+                     "d2a2ad5d8d\xce\xc9"
+                     "d2a2ad5d";
+  ASSERT_EQ(strlen(str), 36u);
+  oc_str_to_uuid(str, &frame.uuid);
+
+  EXPECT_EQ(frame.canary, 0xDEADBEEFu)
+    << "write past uuid.id[15] corrupted adjacent memory";
+  for (int i = 0; i < 16; ++i) {
+    EXPECT_EQ(frame.uuid.id[i], 0) << "byte " << i << " should be zeroed";
+  }
+}
+
+/* New with the rewrite: a 36-byte string with dashes at the canonical
+ * positions but a non-hex character elsewhere must also be rejected
+ * (zeroed), not silently accepted as garbage. */
+TEST(UuidStrToUuid, InvalidHexDigitIsRejected)
+{
+  oc_uuid_t uuid;
+  memset(&uuid, 0xAA, sizeof(uuid));
+  /* one 'g' in place of a hex digit, dashes otherwise canonical */
+  oc_str_to_uuid("g628fbcc-13ce-4e37-b883-1fd8d2ad945d", &uuid);
+
+  for (int i = 0; i < 16; ++i) {
+    EXPECT_EQ(uuid.id[i], 0) << "byte " << i << " should be zeroed";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Wildcard / special cases
 // ---------------------------------------------------------------------------
@@ -119,6 +201,25 @@ TEST(UuidToStr, BufferTooSmall)
   oc_uuid_to_str(&uuid, buf, sizeof(buf));
   // Buffer too small — function should not modify it
   EXPECT_STREQ(buf, "unchanged");
+}
+
+TEST(UuidToStr, NullUuidDoesNotCrash)
+{
+  char buf[OC_UUID_LEN] = "unchanged";
+  oc_uuid_to_str(nullptr, buf, OC_UUID_LEN);
+  // NULL uuid — function should not touch the buffer
+  EXPECT_STREQ(buf, "unchanged");
+}
+
+/* id[0] == '*' alone is not enough to be the wildcard: only an all-zero
+ * remainder (id[1..15]) is. A real UUID whose first byte happens to be 0x2a
+ * must still format as a normal 36-char hex string. */
+TEST(UuidToStr, IdZeroButNotAllZeroRemainderFormatsNormally)
+{
+  oc_uuid_t uuid = {{0x2a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01}};
+  char buf[OC_UUID_LEN] = {};
+  oc_uuid_to_str(&uuid, buf, OC_UUID_LEN);
+  EXPECT_STREQ(buf, "2a000000-0000-0000-0000-000000000001");
 }
 
 TEST(UuidToStr, AllZeros)

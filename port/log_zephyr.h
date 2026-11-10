@@ -1,12 +1,11 @@
-/* 
+/*
  * Copyright (c) 2026 Alexander Burker
  * Copyright (c) 2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
  *
- *  @brief platform abstraction of logging
- *  @file
- *
+ * @brief platform abstraction of logging
+ * @file
  */
 
 #pragma once

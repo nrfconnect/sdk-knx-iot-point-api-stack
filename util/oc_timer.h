@@ -2,6 +2,8 @@
  * Copyright (c) 2004, Swedish Institute of Computer Science.
  * All rights reserved.
  *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -60,8 +62,7 @@
  * @{
  */
 
-#ifndef OC_TIMER_H
-#define OC_TIMER_H
+#pragma once
 
 #include "port/oc_clock.h"
 
@@ -92,5 +93,3 @@ oc_clock_time_t oc_timer_remaining(struct oc_timer *t);
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* OC_TIMER_H */

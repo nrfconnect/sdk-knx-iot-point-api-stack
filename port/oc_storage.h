@@ -1,7 +1,7 @@
-/* 
+/*
  * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2024-2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,8 +9,7 @@
   @brief platform abstraction for storage (e.g. file writing)
   @file
 */
-#ifndef OC_STORAGE_H
-#define OC_STORAGE_H
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
@@ -38,7 +37,7 @@ int oc_storage_config(const char *store);
  *
  * @note if storage path 'store' is not present, the 'buf' is not changed
  *
- * @return long amount of bytes read
+ * @return long amount of bytes read (> 0) or 0 if the store is not present, or < 0 on error
  */
 long oc_storage_read(const char *store, uint8_t *buf, size_t size);
 
@@ -62,6 +61,4 @@ int oc_storage_erase(const char *store);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

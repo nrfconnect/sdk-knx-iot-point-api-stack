@@ -1,0 +1,253 @@
+# KNX-IoT Point API Stack - ESP-IDF component configuration.
+# Mirrors the stack options exposed for the Zephyr build (zephyr/Kconfig) and the
+# Linux/Windows CMake cache variables.
+#
+# PSA crypto is configured explicitly here, mirroring the Zephyr KNXIOT_LIB select
+# block, not left to the ESP-IDF defaults. ESP-IDF's bundled Mbed TLS exposes no
+# standalone PSA_WANT_* Kconfig symbols. Its config header esp_config.h derives each
+# PSA_WANT_* from a matching CONFIG_MBEDTLS_* Kconfig option, so the primitives the
+# stack needs are force-enabled below by selecting those CONFIG_MBEDTLS_* symbols.
+# HKDF, HMAC, PBKDF2-HMAC and the DERIVE/HMAC/RAW_DATA key types are already enabled
+# by the tf-psa-crypto default config (no ESP-IDF Kconfig gate), and the PSA RNG is
+# external (esp_fill_random), so none of those need a select.
+#
+# lwIP requirements of the connectivity backend (port/freertos_esp32/connectivity_lwip.c)
+# are force-enabled the same way: IPv6 (KNX-IoT is IPv6 only) and the netbuf receive
+# info, which is off by default and without which recvmsg() delivers no IPV6_PKTINFO,
+# so the MULTICAST endpoint flag and the receive interface would be lost silently.
+# SLAAC (LWIP_IPV6_AUTOCONFIG) is an application policy and stays with the app config.
+
+menu "KNX-IoT Point API Stack"
+
+# Internal gate, no prompt (the menu above already provides the visible title).
+# Always enabled. Exists to hold the PSA crypto and lwIP selects, mirroring the
+# Zephyr KNXIOT_LIB select block (see the note above for what each select does).
+config KNXIOT_LIB
+    bool
+    default y
+    select MBEDTLS_CCM_C
+    select MBEDTLS_CIPHER_MODE_CBC
+    select MBEDTLS_SHA256_C
+    select MBEDTLS_AES_C
+    select MBEDTLS_ECP_C
+    select MBEDTLS_ECP_DP_SECP256R1_ENABLED
+    select MBEDTLS_ECDH_C
+    select MBEDTLS_ECP_NIST_OPTIM
+    select LWIP_IPV6
+    select LWIP_NETBUF_RECVINFO
+
+if KNXIOT_LIB
+
+config KNXIOT_TINYCBOR_BUILTIN
+    bool "Use stack-bundled TinyCBOR (FetchContent)"
+    default y
+    help
+      ESP-IDF has no TinyCBOR component, so the stack fetches TinyCBOR v7.0 at
+      build time (mirrors the Zephyr build). Set to n only if an external
+      TinyCBOR component is provided.
+
+# -- Protocol --
+
+config KNXIOT_CLIENT
+    bool "KNX-IoT client mode support"
+    default y
+    help
+      Corresponds to CMake: OC_CLIENT.
+
+config KNXIOT_SERVER
+    bool "KNX-IoT server mode support"
+    default y
+    help
+      Corresponds to CMake: OC_SERVER.
+
+config KNXIOT_PUBLISHER_TABLE
+    bool "Publisher table (Group Publisher Table) support"
+    default y
+    help
+      Corresponds to CMake: OC_PUBLISHER_TABLE_ENABLED.
+      Enables the Group Publisher Table (GPT) for table-managed KNX S-mode group
+      communication. Disable for plain senders that only transmit S-mode messages.
+
+# -- Table sizes --
+
+config KNXIOT_GOT_MAX_ENTRIES
+    int "Group Object Table (GOT) max entries"
+    default 50
+
+config KNXIOT_GPT_MAX_ENTRIES
+    int "Group Publisher Table (GPT) max entries"
+    default 20
+    depends on KNXIOT_PUBLISHER_TABLE
+
+config KNXIOT_GRT_MAX_ENTRIES
+    int "Group Recipient Table (GRT) max entries"
+    default 20
+
+config KNXIOT_ATT_MAX_ENTRIES
+    int "Access Token (AT) table max entries"
+    default 20
+
+config KNXIOT_PAGE_SIZE
+    int "Server default page size"
+    default 20
+
+# -- Network --
+
+choice KNXIOT_NETWORK_BACKEND
+    prompt "KNX-IoT network backend"
+    default KNXIOT_NETWORK_BACKEND_WIFI
+    help
+      Selects the connectivity implementation compiled into the stack.
+      The application supplies the matching ESP-IDF configuration for the
+      selected backend.
+
+config KNXIOT_NETWORK_BACKEND_ETHERNET
+    bool "Ethernet"
+    help
+      Use Ethernet as the network backend.
+      Compiles port/freertos_esp32/connectivity_lwip.c with the shared DNS-SD
+      responder (port/dns-sd_mdns.c). Needs the esp_eth component and the
+      Ethernet esp_netif (ETH_DEF) created by the application.
+
+config KNXIOT_NETWORK_BACKEND_THREAD
+    bool "OpenThread"
+    select OPENTHREAD_ENABLED
+    help
+      Use OpenThread (IEEE 802.15.4 Thread mesh) as the network backend.
+      Compiles port/freertos_esp32/connectivity_lwip.c over the OpenThread
+      esp_netif (OT_DEF, CONFIG_OPENTHREAD_PLATFORM_NETIF) with the DNS-SD
+      registration through the OpenThread SRP client (port/dns-sd_srp.c,
+      shared with Zephyr). Selects the OpenThread component, the application
+      starts OpenThread and supplies its configuration.
+
+config KNXIOT_NETWORK_BACKEND_WIFI
+    bool "Wi-Fi"
+    help
+      Use Wi-Fi as the network backend.
+      Compiles port/freertos_esp32/connectivity_lwip.c with the shared DNS-SD
+      responder (port/dns-sd_mdns.c).
+
+endchoice
+
+config KNX_UNICAST_PORT
+    int "IPv6 unicast port (0 = OS-assigned ephemeral)"
+    default 0
+
+config KNX_MULTICAST_SCOPE
+    int "IPv6 multicast scope for KNX S-mode (2 = link-local, 5 = site-local)"
+    default 5
+
+config KNX_READ_ON_INIT_DELAY_MS
+    int "Read-on-init inter-request delay (milliseconds)"
+    default 100
+
+config KNX_RESET_PROCESS_TIME_S
+    int "KNX reset process time (seconds)"
+    default 2
+
+config KNXIOT_LWIP_MLD6_GROUPS
+    int "lwIP IPv6 multicast group memberships (MEMP_NUM_MLD6_GROUP)"
+    default 10
+    range 4 64
+    help
+      Size of the lwIP pool for IPv6 multicast group memberships (MLD6). lwIP defaults it
+      to 4 and ESP-IDF has no option for it, so the stack component sizes it for the whole
+      build (see esp-idf/knx_iot/CMakeLists.txt). The pool holds the solicited-node group
+      of every unicast address, the three all CoAP nodes groups, the mDNS group and one
+      group per KNX S-mode group address joined from the tables. A join beyond the pool
+      fails with an error log of the connectivity backend.
+      Twin of CONFIG_NET_IF_MCAST_IPV6_ADDR_COUNT=10 of the Zephyr demos Wi-Fi
+      configuration.
+
+# -- FreeRTOS tasks --
+
+config KNXIOT_RX_TASK_STACK_SIZE
+    int "CoAP receive task stack size (bytes)"
+    default 4096
+    help
+      Stack of the task that waits on the CoAP sockets and hands every received
+      datagram to the stack (port/freertos_esp32/connectivity_lwip.c). The datagram
+      buffers come from the stack's message pool, not from this stack.
+
+config KNXIOT_RX_TASK_PRIORITY
+    int "CoAP receive task priority"
+    default 5
+    help
+      FreeRTOS priority of the CoAP receive task. Above the ESP-IDF main task (1),
+      below the lwIP tcpip task (default 18).
+
+config KNXIOT_MDNS_LISTENER_STACK_SIZE
+    int "mDNS listener thread stack size (bytes)"
+    default 8192
+    help
+      Stack of the DNS-SD query responder thread (port/dns-sd_mdns.c), created as a
+      pthread with this explicit size. It parses incoming mDNS queries and builds the
+      response records on this stack. 4096 overflowed on Zephyr while answering a
+      query, 8192 gives safe headroom.
+
+# -- Shell --
+
+config KNXIOT_SHELL
+    bool "KNX IoT console command (knx_iot)"
+    default y
+    help
+      Compiles the shared KNX IoT shell commands (port/knx_shell_commands.c) and their
+      ESP-IDF console binding (port/freertos_esp32/knx_shell.c), which registers the
+      "knx_iot" console command with its subcommands (device parameters, tables, factory
+      reset, heap statistics). The application creates the console REPL, calls
+      knx_shell_register() and starts the REPL. The ESP-IDF console component is a fixed
+      requirement of the stack component, this option only selects the sources.
+
+# -- Testing --
+
+config KNXIOT_TEST_CONTROL
+    bool "Test-control endpoints (/test/restart, /test/factory-reset, /test/trigger)"
+    default n
+    help
+      Compiles api/oc_test_control.c and defines KNX_TEST_CONTROL for all targets.
+      Registers the non-standard /test/* CoAP endpoints used by the Python runtime
+      conformance suite. The application must call oc_test_control_register().
+
+# -- Logging --
+
+config KNXIOT_LOG_LEVEL
+    int "KNX-IoT stack log level (0=off 1=err 2=wrn 3=inf 4=dbg)"
+    default 3
+    range 0 3 if !KNXIOT_DEBUG
+    range 0 4 if KNXIOT_DEBUG
+    help
+      Corresponds to CMake: OC_PRINT_ENABLED (level > 0) / OC_DEBUG_ENABLED (level 4).
+
+config KNXIOT_DEBUG
+    bool "Enable debug logging (unlocks level 4) and debug code paths"
+    default n
+    help
+      Corresponds to CMake: OC_DEBUG_ENABLED.
+
+config KNXIOT_DEBUG_OSCORE
+    bool "OSCORE debug output"
+    default n
+    depends on KNXIOT_DEBUG
+    help
+      Corresponds to CMake: OC_DEBUG_OSCORE_ENABLED.
+
+config KNXIOT_LOG_CAST_64_BIT_INTS
+    bool "Cast 64-bit integers in log output"
+    default n
+    help
+      Corresponds to CMake: KNX_LOG_CAST_64_BIT_INTS_ENABLED.
+
+config KNXIOT_LOG_PLATFORM_NATIVE
+    bool "Log through the ESP-IDF log component"
+    default y
+    help
+      When enabled, OC_ERR/OC_WRN/OC_INF/OC_DBG map to ESP_LOGE/W/I/D with the
+      tag "knx_iot" (port/log_esp-idf.h), so the stack output gets the ESP-IDF
+      format, colours and runtime level control (esp_log_level_set).
+      When disabled, the stack prints its own OC_LOG format (timestamp,
+      file:line, function) through printf, the same output as on Linux.
+      Defines KNX_LOG_ESP_IDF_NATIVE for all targets.
+
+endif # KNXIOT_LIB
+
+endmenu

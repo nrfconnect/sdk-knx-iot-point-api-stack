@@ -2,7 +2,7 @@
  * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2022 Cascoda Ltd
  * Copyright (c) 2024-2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -17,7 +17,7 @@
 
 static size_t query_iterator;
 
-int oc_get_query_value(oc_request_t* request, const char* key, char** value)
+int oc_get_query_value(oc_request_t* request, const char* key, const char** value)
 {
   if (!request)
   {
@@ -56,18 +56,21 @@ void oc_prepare_cbor_response(oc_request_t* request, oc_status_t response_code)
 {
   if (request && request->response && request->response->response_buffer)
   {
-    const int length = oc_rep_get_encoded_payload_size();
-    if (length == 0)
+    /*
+      - 'size <= 0' = a failed encoding (-1) and an empty encoding (0) 
+      - 'response_length' is a size_t, so a negative size must never
+        reach it, that would turn into a huge length over a buffer that holds nothing.
+    */
+    int size = oc_rep_get_encoded_payload_size();
+    request->response->response_buffer->content_format = APPLICATION_CBOR;
+    if (size <= 0)
     {
-      // same as 'oc_prepare_no_format_response_no_payload'
+      // nothing encoded or the encoding failed: same as 'oc_prepare_no_format_response_no_payload'
       request->response->response_buffer->content_format = CONTENT_NONE;
-    }
-    else
-    {
-      request->response->response_buffer->content_format = APPLICATION_CBOR;
+      size = 0;
     }
 
-    request->response->response_buffer->response_length = length;
+    request->response->response_buffer->response_length = size;
     request->response->response_buffer->code = oc_status_code(response_code);
   }
 }
@@ -76,18 +79,17 @@ void oc_prepare_json_response(oc_request_t* request, oc_status_t response_code)
 {
   if (request && request->response && request->response->response_buffer)
   {
-    const int length = oc_rep_get_encoded_payload_size();
-    if (length == 0)
+    // 'size <= 0' covers both a failed encoding (-1) and an empty one (0), see 'oc_prepare_cbor_response'
+    int size = oc_rep_get_encoded_payload_size();
+    request->response->response_buffer->content_format = APPLICATION_JSON;
+    if (size <= 0)
     {
-      // same as 'oc_prepare_no_format_response_no_payload'
+      // nothing encoded or the encoding failed: same as 'oc_prepare_no_format_response_no_payload'
       request->response->response_buffer->content_format = CONTENT_NONE;
-    }
-    else
-    {
-      request->response->response_buffer->content_format = APPLICATION_JSON;
+      size = 0;
     }
 
-    request->response->response_buffer->response_length = length;
+    request->response->response_buffer->response_length = size;
     request->response->response_buffer->code = oc_status_code(response_code);
   }
 }
@@ -144,17 +146,17 @@ void oc_init_query_iterator(void)
   query_iterator = 0;
 }
 
-int oc_iterate_query(oc_request_t* request, char** key, size_t* key_len, char** value, size_t* value_len)
+int oc_iterate_query(oc_request_t* request, const char** key, size_t* key_len, const char** value, size_t* value_len)
 {
   query_iterator++;
   return oc_ri_get_query_nth_key_value(request->query, request->query_len,
                                        key, key_len, value, value_len, query_iterator);
 }
 
-bool oc_iterate_query_get_values(oc_request_t* request, const char* key, char** value, int* value_len)
+bool oc_iterate_query_get_values(oc_request_t* request, const char* key, const char** value, int* value_len)
 {
-  char* current_key = 0;
-  size_t key_len = 0, v_len;
+  const char* current_key = 0;
+  size_t key_len = 0, v_len = 0;
   int pos;
 
   do
@@ -550,21 +552,49 @@ void oc_prepare_separate_response(oc_request_t* request, oc_separate_response_t*
 void oc_set_separate_response_buffer(oc_separate_response_t* handle)
 {
   coap_separate_t* cur = (coap_separate_t*)oc_list_head(handle->requests);
-  
+  if (!cur)
+  {
+    OC_ERR("no separate request stored, cannot set up the response buffer");
+    return;
+  }
+
   handle->response_state = oc_blockwise_alloc_response_buffer(
     oc_string(cur->uri), oc_string_len(cur->uri), 
     &cur->endpoint,
     cur->method, OC_BLOCKWISE_SERVER);
 
-  #ifdef OC_BLOCK_WISE
+  if (!handle->response_state)
+  {
+    OC_ERR("could not allocate the response buffer for the separate response");
+    return;
+  }
+  // allocated buffer in oc_blockwise_alloc_response_buffer = OC_MAX_APP_DATA_SIZE, so use it below
   oc_rep_new(handle->response_state->buffer, OC_MAX_APP_DATA_SIZE);
-  #else
-  oc_rep_new(handle->buffer, OC_BLOCK_SIZE);
-  #endif
 }
 
 static void oc_send_separate_response_with_length(oc_separate_response_t* handle, oc_status_t response_code, size_t length)
 {
+  if (!handle->response_state)
+  {
+    /*
+      no response buffer was allocated (e.g. block-wise buffers exhausted), the pending separate
+      requests cannot be answered (no response will be sent out), hence drop them and let the 
+      peer run into its own timeout
+    */
+    OC_ERR("no response buffer for the separate response, dropping the pending requests");
+
+    coap_separate_t* pending = (coap_separate_t*)oc_list_head(handle->requests);
+    while (pending)
+    {
+      coap_separate_t* next_pending = pending->next;
+      coap_separate_clear(handle, pending);
+      pending = next_pending;
+    }
+
+    handle->active = false;
+    return;
+  }
+
   oc_response_buffer_t response_buffer = 
   {
     .buffer = handle->response_state->buffer,
@@ -599,15 +629,9 @@ static void oc_send_separate_response_with_length(oc_separate_response_t* handle
         coap_separate_resume(response, current, (uint8_t)oc_status_code(response_code), t->mid);
         coap_set_header_content_format(response, response_buffer.content_format);
 
-        #ifdef OC_BLOCK_WISE
         oc_blockwise_state_t* response_state = NULL;
-        #ifdef OC_TCP
-        if (!(current->endpoint.flags & TCP) &&
-          response_buffer.response_length > current->block2_size) { 
-        #else
         if (response_buffer.response_length > current->block2_size)
         {
-          #endif
           response_state = oc_blockwise_find_response_buffer(
             oc_string(current->uri), oc_string_len(current->uri), &current->endpoint,
             current->method, NULL, 0, OC_BLOCKWISE_SERVER);
@@ -653,7 +677,6 @@ static void oc_send_separate_response_with_length(oc_separate_response_t* handle
           }
         }
         else
-        #endif
           if (response_buffer.response_length > 0)
           {
             coap_set_payload(response, handle->response_state->buffer, response_buffer.response_length);
@@ -686,9 +709,7 @@ static void oc_send_separate_response_with_length(oc_separate_response_t* handle
       }
     }
     
-    #ifdef OC_BLOCK_WISE
     next_separate_request:
-    #endif
     
     // current is NULLed after the call 
     coap_separate_clear(handle, current);
@@ -703,17 +724,27 @@ static void oc_send_separate_response_with_length(oc_separate_response_t* handle
 
 void oc_send_separate_response(oc_separate_response_t* handle, oc_status_t response_code)
 {
-  size_t length;
-  if (handle->response_state->payload_size != 0)
+  int size = 0;
+
+  if (handle->response_state)
   {
-    length = handle->response_state->payload_size;
-  }
-  else
-  {
-    length = oc_rep_get_encoded_payload_size();
+    // a blockwise buffered payload already knows its size, otherwise take the freshly encoded one
+    size = handle->response_state->payload_size != 0 ? (int)handle->response_state->payload_size : oc_rep_get_encoded_payload_size();
+    /*
+      only '< 0' here, unlike the 'oc_prepare_*_response' functions above: a size of 0 is a valid
+      empty separate response and must be sent as such, it is not an error.
+      The negative case can only originate from the encoder branch, 'payload_size' is unsigned.
+    */
+    if (size < 0)
+    {
+      // send the error response without a payload and size set to 0, so that the peer can handle it properly
+      OC_ERR("Separate response payload encoding failed, sending an internal error instead!");
+      response_code = OC_STATUS_INTERNAL_SERVER_ERROR;
+      size = 0;
+    }
   }
 
-  oc_send_separate_response_with_length(handle, response_code, length);
+  oc_send_separate_response_with_length(handle, response_code, (size_t)size);
 }
 
 void oc_send_empty_separate_response(oc_separate_response_t* handle, oc_status_t response_code)

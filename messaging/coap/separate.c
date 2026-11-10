@@ -17,7 +17,6 @@
 #include <string.h>
 
 
-#ifdef OC_BLOCK_WISE
 /**
   @brief Initiate a separate response with an (in between send out) empty ACK
   
@@ -25,7 +24,7 @@
   @param handle A pointer to the data structure that will store the relevant information for the response.
   @param endpoint The endpoint information for the request.
   @param observe The observe option value for the request.
-  @param block2_size The block2 size for block-wise transfers (only used if OC_BLOCK_WISE is defined).
+  @param block2_size The block2 size for block-wise transfers.
  
   @return 1 if the separate response was successfully initiated, 0 otherwise.
   When the server does not have enough resources left to store the information for a separate response or otherwise cannot execute the 
@@ -33,9 +32,6 @@
 
 */
 int coap_separate_accept(void* request, oc_separate_response_t* handle, const oc_endpoint_t* endpoint, uint32_t observe, uint16_t block2_size)
-#else
-int coap_separate_accept(void* request, oc_separate_response_t* handle, const oc_endpoint_t* endpoint, uint32_t observe)
-#endif
 {
   coap_status_code = CLEAR_TRANSACTION;
 
@@ -86,9 +82,7 @@ int coap_separate_accept(void* request, oc_separate_response_t* handle, const oc
     // code 
     separate_store->method = (coap_method_t)coap_req->code;
 
-    #ifdef OC_BLOCK_WISE
     separate_store->block2_size = block2_size;
-    #endif
   }
 
   // save endpoint and observe option for later use in the separate response
@@ -117,16 +111,7 @@ int coap_separate_accept(void* request, oc_separate_response_t* handle, const oc
 
 void coap_separate_resume(void* response, coap_separate_t* separate_store, uint8_t code, uint16_t mid)
 {
-  #ifdef OC_TCP
-  if (separate_store->endpoint.flags & TCP)
-  {
-    coap_tcp_init_message(response, code);
-  }
-  else
-  #endif
-  {
-    coap_udp_init_message(response, separate_store->type, code, mid);
-  }
+  coap_udp_init_message(response, separate_store->type, code, mid);
   if (separate_store->token_len)
   {
     coap_set_token(response, separate_store->token, separate_store->token_len);
@@ -139,9 +124,7 @@ void coap_separate_resume(void* response, coap_separate_t* separate_store, uint8
 
 void coap_separate_clear(oc_separate_response_t* handle, coap_separate_t* separate_store)
 {
-  #ifdef OC_BLOCK_WISE
   oc_free_string(&separate_store->uri);
-  #endif
   oc_list_remove(handle->requests, separate_store);
   free(separate_store);
 }

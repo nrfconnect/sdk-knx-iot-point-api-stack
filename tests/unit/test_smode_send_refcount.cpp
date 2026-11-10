@@ -201,13 +201,13 @@ TEST_F(SModeRefCountViaSend, Via_McNon_FullLifecycle)
   Production branch: transactions.c smode_non_uc branch (lines 242-295).
     coap_new_transaction_with_data    m2 ref = 1  (BIRTH)
     coap_send_transaction (retransmit_counter == 0) {
-      oc_message_add_ref(m2)          m2 ref = 2
-      coap_send_message(m2)  [wrap]   m2 ref = 1
-      - transaction kept, timer armed -
+      header-only message h            h ref = 1  (endpoint only, data == NULL)
+      coap_send_message(m2)  [wrap]   m2 ref = 0  (FREED, PDU handed over to the sender)
+      - transaction kept with h, timer armed -
     }
     [coap_check_transactions bumps retransmit_counter to 1 on timer expiry]
     coap_send_transaction (retransmit_counter == 1, timeout) {
-      coap_clear_transaction(t)       m2 ref = 0  (FREED)
+      coap_clear_transaction(t)       h ref = 0   (FREED)
     }
 
   coap_send_transaction does NOT advance retransmit_counter itself; the bump
@@ -229,9 +229,15 @@ TEST_F(SModeRefCountViaSend, Via_UcNon_FullLifecycle)
   EXPECT_EQ(m2->ref_count, 1); /* BIRTH */
   EXPECT_EQ(t->retransmit_counter, 0);
 
-  /* first call: send-ref added then released by the wrap; transaction kept */
+  /*
+    first call: m2 (the PDU) is handed over to the sender and freed there, the transaction keeps a
+    header-only message (endpoint only, no data); m2 must not be accessed any more
+  */
   coap_send_transaction(t);
-  EXPECT_EQ(m2->ref_count, 1);          /* transaction still owns M2 */
+  ASSERT_NE(t->message, nullptr);
+  EXPECT_NE(t->message, m2);            /* header-only message swapped in */
+  EXPECT_EQ(t->message->data, nullptr); /* no PDU retained */
+  EXPECT_EQ(t->message->ref_count, 1);  /* transaction owns the header-only message */
   EXPECT_EQ(t->retransmit_counter, 0);  /* send does not advance the counter */
 
   /* simulate coap_check_transactions (transactions.c:397) on timer expiry */
@@ -239,7 +245,7 @@ TEST_F(SModeRefCountViaSend, Via_UcNon_FullLifecycle)
 
   /* second call: retransmit_counter >= 1 -> timeout branch clears the tx */
   coap_send_transaction(t);
-  /* m2 freed inside coap_clear_transaction */
+  /* header-only message freed inside coap_clear_transaction */
 
   oc_message_unref(m1);
 }

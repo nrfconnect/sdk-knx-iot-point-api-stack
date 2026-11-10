@@ -1,18 +1,12 @@
 /*
-// Copyright (c) 2023 Cascoda Ltd
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
+ * Copyright (c) 2023 Cascoda Ltd
+ * Copyright (c) 2026 KNX Association
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * This file was created with the assistance of AI tools.
+ * Copyright 2026 KNXA (to the extent protectable under applicable law)
+ */
 
 #include <stdlib.h>
 #include "oc_knx_sub.h"
@@ -22,8 +16,8 @@
 #include "oc_api.h"
 #include "messaging/coap/observe.h"
 
-// forward declaration for the resource chain (core_resource_a_sen is defined in oc_knx_sec.c)
-extern const oc_resource_t core_resource_a_sen;
+// forward declaration for the resource chain (core_resource_knx_auth_o_replwdo is defined in oc_knx_sec.c)
+extern const oc_resource_t core_resource_knx_auth_o_replwdo;
 
 static void oc_core_sub_delete_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
@@ -41,7 +35,7 @@ static void oc_core_sub_delete_handler(oc_request_t* request, oc_interface_mask_
 // 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_sub_data;
 const oc_resource_t core_resource_sub = {
-  (oc_resource_t*)&core_resource_a_sen,
+  &core_resource_knx_auth_o_replwdo,
   { NULL, sizeof("/sub"), "/sub" },
   { NULL, 0, NULL },
   { NULL, 0, NULL },

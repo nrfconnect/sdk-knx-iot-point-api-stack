@@ -1,24 +1,22 @@
-/* 
+/*
  * Copyright (c) 2017, 2020 Intel Corporation
  * Copyright (c) 2023 Cascoda Ltd
- * Copyright (c) 2025 KNX Association
+ * Copyright (c) 2026 KNX Association
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-/**
-  @brief end point implementation, e.g. IP(v6) addressing for sending &
-  receiving data
-  @file
-*/
-#ifndef OC_ENDPOINT_H
-#define OC_ENDPOINT_H
+
+#pragma once
 
 #include "oc_helpers.h"
 
 #include "messaging/coap/oscore_constants.h"
 
-/* Forward declaration — avoids circular dependency (oc_ri.h includes this header) */
+/* Forward declaration - avoids circular dependency (oc_ri.h includes this header) */
 typedef struct oc_auth_at oc_auth_at_t;
+
+/* Forward declaration - avoids circular dependency (the group object table header includes this one) */
+struct oc_group_object_table_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,13 +51,10 @@ extern "C" {
   {
     NONE = 0,                  // undefined
     DISCOVERY = 1 << 0,        // used for (plain) discovery requests
-    SECURED = 1 << 1,          // secure communication, used only in case of TCP  
-    IPV4 = 1 << 2,             // ipv4 communication 
-    IPV6 = 1 << 3,             // ipv6 communication 
-    TCP = 1 << 4,              // tcp communication 
-    OSCORE = 1 << 5,           // OSCORE communication, identifies that OSCORE is used  
+    IPV4 = 1 << 2,             // ipv4 communication
+    IPV6 = 1 << 3,             // ipv6 communication
+    OSCORE = 1 << 5,           // OSCORE communication, identifies that OSCORE is used
     MULTICAST = 1 << 6,        // multicast message, if not set = unicast message
-    ACCEPTED = 1 << 7,         // accepted (used on TCP)
     OSCORE_DECRYPTED = 1 << 8, // OSCORE decrypted message, identifies that the message was decrypted 'successfully' in the OSCORE layer 
     ECHO_CAUSED_BY_MC_SRC = 1 << 9, // an echo request will be sent out, caused by inbound mc message (s-mode)
     ECHO_CAUSED_BY_UC_SRC = 1 << 10,// an echo request will be sent out, caused by inbound uc message (s-mode, others) 
@@ -67,63 +62,73 @@ extern "C" {
     S_MODE_CON_REQUEST = 1 << 12,   // an own initiated (OSCORE) s-mode 'request' (con:uc) message, allowed to be challenged with echo response
   } transport_flags_t;
 
-
-  #define SERIAL_NUM_SIZE (12) // binary 6 bytes, in hex 12 bytes
-
   /*
-    default host name size  = device serial number and leading
-    'knx-' + 12 x char + /0  = 17, such as "knx-00fa10020700",
-    header defined by specification
+    - hostname = the DNS label only, without a domain; the default is the device serial number with leading 'knx-' (16),
+      such as "knx-00fa10020700", used unless the application sets its own one (before the first announcement on startup or later)
+    
+    - HNAME_DOMAIN = the mDNS domain, appended where the fully qualified name is needed, such as "knx-00fa10020700.local"
+      reported by 'dev/hname' (specification 2.6.1.2.3) and announced by mDNS; the SRP client appends its own domain
+    
+    - HNAME_MAX_SIZE = max length of the hostname without /0 (DNS label limit, RFC 1035)
   */
-  #define HNAME_SIZE (4 + SERIAL_NUM_SIZE + 1)
-  #define HNAME_TYPE ("knx-%s")
+  
+  #define HNAME_LABEL  "knx-%s"
+  #define HNAME_DOMAIN ".local"
+  #define HNAME_MAX_SIZE 63
   
   // reset/set a specific bit from above, used to suppress compiler warnings
   #define UNSET_BIT(flags, bit)  ((flags) &= ~(bit))
   #define SET_BIT(flags, bit)((flags) |= (bit))
 
   /**
-   * @brief endpoint information,
-   *        an endpoint combines uc/mc IP addresses, transport flags and some security keying material
+   * @brief endpoint information, an endpoint combines uc/mc IP addresses, transport flags and some security keying material
+   *
+   * @note fields are ordered by alignment (pointers, 32-bit, 16-bit, bytes) to avoid padding,
+           'next' must remain the first member (OC_LIST)
    */
   typedef struct oc_endpoint_t
   {
-    struct oc_endpoint_t* next;           // pointer to the next structure
-    enum transport_flags flags;           // transport flags such as mc,uc, oscore
+    struct oc_endpoint_t* next;             // pointer to the next structure
 
-    union dev_addr
-    {
-      oc_ipv6_addr_t ipv6;                // ipv6 address
-      oc_ipv4_addr_t ipv4;                // ipv4 address (not used in OSCORE, but in IP adapter, hence we cannot remove it)
-    } addr, addr_local;
+    /*
+      Originating group object table entry of an OUTBOUND s-mode request, plus its service type (s_mode_service_type).
 
-    int interface_index;                  // interface index 
-    uint8_t priority;                     // priority
+      Set on the s-mode send paths (uc CON/NON and mc NON), cleared on a regenerated echo re-request; the OSCORE layer
+      copies both into the echo ring anchor, so a late 4.01 echo response can REGENERATE the re-request payload from the
+      group object. Reference only, the group object table owns the entry.
+    */
+    const struct oc_group_object_table_t* s_mode_group_object;
 
-    /* 
+    /*
+      auth/at entry pointer (assigned only on an inbound OSCORE request message)
+        - used for matching oscore context of a - to be sent out - outbound response to a former inbound request
+        - used for upper layers to check access scopes (on an inbound message)
+    */
+    const oc_auth_at_t* auth_at_of_inbound_msg;
+
+    enum transport_flags flags;             // transport flags such as mc,uc, oscore
+    int interface_index;                    // interface index
+
+    /*
       sending group address, used to find later the OSCORE context '128-bit sender key'
       that must be used for encryption of s-mode multicast/unicast request message
       (issued by an application)
     */
-    uint32_t group_address;                
-    
-    /* auth/at entry pointer (assigned only on an inbound OSCORE request message)
-       - used for matching oscore context of a - to be sent out - outbound response to a former inbound request
-       - used for upper layers to check access scopes (on an inbound message)
-    */
-    const oc_auth_at_t* auth_at_of_inbound_msg;
+    uint32_t group_address;
 
-    // OSCORE Partial IV (not empty) from inbound request
-    uint8_t piv[OSCORE_PIV_LEN]; // stores inbound PIV, used for possible echo responses that needs the same PIV
-    uint8_t piv_len;              
+    union dev_addr
+    {
+      oc_ipv6_addr_t ipv6;                  // ipv6 address
+      oc_ipv4_addr_t ipv4;                  // ipv4 address (not used in OSCORE, but in IP adapter, hence we cannot remove it)
+    } addr, addr_local;
 
-    // OSCORE 'kid' (not empty) from inbound request
-    uint8_t kid[OSCORE_SENDER_ID_LEN]; 
-    uint8_t kid_len;
-
-    // OSCORE 'kid_context' (not empty) from inbound request
-    uint8_t kid_ctx[OSCORE_ID_CONTEXT_LEN]; 
-    uint8_t kid_ctx_len;
+    uint8_t piv[OSCORE_PIV_LEN];            // OSCORE Partial IV (not empty) from inbound request, used for echo responses (same PIV)
+    uint8_t kid[OSCORE_SENDER_ID_LEN];      // OSCORE 'kid' (not empty) from inbound request
+    uint8_t kid_ctx[OSCORE_ID_CONTEXT_LEN]; // OSCORE 'kid_context' (not empty) from inbound request
+    uint8_t piv_len;                        // length of piv
+    uint8_t kid_len;                        // length of kid
+    uint8_t kid_ctx_len;                    // length of kid_ctx
+    char s_mode_service_type;               // service type of the outbound s-mode request (see s_mode_group_object)
 
   } oc_endpoint_t;
 
@@ -264,5 +269,3 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
-
-#endif 

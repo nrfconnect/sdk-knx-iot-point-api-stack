@@ -1,52 +1,15 @@
 /*
-// Copyright (c) 2016 Intel Corporation
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
-/*
- *
+ * Copyright (c) 2016 Intel Corporation
+ * Copyright (c) 2026 KNX Association
  * Copyright (c) 2013, Institute for Pervasive Computing, ETH Zurich
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the Institute nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
+ * SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
  *
  * This file is part of the Contiki operating system.
  */
 
-#ifndef TRANSACTIONS_H
-#define TRANSACTIONS_H
+#pragma once
 
 #include "coap.h"
 #include "util/oc_etimer.h"
@@ -104,8 +67,8 @@ void coap_clear_transaction(coap_transaction_t *t);
 // returns ONLY coap CON transactions by mid
 coap_transaction_t *coap_get_transaction_by_mid(uint16_t mid);
   
-// returns ONLY coap CON transactions by token, note, returns also a non-null transaction if both token len's are '0';
-coap_transaction_t *coap_get_transaction_by_token(const coap_packet_t* pkt);
+// returns coap transactions by (non-empty) token, unicast s-mode NON transactions are skipped if skip_s_mode_non is true
+coap_transaction_t *coap_get_transaction_by_token(const coap_packet_t* pkt, bool skip_s_mode_non);
 
 // returns ANY transaction (CON/NON, w/wo s-mode), checks first mid then token, note, returns also a non-null transaction if both token len's are '0';
 coap_transaction_t* get_any_transaction_by_token_or_mid(uint16_t mid, const uint8_t* token, uint8_t token_len);
@@ -114,8 +77,9 @@ void coap_check_transactions(void);
 void coap_free_all_transactions(void);
 void coap_free_transactions_by_endpoint(const oc_endpoint_t *endpoint);
 
+// frees all unicast s-mode (CON/NON) transactions, used when the device leaves LOADED (tables may be rewritten)
+void coap_free_s_mode_transactions(void);
+
 #ifdef __cplusplus
 }
 #endif
-
-#endif 

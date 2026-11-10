@@ -10,8 +10,9 @@ deps/**
 # CMake
 CMakeUserPresets.json
 
-# Claude Code
-.claude/
+# Claude Code: agents and skills are shared; personal settings stay local
+.claude/settings.local.json
+CLAUDE.local.md
 
 # VS Code setting files
 .vscode/
@@ -53,8 +54,14 @@ test_*.log
 test_*.txt
 
 # Generated temp scripts
-tests/runtime/.docker-run.sh
+tests/common/tools/.docker-run.sh
 
 # EITT reference traces (large, not tracked)
 EITT_REFERENCE_PROJECT/
 /Folder.DotSettings.user
+
+# local reviews
+/reviews
+
+# Run records and other local test output (tests/iot-test-tool/docs/run-record-and-evaluator.md)
+/artifacts/

@@ -1,20 +1,15 @@
 /*
- // Copyright (c) 2016 Intel Corporation
- // Copyright (c) 2021 Cascoda Ltd
- //
- // Licensed under the Apache License, Version 2.0 (the "License");
- // you may not use this file except in compliance with the License.
- // You may obtain a copy of the License at
- //
- //      http://www.apache.org/licenses/LICENSE-2.0
- //
- // Unless required by applicable law or agreed to in writing, software
- // distributed under the License is distributed on an "AS IS" BASIS,
- // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- // See the License for the specific language governing permissions and
- // limitations under the License.
+ * Copyright (c) 2016 Intel Corporation
+ * Copyright (c) 2021 Cascoda Ltd
+ * Copyright (c) 2026 KNX Association
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * This file was created with the assistance of AI tools.
+ * Copyright 2026 KNXA (to the extent protectable under applicable law)
  */
 
+#include <errno.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include "oc_core_res.h"
@@ -26,26 +21,43 @@
 #include "oc_knx_dev.h"
 #include "oc_knx_fb.h"
 #include "oc_knx_fp.h"
+#include "oc_knx_helpers.h"
 #include "oc_knx_p.h"
 #include "oc_knx_swu.h"
 #include "oc_knx_sec.h"
 #include "oc_knx_sub.h"
+#include "oc_main.h"
+#include "port/dns-sd.h"
 #include "port/oc_assert.h"
 #include "port/oc_storage.h"
 
-static oc_device_info_t oc_device_info = {0};	// common device 0 data pointer - cannot be NULL
+// common device 0 data pointer - cannot be NULL
+static oc_device_info_t oc_device_info = 
+{
+  
+  .mfg_date = "1970-01-01T00:00:00Z", // default manufacturing date fallback (application will set actual date on startup, see Application Init/Startup)
+  .osn_delay = DEFAULT_OSN_DELAY      // default oscore osn delay until the stored one is loaded on startup
+};
 
 int oc_core_set_and_store_device_fwv(oc_knx_version_info_t* version)
 {
-	oc_device_info.fwv = *version;
-  oc_storage_write(KNX_STORAGE_FW_VER, (uint8_t*)version, sizeof(oc_knx_version_info_t));
-	
-	return 0;
+  /*
+    store first, a fwv that is not stored in NVM -> NVM + RAM stay unchanged; setting RAM anyway gains nothing, the
+    load on startup (after the application init) replaces it with the stored one
+  */
+  if (oc_storage_write(KNX_STORAGE_KEY_FW_VERSION, (uint8_t*)version, sizeof(*version)) != (long)sizeof(*version))
+  {
+    OC_ERR("Failed to store fwv %u.%u.%u in NVM", version->major, version->minor, version->patch);
+    return -EIO;
+  }
+
+  oc_device_info.fwv = *version;
+  return 0;
 }
 
 int oc_core_set_device_hwv(const oc_knx_version_info_t* version)
 {
-	oc_device_info.hwv = *version;
+	oc_device_info.hwv = version;
 	return 0;
 }
 
@@ -55,58 +67,181 @@ int oc_core_set_device_mid(uint32_t mid)
 	return 0;
 }
 
-bool oc_core_set_and_store_device_ia(int64_t ia)
+int oc_core_set_device_mfd(const char* time)
+{
+  oc_device_info.mfg_date = time;
+  return 0;
+}
+
+int oc_core_set_and_store_device_ia(int64_t ia)
 {
   // max IA number as 16 bit, 0 = in KNX not allowed but here accepted (specification does not limit it)
   #define MAX_IA (0xFFFF)
 
-  if (ia >= 0 && ia <= MAX_IA)
+  if (ia < 0 || ia > MAX_IA)
   {
-    oc_device_info.ia = (uint16_t)ia;
-    oc_storage_write(KNX_STORAGE_IA, (uint8_t*)&oc_device_info.ia, sizeof(oc_device_info.ia));
-
-    return true;
+    return -EINVAL;
   }
-  return false;
+
+  // store first, an ia that is not stored in NVM -> NVM + RAM stay unchanged
+  uint16_t new_ia = (uint16_t)ia;
+  if (oc_storage_write(KNX_STORAGE_KEY_IA, (uint8_t*)&new_ia, sizeof(new_ia)) != (long)sizeof(new_ia))
+  {
+    OC_ERR("Failed to store ia %u in NVM", new_ia);
+    return -EIO;
+  }
+
+  oc_device_info.ia = new_ia;
+  return 0;
 }
 
 int oc_core_set_device_hwt(const char* hardware_type)
 {
-	oc_device_info.hwt = hardware_type;
+  // fails if NULL, not exactly the len or not a valid uppercase hexadecimal value with MSB = '0' (see KNX specification)
+  const bool all_ok = hardware_type && strlen(hardware_type) == 12 && oc_charstream_validate_is_upper(hardware_type) && hardware_type[0] == '0';
+  if (!all_ok)
+  {
+    // TODO Stack issue #144
+    // EITT default test template data does not follow the rules -> warning until the data is corrected, then oc_assert(all_ok == true) can be enabled.
+    OC_WRN("Hardware type does not follow the KNX specification (12 uppercase hexadecimal characters, MSB \"00\").");
+  }
+
+  // caller MUST ensure above conditions and keep the string valid for the device lifetime
+  oc_device_info.hwt = hardware_type;
 
 	return 0;
 }
 
-int oc_core_set_device_model(const char* model)
+int oc_core_set_device_order_number(const char* order_number)
 {
-	oc_device_info.iot_model = model;
+	// fails if NULL, not below/equal len (see KNX specification)
+	const bool all_ok = order_number && strlen(order_number) <= 50;
+
+	oc_assert(all_ok == true);
+
+	// caller MUST ensure above conditions and keep the string valid for the device lifetime
+	oc_device_info.order_number = order_number;
 
 	return 0;
+}
+
+// a host name is a single DNS label (no domain, 1..63 characters, RFC 1035), the domain is appended where needed
+static bool oc_core_is_valid_hostname(const char* host_name)
+{
+  return host_name && host_name[0] != '\0' && !strchr(host_name, '.') && strlen(host_name) <= HNAME_MAX_SIZE;
 }
 
 int oc_core_set_device_hostname(const char* host_name)
 {
-	oc_free_string(&oc_device_info.iot_hostname);
-  oc_new_string(&oc_device_info.iot_hostname, host_name, strlen(host_name));
+  // validate before the goodbye, an invalid host name must not drop the current announcement
+  if (!oc_core_is_valid_hostname(host_name))
+  {
+    return -1;
+  }
 
-	return 0;
+  // store first, a host name that is not stored in NVM -> NVM + RAM stay unchanged
+  const size_t host_name_len = strlen(host_name);
+  if (oc_storage_write(KNX_STORAGE_KEY_HOSTNAME, (uint8_t*)host_name, host_name_len) != (long)host_name_len)
+  {
+    OC_ERR("Failed to store caller host name '%s' in NVM", host_name);
+    return -1;
+  }
+
+  /*
+    (a) after the stack init the host name is announced already, so the old one gets its DNS-SD goodbye first (mDNS builds
+        it from the current host name) and the new one is announced next, 
+    (b) the new host name is stored and used 
+        for the first announcement on init; if not (a)
+        for the next announcement on a host name change; if (a)
+  */
+  const bool reannounce = oc_main_initialized();
+
+  if (reannounce)
+  { // (a)
+    knx_dns_sd_stop();
+  }
+
+  // (b)
+  oc_free_string(&oc_device_info.iot_hostname);
+  oc_new_string(&oc_device_info.iot_hostname, host_name, host_name_len);
+
+  if (reannounce)
+  { // (a)
+    knx_dns_sd_update_service(&oc_device_info);
+  }
+
+  return 0;
 }
 
-int oc_core_read_and_set_device_hostname(void)
+/*
+    Host Name
+
+    - PUT '/dev/hname' is optional in the iot spec. and NOT present in this stack
+      - it cannot change FROM outside at runtime
+      - it can change from inside by application (oc_core_set_device_hostname), stored in NVM, e.g. in the
+        application init callback or by a web interface at runtime
+
+    - init application runs before load device (load device needs the serial number for the default)
+      (a) a valid one stored in NVM is used (set by the application in init or earlier, or a stored default)
+      (b) otherwise the default 'knx-{sn}' is used (spec 2.6.1.2.3) and stored, like the ia/iid defaults
+*/
+void oc_core_load_device_hostname(void)
 {
+  /*
+    zeroed and read with max HNAME_MAX_SIZE, so the last byte always stays the terminator; nothing stored leaves it
+    empty, which is no valid host name, so the validity check alone decides
+  */
+  char hostname[HNAME_MAX_SIZE + 1] = { 0 };
+  (void)oc_storage_read(KNX_STORAGE_KEY_HOSTNAME, (uint8_t*)hostname, HNAME_MAX_SIZE);
 
-  const oc_device_info_t* const device = oc_core_get_device_info();
+  if (oc_core_is_valid_hostname(hostname))
+  { // (a)
+    oc_free_string(&oc_device_info.iot_hostname);
+    oc_new_string(&oc_device_info.iot_hostname, hostname, strlen(hostname));
+  }
+  else
+  { // (b)
+    oc_core_reset_device_hostname_to_default();
+  }
+}
 
-	// to have a fixed '\0' at the end of the (128 byte) buffer
-	#define MAX_HNAME_BUFFER_SIZE 129
-  
-  // set default hostname as 'knx-' + serial number (12 x char + /0)  = 17, such as "knx-00fa10020700" - if sn is not applied -> "knx-NULL"
-  char hname[MAX_HNAME_BUFFER_SIZE] = ""; 
-  (void)snprintf(hname, HNAME_SIZE, HNAME_TYPE, device->serialnumber ? device->serialnumber : "NULL");
+int oc_core_reset_device_hostname_to_default(void)
+{
+  /* serial number is set during stack init; skip if called before init (e.g. shell factory_reset
+     before OT joins) - oc_core_load_device_hostname() will regenerate the default once the stack
+     initializes and the serial number is available */
+  if (!oc_device_info.serialnumber)
+  {
+    OC_WRN("Hostname reset skipped, the serial number is not set yet "
+           "(the stack is not initialized)!");
+    return -1;
+  }
 
-  // read host name from storage (on error = the default host name from above is used, otherwise stored host name)
-  oc_storage_read(KNX_STORAGE_HOSTNAME, (uint8_t*)&hname, MAX_HNAME_BUFFER_SIZE  - 1);
-  oc_core_set_device_hostname(hname);
+  // default host name label 'knx-{sn}' (spec 2.6.1.2.3), set and stored
+  char host_name[HNAME_MAX_SIZE + 1];
+  (void)snprintf(host_name, sizeof(host_name), HNAME_LABEL, oc_device_info.serialnumber);
+
+  /*
+     1. set default in RAM 
+     2. store default in NVM
+
+     A host name that is NOT stored in NVM -> NVM remains as is, RAM will be reset to default.
+     - if read NVM fails on startup (such as after a failed factory reset)
+       the default hostname will be set in ANY case (otherwise hostname is empty or un-initialized RAM and not valid)
+     - if write NVM fails on factory reset
+       the default hostname will be set in ANY case (otherwise the device cannot be reached anymore)
+  */
+
+  const size_t host_name_len = strlen(host_name);
+
+  oc_free_string(&oc_device_info.iot_hostname);
+  oc_new_string(&oc_device_info.iot_hostname, host_name, host_name_len);
+
+  if (oc_storage_write(KNX_STORAGE_KEY_HOSTNAME, (uint8_t*)host_name, host_name_len) != (long)host_name_len)
+  {
+    OC_ERR("Failed to store default host name '%s' in NVM", host_name);
+    return -1;
+  }
 
   return 0;
 }
@@ -116,46 +251,73 @@ uint64_t oc_core_get_device_iid(void)
 	return oc_device_info.iid;
 }
 
-bool oc_core_set_and_store_device_iid(int64_t iid)
+int oc_core_set_and_store_device_iid(int64_t iid)
 {
   // max IID number as 40 bit, 0 = allowed (specification does not limit it)
   #define MAX_IID (0xFFFFFFFFFF)
-  
-  if (iid >= 0 && iid <= MAX_IID)
+
+  if (iid < 0 || iid > MAX_IID)
   {
-    oc_device_info.iid = iid;
-    oc_storage_write(KNX_STORAGE_IID, (uint8_t*)&iid, sizeof(iid));
-    return true;
+    return -EINVAL;
   }
-  return false;
+
+  // store first, an iid that is not stored in NVM -> NVM + RAM stay unchanged
+  if (oc_storage_write(KNX_STORAGE_KEY_IID, (uint8_t*)&iid, sizeof(iid)) != (long)sizeof(iid))
+  {
+    OC_ERR("Failed to store iid %" PRIi64 " in NVM", iid);
+    return -EIO;
+  }
+
+  oc_device_info.iid = iid;
+  return 0;
 }
 
 int oc_core_set_and_store_device_application_version(oc_knx_version_info_t* version)
 {
-	oc_device_info.apv = *version;
-  oc_storage_write(KNX_STORAGE_AP_VER, (uint8_t*)version, sizeof(oc_knx_version_info_t));
+  // store first, an apv that is not stored in NVM -> NVM + RAM stay unchanged
+  if (oc_storage_write(KNX_STORAGE_KEY_APP_VERSION, (uint8_t*)version, sizeof(*version)) != (long)sizeof(*version))
+  {
+    OC_ERR("Failed to store apv %u.%u.%u in NVM", version->major, version->minor, version->patch);
+    return -EIO;
+  }
+
+  oc_device_info.apv = *version;
   return 0;
 }
 
-bool oc_core_set_and_store_device_fid(int64_t fid)
+int oc_core_set_and_store_device_fid(int64_t fid)
 {
   // max FID number as 40 bit, 0 = allowed (specification does not limit it)
   #define MAX_FID (0xFFFFFFFFFF)
 
-  if (fid >= 0 && fid <= MAX_FID)
+  if (fid < 0 || fid > MAX_FID)
   {
-    oc_device_info.fid = fid;
-    oc_storage_write(KNX_STORAGE_FID, (uint8_t*)&fid, sizeof(fid));
-
-    return true;
+    return -EINVAL;
   }
-  return false;
+
+  // store first, a fid that is not stored in NVM -> NVM + RAM stay unchanged
+  if (oc_storage_write(KNX_STORAGE_KEY_FID, (uint8_t*)&fid, sizeof(fid)) != (long)sizeof(fid))
+  {
+    OC_ERR("Failed to store fid %" PRIi64 " in NVM", fid);
+    return -EIO;
+  }
+
+  oc_device_info.fid = fid;
+  return 0;
 }
 
 void oc_core_set_device_sn(const char* serialnumber)
 {
-  // caller MUST ensure that the hand-over serial number is in ASCII lower case and 12 chars long
-  oc_device_info.serialnumber = serialnumber;
+	// not NULL, 12 chars, lower case, string termination 
+  const bool all_ok = serialnumber 
+  && strlen(serialnumber) == SN_STR_LEN_MAX
+  && oc_charstream_validate_is_lower(serialnumber)
+  && serialnumber[SN_STR_LEN_MAX] == '\0';
+
+	oc_assert(all_ok == true);
+
+	// caller MUST ensure above conditions and keep the string valid for the device lifetime
+	oc_device_info.serialnumber = serialnumber;
 }
 
 void oc_core_set_device_res(void)
@@ -205,11 +367,11 @@ const oc_resource_t* oc_core_get_core_resource_by_index(int index)
 
 	/*
 	 * walk the linked list to the specified index, less readable, optimized, often used
-	 * - ptr cannot be NULL since all (57) resources are linked in code
+	 * - ptr cannot be NULL since all (OC_NUM_CORE_RESOURCES) resources are linked in code
 	 * - index 0 = dev_sn,
 	 * - index 1 = dev_hwv,
 	 * - ...
-	 * - index 57 = well-known 
+	 * - index WELLKNOWNCORE = well-known (e.g. 52)
 	 *
 	 */
 	while (index--) 
@@ -220,8 +382,8 @@ const oc_resource_t* oc_core_get_core_resource_by_index(int index)
 
 bool oc_check_request_query_value_on_urn_knx(oc_request_t* request)
 {
-	char* value = NULL;
-	char* key;
+	const char* value = NULL;
+	const char* key;
 
 	size_t value_len;
 	size_t key_len;
@@ -241,7 +403,7 @@ bool oc_check_resource_by_rt(const oc_resource_t* resource, oc_request_t* reques
 {
 	// pre-assumption that 'rt' key is not part of request
   bool match = true, more_query_params; 
-	char* request_rt_ptr = NULL;
+	const char* request_rt_ptr = NULL;
 	int request_rt_ptr_len = -1;
 
   oc_init_query_iterator();
@@ -308,7 +470,7 @@ bool oc_check_resource_by_if(const oc_resource_t* resource, oc_request_t* reques
 {
   // pre-assumption that 'if' key is not part of request
   bool match = true, more_query_params;
-	char* request_if_ptr = NULL;
+	const char* request_if_ptr = NULL;
 	int request_if_ptr_len = -1;
 
 	oc_init_query_iterator();

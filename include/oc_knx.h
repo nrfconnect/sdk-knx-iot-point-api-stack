@@ -1,26 +1,18 @@
 /*
-// Copyright (c) 2021 Cascoda Ltd
-// Copyright (c) 2024-2025 KNX Association
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
+ * Copyright (c) 2021 Cascoda Ltd
+ * Copyright (c) 2026 KNX Association
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * This file was created with the assistance of AI tools.
+ * Copyright 2026 KNXA (to the extent protectable under applicable law)
+ */
 /**
   @brief implementation of /.well-known/knx and /k resources
   @file
 */
 
-#ifndef OC_KNX_INTERNAL_H
-#define OC_KNX_INTERNAL_H
+#pragma once
 
 #include <stddef.h>
 #include "oc_api.h"
@@ -30,13 +22,30 @@ extern "C"
 {
 #endif
 
-  // reset status
-#define RESET_NO_ERROR (0)
-#define RESET_UNSUPPORTED_ERASE_CODE (2)
+  // KNX raw serial number (string) length (12 lower-case hex chars, excluding the string null terminator)
+  #define SN_STR_LEN_MAX (12)  
 
-// reset cmd
-#define RESET_TO_DEFAULT_STATE (2)  // factory reset
-#define RESET_TO_DEFAULT_WO_IA (7)  // factory reset w/o IA
+  // KNX raw hardware reference number (string) length (16 upper-case hex chars, excluding the string null terminator)
+  #define HWREF_STR_LEN_MAX (16)  
+
+  // KNX installation id (iid) as hex string, excluding the string null terminator: 40 bit (5 octets) -> max 10, leading zeros omitted -> min 1
+  #define IID_STR_LEN_MAX (10)
+  #define IID_STR_LEN_MIN (1)
+
+  // KNX individual address (ia) as hex string, excluding the string null terminator: 16 bit (2 octets) -> max 4, leading zeros omitted -> min 1
+  #define IA_STR_LEN_MAX (4)
+  #define IA_STR_LEN_MIN (1)
+
+  // KNX endpoint prefix "knx://ia." of an individual address endpoint (ep) in discovery, excluding the string null terminator
+  #define LEN_DOT_IA (9)
+ 
+  // reset status
+  #define RESET_NO_ERROR (0)
+  #define RESET_UNSUPPORTED_ERASE_CODE (2)
+
+  // reset cmd
+  #define RESET_TO_DEFAULT_STATE (2)  // factory reset
+  #define RESET_TO_DEFAULT_WO_IA (7)  // factory reset w/o IA
 
   /*
    * KNX-IoT specific SPAKE2+ parameters for the PASE handshake.
@@ -52,11 +61,11 @@ extern "C"
    * sec. 3.2. Per KNX-IoT specification 3/10/5 clause 3.6.6.3 the password is a
    * string of min 6 and max 32 characters.
    */
-#define KNX_IOT_SPAKE2PLUS_CONTEXT       "knxpase"
-#define KNX_IOT_SPAKE2PLUS_ID_PROVER     ""
-#define KNX_IOT_SPAKE2PLUS_ID_VERIFIER   ""
-#define KNX_IOT_SPAKE2PLUS_SALT_LENGTH   (32)
-#define KNX_IOT_SPAKE2PLUS_RND_LENGTH    (32)
+  #define KNX_IOT_SPAKE2PLUS_CONTEXT       "knxpase"
+  #define KNX_IOT_SPAKE2PLUS_ID_PROVER     ""
+  #define KNX_IOT_SPAKE2PLUS_ID_VERIFIER   ""
+  #define KNX_IOT_SPAKE2PLUS_SALT_LENGTH   (32)
+  #define KNX_IOT_SPAKE2PLUS_RND_LENGTH    (32)
 
   /**
    * @brief PASE Resource Object
@@ -172,6 +181,18 @@ extern "C"
    *
    * ** not modelled below
    */
+
+  /*
+    CBOR keys of the s-mode message, see the table above (clause 2.5.9.2, Table 30). Defined once because the
+    payload is walked in three independent places - the encoder, the /k POST handler and the <ga> access check -
+    which must agree on what each key means.
+  */
+  #define KNX_SMODE_KEY_VALUE (1)  // value, object of an application specific type
+  #define KNX_SMODE_KEY_SIA   (4)  // sia, source individual address, unsigned
+  #define KNX_SMODE_KEY_S     (5)  // s, the s-mode message object (map)
+  #define KNX_SMODE_KEY_ST    (6)  // st, service type code, text string of 'w', 'r' or 'a'
+  #define KNX_SMODE_KEY_GA    (7)  // ga, group address, unsigned
+
   typedef struct oc_group_object_notification
   {
     oc_rep_t* value_object; // pointer to CBOR value object, see notes above
@@ -257,9 +278,9 @@ void oc_knx_set_and_store_lsm(oc_lsm_state_t new_state);
    *
    * The callback is called by the stack when lsm is changed
    *
-   * @note oc_set_hostname_cb() must be called before oc_main_init().
+   * @note oc_set_lsm_change_cb() must be called before oc_main_init().
    *
-   * @param[in] cb oc_hostname_cb_t function pointer to be called
+   * @param[in] cb oc_lsm_change_cb_t function pointer to be called
    * @param[in] data context pointer that is passed to the oc_restart_cb_t
    *                 the pointer must be a valid pointer till after oc_main_init()
    *                 call completes.
@@ -278,22 +299,6 @@ void oc_knx_set_and_store_lsm(oc_lsm_state_t new_state);
    * @return false not in run time
    */
   bool oc_is_device_in_runtime(void);
-
-  /**
-   * @brief sets the idevid
-   *
-   * @param idevid the idevid certificate
-   * @param length the length of the certificate
-   */
-  void oc_knx_set_idevid(const char* idevid, int length);
-
-  /**
-   * @brief sets the ldevid
-   *
-   * @param ldevid the ldevid certificate
-   * @param len the length of the certificate
-   */
-  void oc_knx_set_ldevid(char* ldevid, int len);
 
   /**
    * @brief increase the fingerprint value and writes the value to storage (file system)
@@ -343,6 +348,4 @@ void oc_knx_set_and_store_lsm(oc_lsm_state_t new_state);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

@@ -1,0 +1,100 @@
+From c6f2f878e7b0f86033214b85547d579be43351e3 Mon Sep 17 00:00:00 2001
+From: Alexander Burker <burker@ucs.at>
+Date: Sat, 12 Sep 2026 12:00:00 +0200
+Subject: [PATCH] sockets: Deliver IPV6_PKTINFO ancillary data from recvmsg()
+
+lwip_recvmsg() emits packet info (destination address and receive
+interface) for IPv4 datagrams only, although the netconn layer records
+the destination for both families when NETCONN_FLAG_PKTINFO is set. Add
+the IPv6 counterpart per RFC 3542: The IPV6_RECVPKTINFO socket option
+enables the recording and lwip_recvmsg() delivers an IPV6_PKTINFO
+ancillary message carrying struct in6_pktinfo (destination address and
+interface index).
+
+Needed by the KNX-IoT Point API stack to tell multicast from unicast
+datagrams that arrive on the same socket and to learn the receive
+interface.
+
+Base: ESP-IDF v6.1 esp-lwip commit c6f2f878e7b0f86033214b85547d579be43351e3.
+Apply inside the ESP-IDF submodule components/lwip/lwip with
+git am --3way.
+
+Signed-off-by: Alexander Burker <burker@ucs.at>
+---
+ src/api/sockets.c            | 27 +++++++++++++++++++++++++++
+ src/include/lwip/sockets.h   |  9 +++++++++
+ 2 files changed, 36 insertions(+)
+
+diff --git a/src/include/lwip/sockets.h b/src/include/lwip/sockets.h
+--- a/src/include/lwip/sockets.h
++++ b/src/include/lwip/sockets.h
+@@ -298,6 +298,8 @@
+  */
+ #define IPV6_CHECKSUM       7  /* RFC3542: calculate and insert the ICMPv6 checksum for raw sockets. */
+ #define IPV6_V6ONLY         27 /* RFC3493: boolean control to restrict AF_INET6 sockets to IPv6 communications only. */
++#define IPV6_RECVPKTINFO    49 /* RFC3542: Deliver IPV6_PKTINFO ancillary data with recvmsg(). */
++#define IPV6_PKTINFO        50 /* RFC3542: Ancillary data with the destination address and receive interface. */
+ #endif /* LWIP_IPV6 */
+
+ #if LWIP_UDP && LWIP_UDPLITE
+@@ -337,6 +339,13 @@ struct in_pktinfo {
+   struct in_addr ipi_addr;     /* Destination (from header) address */
+ };
+ #endif /* LWIP_IPV4 */
++
++#if LWIP_IPV6
++struct in6_pktinfo {
++  struct in6_addr ipi6_addr;    /* Destination (from header) address */
++  unsigned int    ipi6_ifindex; /* Interface index */
++};
++#endif /* LWIP_IPV6 */
+
+ #if LWIP_IPV6_MLD
+ /*
+diff --git a/src/api/sockets.c b/src/api/sockets.c
+--- a/src/api/sockets.c
++++ b/src/api/sockets.c
+@@ -1221,6 +1221,23 @@ lwip_recvfrom_udp_raw(struct lwip_sock *sock, s16_t flags, struct msghdr *msg, u
+         }
+ #endif /* LWIP_IPV4 */
+       }
++#if LWIP_IPV6
++      else {
++        if (msg->msg_controllen >= CMSG_SPACE(sizeof(struct in6_pktinfo))) {
++          struct cmsghdr *chdr = CMSG_FIRSTHDR(msg); /* This will always return a header!! */
++          struct in6_pktinfo *pkti6 = (struct in6_pktinfo *)CMSG_DATA(chdr);
++          chdr->cmsg_level = IPPROTO_IPV6;
++          chdr->cmsg_type = IPV6_PKTINFO;
++          chdr->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
++          pkti6->ipi6_ifindex = buf->p->if_idx;
++          inet6_addr_from_ip6addr(&pkti6->ipi6_addr, ip_2_ip6(netbuf_destaddr(buf)));
++          msg->msg_controllen = CMSG_SPACE(sizeof(struct in6_pktinfo));
++          wrote_msg = 1;
++        } else {
++          msg->msg_flags |= MSG_CTRUNC;
++        }
++      }
++#endif /* LWIP_IPV6 */
+     }
+ #endif /* LWIP_NETBUF_RECVINFO */
+
+@@ -3693,6 +3710,16 @@ lwip_setsockopt_impl(int s, int level, int optname, const void *optval, socklen_
+           LWIP_DEBUGF(SOCKETS_DEBUG, ("lwip_setsockopt(%d, IPPROTO_IPV6, IPV6_V6ONLY, ..) -> %d\n",
+                                       s, (netconn_get_ipv6only(sock->conn) ? 1 : 0)));
+           break;
++#if LWIP_NETBUF_RECVINFO
++        case IPV6_RECVPKTINFO:
++          LWIP_SOCKOPT_CHECK_OPTLEN_CONN_PCB_TYPE(sock, optlen, int, NETCONN_UDP);
++          if (*(const int *)optval) {
++            sock->conn->flags |= NETCONN_FLAG_PKTINFO;
++          } else {
++            sock->conn->flags &= ~NETCONN_FLAG_PKTINFO;
++          }
++          break;
++#endif /* LWIP_NETBUF_RECVINFO */
+ #if LWIP_IPV6_MLD
+         case IPV6_JOIN_GROUP:
+         case IPV6_LEAVE_GROUP: {
+--
+2.43.0
+

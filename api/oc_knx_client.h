@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2022-2023 Cascoda Ltd.
  * Copyright (c) 2024-2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,8 +10,7 @@
   @file
 
 */
-#ifndef OC_KNX_CLIENT_INTERNAL_H
-#define OC_KNX_CLIENT_INTERNAL_H
+#pragma once
 
 #include "oc_core_res.h"
 #include "oc_knx_fp.h"
@@ -89,9 +88,31 @@ int oc_is_redirected_request_from(const oc_request_t *request);
  */
 int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, char srv_type);
 
+/**
+ * @brief regenerates an s-mode payload for a late 4.01 echo re-request
+ *
+ * Encodes { 4: <sia>, 5: { 6: <st>, 7: <ga>, 1: <value> } } with the CURRENT datapoint value of the
+ * group object. Falls back to the 'sia' only form { 4: <ia> } when no value can be produced; both forms
+ * are legal per specification clause 3.6.4.1.3.
+ *
+ * @param group_object originating group object table entry, may be NULL (-> 'sia' only)
+ * @param service_type 'w', 'r' or 'a' of the original request; 'r' never carries a value
+ * @param buffer       destination buffer for the encoded CBOR payload, must hold OC_MAX_APP_DATA_SIZE bytes
+ *
+ * @return encoded payload length, or -1 on failure
+ */
+int oc_create_s_mode_payload_for_go(const oc_group_object_table_t* group_object, char service_type, uint8_t* buffer);
+
+/**
+ * @brief Send multicast s-mode message (always non-confirmable)
+ *
+ * @param group_object originating group object table entry; carried to the OSCORE layer so a late 4.01
+ *                     echo response can REGENERATE the re-request payload. May be NULL, then a late echo
+ *                     falls back to the 'sia' only form.
+ */
 void oc_send_s_mode_multicast_message(uint8_t scope, uint32_t group_address, char service_type,
                                       const uint8_t* value_data, int value_size,
-                                      oc_group_table_t* recipient);
+                                      oc_group_table_t* recipient, const oc_group_object_table_t* group_object);
 
 /**
  * @brief Send unicast s-mode message (confirmable or non-confirmable)
@@ -136,5 +157,3 @@ oc_event_callback_retval_t knx_add_ipv6_address_coap_discovery_handler(void* dat
 #ifdef __cplusplus
 }
 #endif
-
-#endif 

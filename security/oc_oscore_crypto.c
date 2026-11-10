@@ -1,9 +1,9 @@
 /*
-  Copyright (c) 2020 Intel Corporation
-  Copyright (c) 2026 KNX Association
-
-  SPDX-License-Identifier: Apache-2.0
-*/
+ * Copyright (c) 2020 Intel Corporation
+ * Copyright (c) 2026 KNX Association
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "psa/crypto.h"
 
@@ -130,16 +130,32 @@ int HKDF_SHA256(const uint8_t *salt, uint8_t salt_len, const uint8_t *ikm, uint8
   return 0;
 }
 
+/*
+  AEAD nonce of AES-CCM-16-64-128, RFC 8613 clause 5.2, always 13 bytes (nonce_len):
+
+    byte  0       : length of the Sender ID (id_len)
+    bytes 1 ... 7 : Sender ID, right aligned, zero padded in front (nonce_len - 6 = 7 bytes)
+    bytes 8 ... 12: Partial IV, right aligned, zero padded in front (the 5 byte PIV field of RFC 8613)
+
+  the result is XORed with the Common IV.
+
+  Preconditions, not checked here: id_len <= OSCORE_SENDER_ID_LEN (7), piv_len <= 5 and nonce_len == OSCORE_AEAD_NONCE_LEN.
+  KNX IoT sends and accepts a PIV of 1 ... 4 bytes only (32-bit SSN, OSCORE_SSN_PIV_LEN_MAX, rejected by the OSCORE option
+  parser otherwise), but the PIV field in the nonce stays 5 bytes wide, hence the literal 5 below is deliberately NOT
+  OSCORE_PIV_LEN (that is the size of the PIV buffers).
+
+  Padding = the zeros from memset: the PIV is copied to the END of the nonce, so a shorter PIV leaves zero bytes in front of it.
+*/
 void oc_oscore_AEAD_nonce(uint8_t *id, uint8_t id_len, uint8_t *piv, uint8_t piv_len, uint8_t *civ, uint8_t *nonce, uint8_t nonce_len)
 {
   OC_DBG_OSCORE("### computing AEAD nonce ###");
-  OC_DBG_OSCORE("Sender ID\t: ");
-  OC_LOGbytes_OSCORE(id, id_len);
-  OC_DBG_OSCORE("Partial IV\t: ");
-  OC_LOGbytes_OSCORE(piv, piv_len);
-  OC_DBG_OSCORE("Common IV\t: ");
-  OC_LOGbytes_OSCORE(civ, OSCORE_COMMON_IV_LEN);
+  
+  OC_DBG_OSCORE("Sender ID\t: ");  OC_LOGbytes_OSCORE(id, id_len);
+  OC_DBG_OSCORE("Partial IV\t: "); OC_LOGbytes_OSCORE(piv, piv_len);
+  OC_DBG_OSCORE("Common IV\t: ");  OC_LOGbytes_OSCORE(civ, OSCORE_COMMON_IV_LEN);
+
   //      <- nonce length minus 6 B -> <-- 5 bytes -->
+  //         (= 7 bytes, Sender ID)      (PIV field)
   // +---+-------------------+--------+---------+-----+
   // | S |      padding      | ID_PIV | padding | PIV |----+
   // +---+-------------------+--------+---------+-----+    |
@@ -153,15 +169,13 @@ void oc_oscore_AEAD_nonce(uint8_t *id, uint8_t id_len, uint8_t *piv, uint8_t piv
   // +------------------------------------------------+    |
   // |                     Nonce                      |<---+
   // +------------------------------------------------+
-  memset(nonce, 0, nonce_len);
-  // Set (up-to) the last 5 bytes to the Partial IV
-  memcpy(nonce + (nonce_len - piv_len), piv, piv_len);
-  // Set (up-to) nonce length - 6 bytes to the Sender ID
-  memcpy(nonce + (nonce_len - 5 - id_len), id, id_len);
-  // Set the 1st byte to the size of the Sender ID
-  nonce[0] = (uint8_t)id_len;
-  // XOR with the Common IV
-  for (int i = 0; i < nonce_len; i++)
+  
+  memset(nonce, 0, nonce_len);                          // all padding bytes are zero
+  memcpy(nonce + (nonce_len - piv_len), piv, piv_len);  // Partial IV right aligned in the last 5 bytes (bytes 8 ... 12), piv_len <= 5 bytes: zero padded in front
+  memcpy(nonce + (nonce_len - 5 - id_len), id, id_len); // Sender ID right aligned in bytes 1 ... 7, i.e. ending directly before the 5 byte PIV field: zero padded in front
+
+  nonce[0] = (uint8_t)id_len;         // 1st byte = length of the Sender ID
+  for (int i = 0; i < nonce_len; i++) // XOR with the Common IV
   {
     nonce[i] = nonce[i] ^ civ[i];
   }
@@ -232,10 +246,10 @@ int oc_oscore_compose_AAD(uint8_t *kid, uint8_t kid_len, uint8_t *piv, uint8_t p
 }
 
 int oc_oscore_encrypt(
-        uint8_t *plaintext, size_t plaintext_len, size_t tag_len,
-        uint8_t *key, size_t key_len,
-        uint8_t *nonce, size_t nonce_len,
-        uint8_t *AAD, size_t AAD_len,
+        const uint8_t *plaintext, size_t plaintext_len, size_t tag_len,
+        const uint8_t *key, size_t key_len,
+        const uint8_t *nonce, size_t nonce_len,
+        const uint8_t *AAD, size_t AAD_len,
         uint8_t *output)
 {
   /*
@@ -296,10 +310,10 @@ int oc_oscore_encrypt(
 }
 
 int oc_oscore_decrypt(
-        uint8_t *ciphertext, size_t ciphertext_len, size_t tag_len,
-        uint8_t *key, size_t key_len,
-        uint8_t *nonce, size_t nonce_len,
-        uint8_t *AAD, size_t AAD_len,
+        const uint8_t *ciphertext, size_t ciphertext_len, size_t tag_len,
+        const uint8_t *key, size_t key_len,
+        const uint8_t *nonce, size_t nonce_len,
+        const uint8_t *AAD, size_t AAD_len,
         uint8_t *output)
 {
   /*

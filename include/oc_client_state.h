@@ -2,7 +2,7 @@
  * Copyright (c) 2016, 2020 Intel Corporation
  * Copyright (c) 2021 Cascoda Ltd.
  * Copyright (c) 2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,17 +10,14 @@
   @brief CoAP client.
   @file
 */
-#ifndef OC_CLIENT_STATE_H
-#define OC_CLIENT_STATE_H
+#pragma once
 
 #include "messaging/coap/constants.h"
 #include "messaging/coap/oscore_constants.h"
 #include "oc_endpoint.h"
 #include "oc_ri.h"
 #include <stdbool.h>
-#ifdef OC_BLOCK_WISE
 #include "oc_blockwise.h"
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -95,11 +92,10 @@ typedef struct oc_client_cb_t
   // OSCORE
   uint8_t piv[OSCORE_PIV_LEN];         /**< partial IV */
   uint8_t piv_len;                     /**< length of the partial IV */
-  uint64_t notification_num;           /**< max 3 byte unsigned notification number, allows the client to detect reordering or loss of notifications [RFC 7641] */
+  uint32_t notification_num;           /**< peer SSN (32-bit, KNX IoT) used as notification number, detects reordering or loss of notifications [RFC 7641] */
 
 } oc_client_cb_t;
 
-#ifdef OC_BLOCK_WISE
 /**
  * @brief invoke a client callback when a response is received
  *
@@ -111,18 +107,6 @@ typedef struct oc_client_cb_t
  * @return false
  */
 bool oc_ri_invoke_client_cb(void* response, oc_blockwise_state_t** response_state, oc_client_cb_t* cb, oc_endpoint_t* endpoint);
-#else
-/**
- * @brief invoke the Client callback when a response is received
- *
- * @param response the response
- * @param cb the callback
- * @param endpoint the endpoint
- * @return true
- * @return false
- */
-bool oc_ri_invoke_client_cb(void* response, oc_client_cb_t* cb, oc_endpoint_t* endpoint);
-#endif
 
 /**
  * @brief allocate a client callback, please read the additional notes
@@ -203,6 +187,4 @@ void oc_ri_free_client_cbs_by_mid(uint16_t mid);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

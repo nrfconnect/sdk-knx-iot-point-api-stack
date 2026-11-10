@@ -1,11 +1,11 @@
-/* 
+/*
  * Copyright (c) 2017 Lynx Technology
  * Copyright (c) 2018 Intel Corporation
  * Copyright (c) 2019 Kistler Instrumente AG
  * Copyright (c) 2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
- */   
+ */
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -45,7 +45,7 @@ ifaddr_t * get_network_addresses(void) {
             GAA_FLAG_SKIP_DNS_SERVER, NULL, interface_list, &out_buf_len);
 
     if (dwRetVal == ERROR_BUFFER_OVERFLOW) {
-      OC_WRN("retry GetAdaptersAddresses with out_buf_len=%d", out_buf_len);
+      OC_WRN("retry GetAdaptersAddresses with out_buf_len=%lu", out_buf_len);
       free(interface_list);
       interface_list = NULL;
       continue;
@@ -69,13 +69,20 @@ ifaddr_t * get_network_addresses(void) {
 
 #ifdef OC_DEBUG
     if (interface->FriendlyName) {
-      OC_DBG("processing interface %ws:", interface->FriendlyName);
+      OC_DBG("processing interface %ls:", interface->FriendlyName);
     }
 #endif
     // Process all IPv6 addresses on this interface.
     struct sockaddr_in6 *v6addr = NULL;
     for (address = interface->FirstUnicastAddress; address;
          address = address->Next) {
+      // Only usable addresses: a tentative address cannot be used before the duplicate address
+      // detection is done, a duplicate or invalid one never. Deprecated ones still count.
+      if (address->DadState != IpDadStatePreferred &&
+          address->DadState != IpDadStateDeprecated) {
+        continue;
+      }
+
       if (address->Address.lpSockaddr->sa_family == AF_INET6) {
         struct sockaddr_in6 *addr =
           (struct sockaddr_in6 *)address->Address.lpSockaddr;

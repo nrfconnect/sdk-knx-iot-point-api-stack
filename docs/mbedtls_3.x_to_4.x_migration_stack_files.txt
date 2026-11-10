@@ -1,3 +1,4 @@
+# Historical inventory: a grep dump of Mbed TLS call sites taken during the 3.x -> 4.x migration. The ./security/oc_tls.c and ./security/oc_tls.h entries refer to files removed since (the KNX_TCP_TLS TLS/DTLS transport).
 ./CMakeLists.txt:    target_link_libraries(kisClientServer PUBLIC mbedtls)
 ./api/oc_knx.c:    mbedtls_mpi_free(&spake_data.w0);
 ./api/oc_knx.c:    mbedtls_ecp_point_free(&spake_data.L);

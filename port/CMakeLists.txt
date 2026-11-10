@@ -125,7 +125,11 @@ if(CONFIG_KNXIOT_TINYCBOR_BUILTIN)
     #set(WITH_FREESTANDING OFF CACHE BOOL "" FORCE)
     #set(WITH_CBOR2JSON OFF CACHE BOOL "" FORCE)
     set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(BUILD_TOOLS ON CACHE BOOL "" FORCE)
+    # cbordump is TinyCBOR's own debug CLI tool; nothing in this repo uses it, and
+    # linking it as a standalone executable under our sanitizer flags requires the
+    # clang compiler-rt runtime archives, which are not guaranteed to be installed
+    # wherever this project's own code doesn't otherwise need them.
+    set(BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
     FetchContent_Declare(
         tinycbor
@@ -133,31 +137,20 @@ if(CONFIG_KNXIOT_TINYCBOR_BUILTIN)
         GIT_TAG v7.0
     )
 
+    # TinyCBOR's own CMakeLists.txt adds its "tests" subdirectory whenever BUILD_TESTING
+    # is set (the standard CTest variable, which this project enables for its own tests);
+    # those extra executables (e.g. tst_c90) are not built with our compiler-rt setup and
+    # fail to link under the sanitizer preset, so keep BUILD_TESTING off just for this fetch.
+    set(_kis_saved_build_testing ${BUILD_TESTING})
+    set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(tinycbor)
+    set(BUILD_TESTING ${_kis_saved_build_testing} CACHE BOOL "" FORCE)
+    unset(_kis_saved_build_testing)
 endif()
 
 ### mDNS/DNS-SD library ###
-# Note:
-# Use git apply instead of patch for cross-platform compatibility (patch not available on Windows).
-FetchContent_Declare(
-    mdns
-    GIT_REPOSITORY https://github.com/mjansson/mdns.git
-    # Note:
-    # No working tag for all platforms yet, so stay with main for now.
-    GIT_TAG main
-    # Note:
-    # Issues #96 and #97 have not been fixed yet.
-    PATCH_COMMAND ${CMAKE_COMMAND} -DPATCH_FILE=${PROJECT_SOURCE_DIR}/port/mdns.patch -P "${PROJECT_SOURCE_DIR}/cmake/patch.cmake"
-)
-
-# Note:
-# Use FetchContent_Populate (not MakeAvailable) to download only. The mdns
-# library's own CMakeLists.txt builds an example program (mdns.c) that we do
-# not need. We only require the mdns.h header.
-FetchContent_GetProperties(mdns)
-if(NOT mdns_POPULATED)
-    FetchContent_Populate(mdns)
-endif()
+# Header-only, vendored and maintained in port/mdns (see port/mdns/README.md).
+set(MDNS_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mdns")
 
 target_sources(kis-port PRIVATE
     ${PORT_DIR}/abort.c
@@ -167,7 +160,6 @@ target_sources(kis-port PRIVATE
     ${PORT_DIR}/oc_network_interface.c
     ${CMAKE_CURRENT_SOURCE_DIR}/random_psa.c
     ${PORT_DIR}/storage.c
-    ${PORT_DIR}/tcpadapter.c
 )
 
 target_include_directories(kis-port 
@@ -177,13 +169,16 @@ target_include_directories(kis-port
     PUBLIC "${PORT_DIR}"
 )
 target_include_directories(kis-port PRIVATE "${tinycbor_SOURCE_DIR}/src" PRIVATE "${tinycbor_BINARY_DIR}")
-# mDNS header-only library (mdns/mdns.h)
+# mDNS header-only library (port/mdns/mdns.h)
 # Note:
 # PUBLIC because dns-sd_mdns.c is a PUBLIC source that gets compiled by targets linking to kis-port.
-target_include_directories(kis-port PUBLIC "${mdns_SOURCE_DIR}")
+target_include_directories(kis-port PUBLIC "${MDNS_INCLUDE_DIR}")
 
 ## KNX-IoT Stack - Platform Port Options ##
 target_link_libraries(kis-port PUBLIC kis-common)
+target_compile_options(kis-port PRIVATE ${KNX_STACK_C_FLAGS})
+target_compile_definitions(kis-port PRIVATE ${KNX_STACK_C_DEFINITIONS})
+set_target_properties(kis-port PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(CONFIG_KNXIOT_MBEDTLS_BUILTIN)
     target_link_libraries(kis-port PUBLIC mbedtls)
 endif()

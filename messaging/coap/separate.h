@@ -6,8 +6,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef SEPARATE_H
-#define SEPARATE_H
+#pragma once
 
 #include "coap.h"
 #include "oc_coap.h"
@@ -34,11 +33,7 @@ typedef struct coap_separate
   oc_string_t uri;
 } coap_separate_t;
 
-#ifdef OC_BLOCK_WISE
 int coap_separate_accept(void* request, oc_separate_response_t* handle, const oc_endpoint_t* endpoint, uint32_t observe, uint16_t block2_size);
-#else  
-int coap_separate_accept(void *request, oc_separate_response_t *handle, const oc_endpoint_t *endpoint, int observe);
-#endif 
 
 void coap_separate_resume(void *response, coap_separate_t *separate_store, uint8_t code, uint16_t mid);
 void coap_separate_clear(oc_separate_response_t *handle, coap_separate_t *separate_store);
@@ -46,5 +41,3 @@ void coap_separate_clear(oc_separate_response_t *handle, coap_separate_t *separa
 #ifdef __cplusplus
 }
 #endif
-
-#endif 

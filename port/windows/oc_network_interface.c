@@ -1,8 +1,8 @@
-/* 
+/*
  * Copyright (c) 2025 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
- */   
+ */
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -84,7 +84,7 @@ oc_network_enumerate_interfaces(oc_network_interface_info_t *interfaces, int max
   }
 
   if (ret != NO_ERROR) {
-    OC_ERR("GetAdaptersAddresses failed with error: %d", ret);
+    OC_ERR("GetAdaptersAddresses failed with error: %lu", ret);
     HeapFree(GetProcessHeap(), 0, adapter_list);
     return 0;
   }

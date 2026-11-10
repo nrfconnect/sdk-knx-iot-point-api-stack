@@ -122,7 +122,7 @@ TEST_F(CoapTransactions, GetByTokenFindsTransaction)
 
   coap_packet_t pkt = make_pkt(token, sizeof(token));
   coap_transaction_t *found =
-      coap_get_transaction_by_token(&pkt);
+      coap_get_transaction_by_token(&pkt, true);
   EXPECT_EQ(found, t);
 }
 
@@ -130,7 +130,7 @@ TEST_F(CoapTransactions, GetByTokenReturnsNullWhenNotFound)
 {
   uint8_t token[] = {0xFF};
   coap_packet_t pkt = make_pkt(token, sizeof(token));
-  EXPECT_EQ(coap_get_transaction_by_token(&pkt), nullptr);
+  EXPECT_EQ(coap_get_transaction_by_token(&pkt, true), nullptr);
 }
 
 TEST_F(CoapTransactions, GetByTokenSkipsSModeNon)
@@ -144,7 +144,8 @@ TEST_F(CoapTransactions, GetByTokenSkipsSModeNon)
   ASSERT_NE(t, nullptr);
 
   coap_packet_t pkt = make_pkt(token, sizeof(token));
-  EXPECT_EQ(coap_get_transaction_by_token(&pkt), nullptr);
+  EXPECT_EQ(coap_get_transaction_by_token(&pkt, true), nullptr);
+  EXPECT_EQ(coap_get_transaction_by_token(&pkt, false), t);
 }
 
 TEST_F(CoapTransactions, GetAnyByMidFindsSModeNon)
@@ -195,6 +196,16 @@ TEST_F(CoapTransactions, ClearNullIsSafe)
 {
   coap_clear_transaction(NULL);
   /* Should not crash */
+}
+
+TEST_F(CoapTransactions, ZeroLengthNullTokenIsSafe)
+{
+  oc_endpoint_t ep = make_endpoint(5683);
+  coap_transaction_t *transaction =
+    coap_new_transaction(501, nullptr, 0, &ep);
+
+  ASSERT_NE(transaction, nullptr);
+  EXPECT_EQ(transaction->token_len, 0);
 }
 
 TEST_F(CoapTransactions, FreeAllClearsEverything)
@@ -255,7 +266,7 @@ TEST_F(CoapTransactions, MultipleTransactionsCoexist)
   EXPECT_EQ(coap_get_transaction_by_mid(1102), c);
 }
 
-TEST_F(CoapTransactions, ZeroLengthTokenMatch)
+TEST_F(CoapTransactions, ZeroLengthTokenNeverMatches)
 {
   oc_endpoint_t ep = make_endpoint(5683);
   uint8_t empty_token[] = {0};
@@ -264,11 +275,10 @@ TEST_F(CoapTransactions, ZeroLengthTokenMatch)
       coap_new_transaction(1200, empty_token, 0, &ep);
   ASSERT_NE(t, nullptr);
 
-  /* Zero-length token match: both have token_len==0 */
+  /* a tokenless packet must not match a tokenless transaction (zero length memcmp guard) */
   coap_packet_t pkt = make_pkt(empty_token, 0);
-  coap_transaction_t *found =
-      coap_get_transaction_by_token(&pkt);
-  EXPECT_EQ(found, t);
+  EXPECT_EQ(coap_get_transaction_by_token(&pkt, true), nullptr);
+  EXPECT_EQ(coap_get_transaction_by_token(&pkt, false), nullptr);
 }
 
 /* ---------------- coap_new_transaction_with_data ------------------------- */

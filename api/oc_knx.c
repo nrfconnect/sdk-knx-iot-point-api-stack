@@ -1,10 +1,14 @@
 /*
  * Copyright (c) 2021-2022 Cascoda Ltd.
  * Copyright (c) 2024-2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * This file was created with the assistance of AI tools.
+ * Copyright 2026 KNXA (to the extent protectable under applicable law)
  */
 
+#include <errno.h>
 #include <inttypes.h>
 #include <stdlib.h>
 #include "oc_knx.h"
@@ -19,6 +23,8 @@
 #include "oc_rep.h"
 #include "port/dns-sd.h"
 #include "port/oc_storage.h"
+#include "messaging/coap/oscore.h"
+#include "messaging/coap/transactions.h"
 
 #define __STDC_FORMAT_MACROS // defined to use format specifiers also in C++
 
@@ -30,13 +36,11 @@ extern const oc_resource_t core_resource_knx_fp_g;
 extern const oc_resource_t core_resource_knx_k;
 extern const oc_resource_t core_resource_knx_fingerprint;
 extern const oc_resource_t core_resource_knx_ia;
-extern const oc_resource_t core_resource_knx_ldevid;
-extern const oc_resource_t core_resource_knx_idevid;
 extern const oc_resource_t core_resource_knx_spake;
 
 // ---------------------------Variables
 
-static uint64_t g_fingerprint = 0;  // covers GO/PUB/SUB table and 'P' parameters
+static uint32_t g_fingerprint = 0;  // covers GO/PUB/SUB table and 'P' parameters, 4 bytes: it only has to differ after a change
 
 typedef enum spake_keys_t
 {
@@ -122,8 +126,6 @@ typedef struct oc_pase_session_t
 } oc_pase_session_t;
 
 static oc_pase_session_t g_pase_session;  // the single active PASE session (params + step + brute-force state)
-static oc_string_t g_idevid;
-static oc_string_t g_ldevid;
 
 // ----------------------------------------------------------------------------
 
@@ -255,12 +257,10 @@ static oc_event_callback_retval_t restart(void* context)
 
   oc_knx_device_restart();
 
-  // application restart callback handler
+  // guaranteed by oc_main_init() and assert, variable and callback can NEVER BE NULL
   const oc_restart_t* my_restart = oc_get_restart_cb();
-  if (my_restart && my_restart->cb)
-  {
-    my_restart->cb(my_restart->data);
-  }
+  
+  my_restart->cb(my_restart->data);
 
   return OC_EVENT_DONE;
 }
@@ -398,7 +398,7 @@ static void oc_core_knx_post_handler(oc_request_t* request, oc_interface_mask_t 
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_data;
-const oc_resource_t core_resource_knx = {(oc_resource_t*)&core_resource_knx_fp_g,
+const oc_resource_t core_resource_knx = {&core_resource_knx_fp_g,
                                          {NULL, sizeof("/.well-known/knx"), "/.well-known/knx"},
                                          {NULL, 0, NULL},
                                          {NULL, 0, NULL},
@@ -424,7 +424,7 @@ void oc_knx_set_and_store_lsm(oc_lsm_state_t new_state)
 {
   // set state for device (RAM) and file storage (tests on LSM uses device property) 
   oc_core_get_device_info()->lsm_s = new_state;
-  oc_storage_write(KNX_STORAGE_LSM, (uint8_t*)&new_state, sizeof(new_state));
+  oc_storage_write(KNX_STORAGE_KEY_LSM, (uint8_t*)&new_state, sizeof(new_state));
 }
 
 const char* oc_core_get_lsm_state_as_string(oc_lsm_state_t lsm)
@@ -561,31 +561,61 @@ static void oc_core_a_lsm_post_handler(oc_request_t* request, oc_interface_mask_
       // store new state (even it is the old one)
       oc_knx_set_and_store_lsm(new_lsm_state);
 
-      if (new_lsm_state == LSM_S_UNLOADED && old_lsm_state != LSM_S_UNLOADED)
-      { // extra task on entering UNLOADED
+      if (new_lsm_state != old_lsm_state)
+      { // real state transition (NOP and repeated (same) events do nothing)
 
-        knx_dns_sd_stop();
-        // drop multicast memberships before clearing the tables
+        /*
+          Table 26: only in LOADED the loaded data SHALL be considered valid, no runtime communication takes
+          place in any other state (2.5.8.1). So on every transition everything derived from the current tables
+          is dropped first, before they may be rewritten (LOADING), reset (UNLOADED) or used again (LOADED):
+
+          - multicast memberships, computed from the current tables (re-registered on entering LOADED)
+
+          - pending unicast s-mode transactions, they reference the group object table (NON) or carry a PDU
+            built from the configuration being replaced (CON)
+
+          - the OSCORE echo ring, its anchors REFERENCE group object table entries; a late echo response would
+            otherwise regenerate its re-request payload from an entry that may belong to a different datapoint
+
+          The replay records are deliberately NOT cleared here: they protect the server side against replayed
+          inbound requests and are tied to the access token table, not to the group object table.
+        */
         oc_unregister_group_multicasts();
+        coap_free_s_mode_transactions();
+        oc_oscore_free_all_echo_records();
 
-        // do a reset like erase code 2 but not for the access token table, ia, iid, fid -> EITT test
-        oc_delete_group_tables();
-        oc_delete_group_object_table();
-      }
-      else if (oc_is_device_in_runtime() && old_lsm_state != LSM_S_LOADED)
-      { // extra task on entering LOADED with iid = ok
+        switch (new_lsm_state)
+        {
+          case LSM_S_UNLOADED:
+            // don't stop mdns advertisement on unloaded -> ia/iid/... are valid and NOT changed
 
-        // task 1
-        oc_register_group_multicasts();
-        oc_init_datapoints_at_initialization();
+            // do a reset like erase code 2 but not for the access token table, ia, iid, fid remains -> EITT test
+            oc_delete_group_tables();
+            oc_delete_group_object_table();
+            break;
 
-        OC_INF("Re-register DNS-SD service after a LSM went to loaded");
-        knx_dns_sd_update_service(device->serialnumber, device->iid, device->ia, device->pm);
+          case LSM_S_LOADED:
+            if (oc_is_device_in_runtime())
+            { // iid = ok
 
-        // task 2
-        oc_knx_increase_fingerprint();
-        OC_INF("Increase fingerprint after a LSM went to loaded");
+              // task 1
+              oc_register_group_multicasts();
+              oc_init_datapoints_at_initialization();
 
+              OC_INF("Re-register DNS-SD service after a LSM went to loaded");
+              knx_dns_sd_update_service(device);
+
+              // task 2
+              oc_knx_increase_fingerprint();
+              OC_INF("Increase fingerprint after a LSM went to loaded");
+            }
+            break;
+
+          case LSM_S_LOADING:
+          default:
+            // nothing more than dropping the runtime state above
+            break;
+        }
       }
 
       // inform user
@@ -614,7 +644,7 @@ static void oc_core_a_lsm_post_handler(oc_request_t* request, oc_interface_mask_
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_a_lsm_data;
-const oc_resource_t core_resource_a_lsm = {(oc_resource_t*)&core_resource_knx_spake,
+const oc_resource_t core_resource_a_lsm = {&core_resource_knx_spake,
                                            {NULL, sizeof("/a/lsm"), "/a/lsm"},
                                            {NULL, 0, NULL},
                                            {NULL, 0, NULL},
@@ -726,7 +756,8 @@ static void oc_core_knx_k_post_handler(oc_request_t* request, oc_interface_mask_
     - sia                     : sync message
     - sia + r + + ga          : read ga
 
-    NOTE: init with default values, such as st=0 for 'undefined', to be able to check later if a value was set or not in the payload
+    NOTE: 
+    - init with default values, such as st=0 for 'undefined', to be able to check later if a value was set or not in the payload
   */
   oc_group_object_notification_t received_notification = {0};
 
@@ -743,8 +774,16 @@ static void oc_core_knx_k_post_handler(oc_request_t* request, oc_interface_mask_
 
   const oc_device_info_t* const  device = oc_core_get_device_info();
 
+  /*
+    whether the payload actually CARRIED a 'ga' key, which is NOT the same as 'ga == 0': the value zero is
+    indistinguishable from the cleared default of 'received_notification'. Only the ABSENCE of the key marks
+    the 'sia' only sync message of specification clause 3.6.4.1.3, so the dispatch decision at the end of
+    this handler uses this flag, not the value.
+  */
+  bool group_address_found = false;
+
   // scan received payload for sia/st/ga/value
-  oc_rep_t* rep = request->request_payload;
+  const oc_rep_t* rep = request->request_payload;
 
   while (rep)
   {
@@ -753,7 +792,7 @@ static void oc_core_knx_k_post_handler(oc_request_t* request, oc_interface_mask_
       case OC_REP_INT:
       {
         // sia (4), mandatory
-        if (rep->iname == 4)
+        if (rep->iname == KNX_SMODE_KEY_SIA)
         {
           received_notification.sia = (uint32_t)rep->value.integer;
         }
@@ -772,7 +811,7 @@ static void oc_core_knx_k_post_handler(oc_request_t* request, oc_interface_mask_
         {
 
           // value (1), object type don't care here, optional
-          if (object->iname == 1)
+          if (object->iname == KNX_SMODE_KEY_VALUE)
           {
             // picks the CBOR object that contains the value
             received_notification.value_object = object;
@@ -783,7 +822,7 @@ static void oc_core_knx_k_post_handler(oc_request_t* request, oc_interface_mask_
             case OC_REP_STRING:
             {
               // st (6), optional
-              if (object->iname == 6 && oc_string_len(object->value.string) > 0)
+              if (object->iname == KNX_SMODE_KEY_ST && oc_string_len(object->value.string) > 0)
               {
                 // catch the FIRST char from the string ('w' or 'a' or 'r' )
                 received_notification.st = oc_string(object->value.string)[0];
@@ -793,9 +832,11 @@ static void oc_core_knx_k_post_handler(oc_request_t* request, oc_interface_mask_
             case OC_REP_INT:
             {
               // ga (7), optional
-              if (object->iname == 7)
+              if (object->iname == KNX_SMODE_KEY_GA)
               {
+                // if more than one ga is present last one wins (no current error handling for multiple ga keys in the s-map)
                 received_notification.ga = (uint32_t)object->value.integer;
+                group_address_found = true;
               }
               break;
             }
@@ -829,7 +870,7 @@ static void oc_core_knx_k_post_handler(oc_request_t* request, oc_interface_mask_
   SNPRINTFipaddr(ip_address, 100 - 1, *request->origin);
 
   // handle the request loop over the group addresses of the /fp/r (recipient table)
-  OC_DBG("/k : sia: %u ga: %04x st: %c origin: %s", 
+  OC_DBG("/k : sia: %" PRIu32 " ga: %04" PRIx32 " st: %c origin: %s", 
         received_notification.sia, 
         received_notification.ga,
         received_notification.st, 
@@ -839,7 +880,7 @@ static void oc_core_knx_k_post_handler(oc_request_t* request, oc_interface_mask_
 
   /*
     GO array INDEX with the GA included (out of 0...max GO table entries)
-    - process all GOs in the table with this GA included,
+    - process all GOs in the table with this GA included
     - position of GA in GA array don't care
   */
   int go_table_index_where_ga_is_used = oc_core_find_first_go_table_index_with_ga(received_notification.ga);
@@ -1088,7 +1129,7 @@ static void oc_core_knx_k_post_handler(oc_request_t* request, oc_interface_mask_
           }
           if (service_r && application_resource_with_href_match->get_handler.cb)
           {
-            OC_DBG("/k : read with GO table index %d handled due to read flags enabled 0x%x", go_table_index_where_ga_is_used, (uint32_t)cflags);
+            OC_DBG("/k : read with GO table index %d handled due to read flags enabled 0x%" PRIx32, go_table_index_where_ga_is_used, (uint32_t)cflags);
 
             /*
               here we have a GO with a resource path (href) and application resource with the SAME resource path (href)
@@ -1099,11 +1140,34 @@ static void oc_core_knx_k_post_handler(oc_request_t* request, oc_interface_mask_
             oc_ri_new_request_from_inbound_request(&new_request, request, &response_buffer, &response_obj);
 
             /*
+              Re-arm the (single, global) CBOR encoder onto THIS response buffer before calling the
+              GET handler.
+
+              oc_ri_invoke_coap_entity_handler() calls oc_rep_new(response_buffer.buffer, ...) exactly
+              once, before dispatching to this POST handler. That is enough for a single answer, but
+              a GA may be linked to several read enabled GOs, and each of them sends its own read
+              response from inside this loop. Sending goes through
+              oc_init_s_mode_message_update(), which calls oc_rep_new() again - re-pointing the
+              global encoder at the OUTGOING UDP message buffer. Without the call below, the GET
+              handler of the SECOND (and any later) GO would encode into that already sent message
+              buffer instead of the response buffer, and oc_prepare_cbor_response() would measure the
+              payload length against it - emitting the answer followed by whatever stale bytes that
+              buffer still held.
+
+              oc_ri_new_request_from_inbound_request() also leaves response_length untouched (it is a
+              separate struct from the inbound one, carrying the previous iteration's value), so it is
+              cleared here as well: a GET handler that answers without a payload must not inherit the
+              previous GO's length.
+            */
+            oc_rep_new(response_buffer.buffer, (int)response_buffer.buffer_size);
+            response_buffer.response_length = 0;
+
+            /*
               call callback GET handler from inbound POST to uri path with 'k' and len = 1,
               details for this see above for 'w'
             */
             application_resource_with_href_match->get_handler.cb(
-              &new_request, 
+              &new_request,
               application_resource_with_href_match->get_handler.interface_mask,
               application_resource_with_href_match->get_handler.user_data);
 
@@ -1129,7 +1193,7 @@ static void oc_core_knx_k_post_handler(oc_request_t* request, oc_interface_mask_
                     oc_send_s_mode_multicast_message(KNX_MULTICAST_SCOPE, sending_ga, 'a',
                                                      new_request.response->response_buffer->buffer, 
                                                      (int)new_request.response->response_buffer->response_length, 
-                                                     recipient);
+                                                     recipient, go_entry);
                   }
                   else
                   { // unicast: read response uses ia from RCP table (configured by MaC)
@@ -1185,9 +1249,22 @@ static void oc_core_knx_k_post_handler(oc_request_t* request, oc_interface_mask_
   }
   else
   { // index not found
-    
-    // - ga is not part of GO table; - sia ONLY (see above)
-    summary_handler_status = OC_STATUS_NOT_FOUND;
+
+    if (!group_address_found)
+    {
+      /*
+        'sia' ONLY (see above) = sync message: a legal s-mode payload per specification clause 3.6.4.1.3,
+        used e.g. by an 'echo re-request' whose value is not available anymore. It carries no GA, so there
+        is nothing to dispatch; the purpose (re-synchronising the sender sequence number) was already
+        fulfilled by the OSCORE layer before this handler was reached.
+      */
+      OC_DBG("/k : 'sia' only sync message, nothing to dispatch");
+    }
+    else
+    {
+      // ga is not part of GO table, and no sia only sync message, hence no dispatch possible
+      summary_handler_status = OC_STATUS_NOT_FOUND;
+    }
   }
 
   if (request->origin && request->origin->flags & MULTICAST)
@@ -1208,7 +1285,7 @@ static void oc_core_knx_k_post_handler(oc_request_t* request, oc_interface_mask_
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_k_data;
-const oc_resource_t core_resource_knx_k = {(oc_resource_t*)&core_resource_knx_fingerprint,
+const oc_resource_t core_resource_knx_k = {&core_resource_knx_fingerprint,
                                            {NULL, sizeof("/k"), "/k"},
                                            {NULL, (size_t)1 * 32, (char[1][32]){"urn:knx:if.g.s"}},
                                            {NULL, 0, NULL},
@@ -1257,7 +1334,7 @@ static void oc_core_knx_fingerprint_get_handler(oc_request_t* request, oc_interf
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_fingerprint_data;
-const oc_resource_t core_resource_knx_fingerprint = {(oc_resource_t*)&core_resource_knx_ia,
+const oc_resource_t core_resource_knx_fingerprint = {&core_resource_knx_ia,
                                                      {NULL, sizeof("/.well-known/knx/f"), "/.well-known/knx/f"},
                                                      {NULL, 0, NULL},
                                                      {NULL, 0, NULL},
@@ -1281,9 +1358,9 @@ static void oc_core_knx_ia_post_handler(oc_request_t* request, oc_interface_mask
   (void)data;
   (void)iface_mask;
 
-  bool ia_ok = false;    // is mandatory, per default not ok
-  bool iid_ok = false;   // is mandatory, per default not ok
-  bool fid_ok = true;    // is optional, per default ok
+  int ia_result = -EINVAL;   // is mandatory, per default not ok
+  int iid_result = -EINVAL;  // is mandatory, per default not ok
+  int fid_result = 0;        // is optional, per default ok
 
   if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
   {
@@ -1299,51 +1376,62 @@ static void oc_core_knx_ia_post_handler(oc_request_t* request, oc_interface_mask
       if (rep->iname == 12)
       {
         OC_DBG("received 12 (ia) : %" PRIi64, rep->value.integer);
-        ia_ok = oc_core_set_and_store_device_ia(rep->value.integer);
+        ia_result = oc_core_set_and_store_device_ia(rep->value.integer);
       }
       else if (rep->iname == 25)
       {
+        //  note, the PUT dev/fid handler is optional, a MaC may omit the fid in THIS request but a server must support it (see iot spec., table 14)
         OC_DBG("received 25 (fid): %" PRIi64, rep->value.integer);
-        fid_ok = oc_core_set_and_store_device_fid(rep->value.integer);
+        fid_result = oc_core_set_and_store_device_fid(rep->value.integer);
       }
       else if (rep->iname == 26)
       {
         OC_DBG("received 26 (iid): %" PRIi64, rep->value.integer);
-        iid_ok = oc_core_set_and_store_device_iid(rep->value.integer);
+        iid_result = oc_core_set_and_store_device_iid(rep->value.integer);
       }
     }
     rep = rep->next;
   }
 
-  // check iid/ia and fid  
-  if (iid_ok && ia_ok && fid_ok)
+  /*
+    - a failed NVM write is a server error (5.00), not the client's fault 
+    - a missing or out of range ia/iid/fid is a client error (4.00)
+    - second or third NVM write error leaves the already written elements in NVM, the client can/will retry 
+      and maybe the new write-request will THEN be succeeded (e.g. a transient flash write error, or a retry after a reset)
+  */
+  if (ia_result == -EIO || iid_result == -EIO || fid_result == -EIO)
   {
-    if (oc_is_device_in_runtime())
-    {
-      oc_register_group_multicasts();
-      oc_init_datapoints_at_initialization();
-    }
-
-    /*
-      Always re-publish mDNS when IA changes, regardless of runtime state.
-      The conformance tests expect an announcement and query-response for the new IA subtype
-      even when the device is not yet in loaded/runtime state.
-    */
-    OC_DBG("Re-register mDNS after writing iid + ia)");
-    const oc_device_info_t* const  device = oc_core_get_device_info();
-    knx_dns_sd_update_service(device->serialnumber, device->iid, device->ia, device->pm);
-
-    oc_prepare_cbor_response(request, OC_STATUS_CHANGED);
+    oc_prepare_no_format_response_no_payload(request, OC_STATUS_INTERNAL_SERVER_ERROR);
+    return;
   }
-  else
+
+  if (ia_result != 0 || iid_result != 0 || fid_result != 0)
   {
     oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+    return;
   }
+
+  if (oc_is_device_in_runtime())
+  {
+    oc_register_group_multicasts();
+    oc_init_datapoints_at_initialization();
+  }
+
+  /*
+    Always re-publish mDNS when IA changes, regardless of runtime state.
+    The conformance tests expect an announcement and query-response for the new IA subtype
+    even when the device is not yet in loaded/runtime state.
+  */
+  OC_DBG("Re-register mDNS after writing iid + ia)");
+  const oc_device_info_t* const  device = oc_core_get_device_info();
+  knx_dns_sd_update_service(device);
+
+  oc_prepare_cbor_response(request, OC_STATUS_CHANGED);
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_ia_data;
-const oc_resource_t core_resource_knx_ia = {(oc_resource_t*)&core_resource_knx,
+const oc_resource_t core_resource_knx_ia = {&core_resource_knx,
                                             {NULL, sizeof("/.well-known/knx/ia"), "/.well-known/knx/ia"},
                                             {NULL, 0, NULL},
                                             {NULL, 0, NULL},
@@ -1359,89 +1447,6 @@ const oc_resource_t core_resource_knx_ia = {(oc_resource_t*)&core_resource_knx,
                                             0,
                                             true,
                                             &core_resource_knx_ia_data};
-
-static void oc_core_knx_ldevid_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
-{
-  (void)data;
-  (void)iface_mask;
-  size_t response_length = 0;
-
-  OC_INF("oc_core_knx_ldevid_get_handler");
-
-  if (!oc_accept_header_is_ok(request, APPLICATION_PKCS7_CMC_REQUEST))
-  {
-    return;
-  }
-  response_length = oc_string_len(g_ldevid);
-  oc_rep_encode_raw((const uint8_t*)oc_string(g_ldevid), (size_t)response_length);
-
-  request->response->response_buffer->content_format = APPLICATION_PKCS7_CMC_RESPONSE;
-  request->response->response_buffer->code = oc_status_code(OC_STATUS_OK);
-  request->response->response_buffer->response_length = response_length;
-
-  OC_INF("oc_core_knx_ldevid_get_handler- done");
-}
-
-// resource definition, details/comments see on 'core_resource_well_known_core'
-static oc_resource_data_t core_resource_knx_ldevid_data;
-const oc_resource_t core_resource_knx_ldevid = {(oc_resource_t*)&core_resource_knx_k,
-                                                {NULL, sizeof("/.well-known/knx/ldevid"), "/.well-known/knx/ldevid"},
-                                                {NULL, 0, NULL},
-                                                {NULL, 0, NULL},
-                                                {APPLICATION_PKCS7_CMC_REQUEST, CONTENT_NONE},
-                                                OC_DISCOVERABLE,
-                                                {oc_core_knx_ldevid_get_handler, NULL, OC_ACL_D, OC_IF_D},
-                                                {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                                {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                                {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                                {{NULL}, NULL},
-                                                {{NULL}, NULL},
-                                                0,
-                                                0,
-                                                true,
-                                                &core_resource_knx_ldevid_data};
-
-static void oc_core_knx_idevid_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
-{
-  (void)data;
-  (void)iface_mask;
-  size_t response_length = 0;
-
-  OC_INF("oc_core_knx_idevid_get_handler");
-
-  if (!oc_accept_header_is_ok(request, APPLICATION_PKCS7_CMC_REQUEST))
-  {
-    return;
-  }
-  response_length = oc_string_len(g_idevid);
-  oc_rep_encode_raw((const uint8_t*)oc_string(g_idevid), (size_t)response_length);
-
-  request->response->response_buffer->content_format = APPLICATION_PKCS7_CMC_RESPONSE;
-  request->response->response_buffer->code = oc_status_code(OC_STATUS_OK);
-  request->response->response_buffer->response_length = response_length;
-
-  OC_INF("oc_core_knx_idevid_get_handler- done");
-}
-
-// resource definition, details/comments see on 'core_resource_well_known_core'
-static oc_resource_data_t core_resource_knx_idevid_data;
-const oc_resource_t core_resource_knx_idevid = {(oc_resource_t*)&core_resource_knx_ldevid,
-                                                {NULL, sizeof("/.well-known/knx/idevid"), "/.well-known/knx/idevid"},
-                                                {NULL, 0, NULL},
-                                                {NULL, 0, NULL},
-                                                {APPLICATION_PKCS7_CMC_REQUEST, CONTENT_NONE},
-                                                OC_DISCOVERABLE,
-                                                {oc_core_knx_idevid_get_handler, NULL, OC_ACL_D, OC_IF_D},
-                                                {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                                {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                                {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                                {{NULL}, NULL},
-                                                {{NULL}, NULL},
-                                                0,
-                                                0,
-                                                true,
-                                                &core_resource_knx_idevid_data};
-
 
 static spake_data_t spake_data = {0};
 
@@ -1786,7 +1791,7 @@ static oc_event_callback_retval_t oc_core_knx_spake_separate_post_handler(void* 
     return OC_EVENT_DONE;
   }
 
-  // assign
+  // assign (handle ptr cant be NULL -> static)
   oc_set_separate_response_buffer(&delayed_separate_response_for_a_spake_request);
 
   // step 1
@@ -1808,7 +1813,7 @@ static oc_event_callback_retval_t oc_core_knx_spake_separate_post_handler(void* 
 
     OC_DBG_SPAKE("Rnd       : "); OC_LOGbytes_OSCORE(g_pase_session.params.rnd, sizeof(g_pase_session.params.rnd));
     OC_DBG_SPAKE("Salt      : "); OC_LOGbytes_OSCORE(g_pase_session.params.salt, sizeof(g_pase_session.params.salt));
-    OC_DBG_SPAKE("Iterations: %u", g_pase_session.params.it);
+    OC_DBG_SPAKE("Iterations: %" PRIu32, g_pase_session.params.it);
 
     oc_rep_begin_root_object();
 
@@ -1852,8 +1857,10 @@ static oc_event_callback_retval_t oc_core_knx_spake_separate_post_handler(void* 
 #endif
 
     int ret = spake2plus_gen_keypair(spake_data.y, spake_data.pub_y);
+#ifdef OC_DEBUG
     OC_DBG("SPAKE2+ step 2 gen_keypair time: %" PRIu64 " ms.",
            (uint64_t)(oc_clock_time() - spake_calc_t0) * 1000U / OC_CLOCK_CONF_TICKS_PER_SECOND);
+#endif
     if (ret != 0)
     {
       OC_ERR("SPAKE2+ ephemeral key pair generation failed with code %d!", ret);
@@ -1865,8 +1872,10 @@ static oc_event_callback_retval_t oc_core_knx_spake_separate_post_handler(void* 
     spake_calc_t0 = oc_clock_time();
 #endif
     ret = spake2plus_calc_shareV(g_pase_session.params.shareV, spake_data.pub_y, spake_data.w0);
+#ifdef OC_DEBUG
     OC_DBG("SPAKE2+ step 2 calc_shareV time: %" PRIu64 " ms.",
            (uint64_t)(oc_clock_time() - spake_calc_t0) * 1000U / OC_CLOCK_CONF_TICKS_PER_SECOND);
+#endif
     if (ret != 0)
     {
       OC_ERR("SPAKE2+ shareV computation failed with code %d!", ret);
@@ -1880,8 +1889,10 @@ static oc_event_callback_retval_t oc_core_knx_spake_separate_post_handler(void* 
                                                KNX_IOT_SPAKE2PLUS_ID_PROVER,
                                                KNX_IOT_SPAKE2PLUS_ID_VERIFIER,
                                                KNX_IOT_SPAKE2PLUS_CONTEXT);
+#ifdef OC_DEBUG
     OC_DBG("SPAKE2+ step 2 calc_transcript_responder time: %" PRIu64 " ms.",
            (uint64_t)(oc_clock_time() - spake_calc_t0) * 1000U / OC_CLOCK_CONF_TICKS_PER_SECOND);
+#endif
     if (ret != 0)
     {
       OC_ERR("SPAKE2+ transcript computation failed with code %d!", ret);
@@ -1892,8 +1903,10 @@ static oc_event_callback_retval_t oc_core_knx_spake_separate_post_handler(void* 
     spake_calc_t0 = oc_clock_time();
 #endif
     spake2plus_calc_confirmV(spake_data.K_main, g_pase_session.params.confirmV, g_pase_session.params.shareP);
+#ifdef OC_DEBUG
     OC_DBG("SPAKE2+ step 2 calc_confirmV time: %" PRIu64 " ms.",
            (uint64_t)(oc_clock_time() - spake_calc_t0) * 1000U / OC_CLOCK_CONF_TICKS_PER_SECOND);
+#endif
 
     // return 2.04 changed, frame shareV (11) & confirmV (13)
 
@@ -1942,7 +1955,7 @@ static oc_event_callback_retval_t oc_core_knx_spake_separate_post_handler(void* 
     OC_DBG("set id : (%zu) ", oc_byte_string_len(g_pase_session.params.id));
     oc_char_println_hex(oc_string(g_pase_session.params.id), oc_byte_string_len(g_pase_session.params.id));
     OC_DBG("set ms : (%zu) ", sizeof(shared_key));
-    oc_char_println_hex(shared_key, sizeof(shared_key));
+    oc_char_println_hex((const char*)shared_key, sizeof(shared_key));
 
     /*
       - create the token & store in at table (usually at position 0)
@@ -1979,7 +1992,7 @@ static oc_event_callback_retval_t oc_core_knx_spake_separate_post_handler(void* 
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_spake_data;
-const oc_resource_t core_resource_knx_spake = {(oc_resource_t*)&core_resource_knx_idevid,
+const oc_resource_t core_resource_knx_spake = {&core_resource_knx_k,
                                                {NULL, sizeof("/.well-known/knx/spake"), "/.well-known/knx/spake"},
                                                {NULL, 0, NULL},
                                                {NULL, 0, NULL},
@@ -2028,28 +2041,25 @@ int oc_spake2plus_init_data(void)
   return 0;
 }
 
-void oc_knx_set_idevid(const char* idevid, int len)
-{
-  oc_free_string(&g_idevid);
-  oc_new_string(&g_idevid, idevid, len);
-}
-
-void oc_knx_set_ldevid(char* ldevid, int len)
-{
-  oc_free_string(&g_ldevid);
-  oc_new_string(&g_ldevid, ldevid, len);
-}
-
 void oc_knx_load_fingerprint(void)
 {
   g_fingerprint = 0; // set to zero for reading error cases
-  oc_storage_read(FINGERPRINT_STORE, (uint8_t*)&g_fingerprint, sizeof(g_fingerprint));
+  /* 
+     The read result needs no check.
+     - an absent key keeps the 0 from above, a failed read can at worst leave a wrong value, 
+       which only looks like a changed configuration to a MaC
+     - the fingerprint has no meaning of its own, it only has to differ after a change
+     - an 8-byte record of an older firmware reads as its low 4 bytes (file storage, little endian), or the read fails
+       and keeps the 0 (ESP32 NVS rejects a read into a buffer smaller than the stored value); both only look like a
+       changed configuration, the next increase writes 4 bytes
+  */
+  oc_storage_read(KNX_STORAGE_KEY_FINGERPRINT, (uint8_t*)&g_fingerprint, sizeof(g_fingerprint));
 }
 
 void oc_knx_increase_fingerprint(void)
 {
   g_fingerprint++; // must be only different
-  oc_storage_write(FINGERPRINT_STORE, (uint8_t*)&g_fingerprint, sizeof(g_fingerprint));
+  oc_storage_write(KNX_STORAGE_KEY_FINGERPRINT, (uint8_t*)&g_fingerprint, sizeof(g_fingerprint));
 }
 
 bool oc_is_device_in_runtime(void)

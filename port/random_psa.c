@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 Alexander Burker
+ * Copyright (c) 2026 KNX Association
  *
  * SPDX-License-Identifier: Apache-2.0
  */

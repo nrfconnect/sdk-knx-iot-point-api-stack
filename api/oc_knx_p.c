@@ -1,18 +1,8 @@
 /*
- // Copyright (c) 2022-2023 Cascoda Ltd
- // Copyright (c) 2024-2025 KNX Association
- //
- // Licensed under the Apache License, Version 2.0 (the "License");
- // you may not use this file except in compliance with the License.
- // You may obtain a copy of the License at
- //
- //      http://www.apache.org/licenses/LICENSE-2.0
- //
- // Unless required by applicable law or agreed to in writing, software
- // distributed under the License is distributed on an "AS IS" BASIS,
- // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- // See the License for the specific language governing permissions and
- // limitations under the License.
+ * Copyright (c) 2022-2023 Cascoda Ltd
+ * Copyright (c) 2026 KNX Association
+ *
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 #include "api/oc_knx_p.h"
@@ -27,16 +17,16 @@
 extern const oc_resource_t core_resource_knx_f;
 
 // add application datapoint's to the response
-static bool oc_was_adding_data_points_to_response(oc_request_t* request, const oc_resource_t* resource,
-                                                  size_t* response_length, const int page_size)
+static bool oc_was_adding_data_points_to_response(const oc_resource_t* resource, size_t* response_length,
+                                                  const int page_size)
 {
   int matches = 0;
 
   for (; resource && matches < page_size; resource = resource->next)
   {
 
-    // called from GET /p handler so always truncate resources URN's
-    oc_add_resource_to_response_payload(resource, response_length, true);
+    // called from GET /p handler so always truncate resources URN's, and keep the 'if' in
+    oc_add_resource_to_response_payload(resource, response_length, true, true);
     matches++;
   }
 
@@ -50,8 +40,8 @@ static void oc_core_p_get_handler(oc_request_t* request, oc_interface_mask_t ifa
 
   size_t response_length = 0;
   int total = 0; // total entries of this resource
-  int query_pn = PAGE_NUMBER;
-  int query_ps = PAGE_SIZE;
+  int query_pn = KNX_PAGE_NUMBER;
+  int query_ps = KNX_PAGE_SIZE;
 
   OC_INF("oc_core_p_get_handler - start");
 
@@ -73,16 +63,20 @@ static void oc_core_p_get_handler(oc_request_t* request, oc_interface_mask_t ifa
   }
 
   // handle query parameters l=ps and/or l=total
-  if (query_l_was_processed(request, PAGE_SIZE, total))
+  if (query_l_was_processed(request, KNX_PAGE_SIZE, total))
     return;
 
   // first entry number of a resource that will be placed on a page
   const int first_entry = evaluate_query_px(request, &query_pn, &query_ps);
 
-  // check if requested page will carry at least one resource e.g
-  // - total=4, pn 5, ps 20, first entry = 100 -> no data on page 5 (all on page 0)
-  // - total=4, pn 1, ps 04, first entry = 004 -> no data on page 1 (all on page 0)n page 5
-  if (first_entry >= total || query_ps == 0)
+  /* check if requested page will carry at least one resource e.g
+     - total=4, pn 5, ps 20, first entry = 100 -> no data on page 5 (all on page 0)
+     - total=4, pn 1, ps 04, first entry = 004 -> no data on page 1 (all on page 0)
+     - ps < 1 is invalid
+     - pn < 0 is invalid
+
+  */
+  if (first_entry >= total || query_ps < 1 || query_pn < 0)
   {
     oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
     return;
@@ -97,10 +91,10 @@ static void oc_core_p_get_handler(oc_request_t* request, oc_interface_mask_t ifa
   // entries don't fit in a single page -> more pages are needed to get the full list
   // - total=4, page number 1, page size 02, first entry = 002 -> no more data on next page
   // - total=4, page number 1, page size 01, first entry = 001 -> more data on next page
-  const bool more_request_needed = total > first_entry + query_ps ? true : false;
+  const bool more_request_needed = total > first_entry + query_ps;
 
   // add ONLY application datapoint's to response
-  if (oc_was_adding_data_points_to_response(request, my_p1, &response_length, query_ps))
+  if (oc_was_adding_data_points_to_response(my_p1, &response_length, query_ps))
   {
     // add only a page hint if at least one response entry is in
     if (more_request_needed)
@@ -297,7 +291,7 @@ static void oc_core_p_post_handler(oc_request_t* request, oc_interface_mask_t if
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_p_data;
-const oc_resource_t core_resource_knx_p = {(oc_resource_t*)&core_resource_knx_f,
+const oc_resource_t core_resource_knx_p = {&core_resource_knx_f,
                                            {NULL, sizeof("/p"), "/p"},
                                            {NULL, 0, NULL},
                                            {NULL, 0, NULL},

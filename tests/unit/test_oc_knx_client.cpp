@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Unit tests for api/oc_knx_client.c
- *
  * Scope note
  * ----------
  * oc_knx_client.c is almost entirely an s-mode / discovery *transport* module:
@@ -17,7 +16,6 @@
  * response handlers) is driven by delayed callbacks and allocates client-cb's
  * that send well-known updates. All of those are INTEGRATION-level and are
  * documented as such in tests/COVERAGE_LEDGER.md.
- *
  * The one function with no device / network / table dependency is
  * oc_is_redirected_request_from, a pure URI-first-character dispatcher. It is
  * exercised exhaustively here.

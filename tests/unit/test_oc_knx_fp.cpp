@@ -8,6 +8,9 @@
  *   - Group table persistence: store/load round trip for the Recipient and
  *     Publisher tables (driven through the public loader
  *     oc_create_knx_table_resources), including the 'non' boolean flag.
+ *
+ * This file was created with the assistance of AI tools.
+ * Copyright 2026 KNXA (to the extent protectable under applicable law)
  */
 
 #include <gtest/gtest.h>
@@ -19,6 +22,8 @@ extern "C" {
 #include "oc_ri.h"
 #include "oc_rep.h"
 #include "oc_helpers.h"
+#include "oc_knx.h"                 /* oc_knx_get_lsm / LSM_S_LOADING */
+#include "messaging/coap/oc_coap.h" /* full def of oc_response_buffer_s */
 #include "util/oc_mmem.h"
 #include "port/oc_storage.h"
 
@@ -83,6 +88,43 @@ TEST(CflagsAsString, InitAndUpdate)
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+ * oc_print_cflags — smoke test (prints to stdout, no return value)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+TEST(PrintCflags, DoesNotCrashOnAnyMask)
+{
+  oc_print_cflags(OC_CFLAG_NONE);
+  oc_print_cflags((oc_cflag_mask_t)(OC_CFLAG_READ | OC_CFLAG_WRITE));
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * oc_create_unicast_group_address_with_port — builds a unicast oc_endpoint_t
+ * from a recipient table entry's stored IPv6 address/port/interface. Pure
+ * struct construction, no device/table state needed.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+TEST(CreateUnicastGroupAddressWithPort, CopiesAddressPortAndInterface)
+{
+  oc_group_table_t recipient;
+  memset(&recipient, 0, sizeof(recipient));
+  const uint8_t addr[16] = { 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
+                             0, 0, 0, 0, 0, 0, 0, 1 };
+  memcpy(recipient.ipv6_adr.ipv6, addr, sizeof(addr));
+  recipient.ipv6_adr.port = 5683;
+  recipient.ipv6_adr.interface_index = 3;
+
+  oc_endpoint_t in;
+  memset(&in, 0, sizeof(in));
+  oc_endpoint_t out = oc_create_unicast_group_address_with_port(in, &recipient);
+
+  EXPECT_TRUE(out.flags & IPV6);
+  EXPECT_TRUE(out.flags & OSCORE);
+  EXPECT_EQ(0, memcmp(out.addr.ipv6.address, addr, sizeof(addr)));
+  EXPECT_EQ(out.addr.ipv6.port, 5683);
+  EXPECT_EQ(out.interface_index, 3);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
  * Group Object (GO) table search
  *
  * These operate on the static g_got table, accessed for writing through the
@@ -123,13 +165,13 @@ protected:
 
 TEST_F(GoTableSearch, TotalSizeMatchesBuildConstant)
 {
-  EXPECT_EQ(oc_core_get_group_object_table_total_size(), GOT_MAX_ENTRIES);
+  EXPECT_EQ(oc_core_get_group_object_table_total_size(), KNX_GOT_MAX_ENTRIES);
 }
 
 TEST_F(GoTableSearch, GetEntryOutOfBoundsReturnsNull)
 {
   EXPECT_EQ(oc_core_get_group_object_table_entry(-1), nullptr);
-  EXPECT_EQ(oc_core_get_group_object_table_entry(GOT_MAX_ENTRIES), nullptr);
+  EXPECT_EQ(oc_core_get_group_object_table_entry(KNX_GOT_MAX_ENTRIES), nullptr);
   EXPECT_NE(oc_core_get_group_object_table_entry(0), nullptr);
 }
 
@@ -173,7 +215,7 @@ TEST_F(GoTableSearch, FindNextWalksAllMatchesThenNeg1)
 }
 
 /* Regression for the array-bounds fix (commit b677b04f):
- * the scan loop `for (i = current_index + 1; i >= 0 && i < GOT_MAX_ENTRIES; i++)`
+ * the scan loop `for (i = current_index + 1; i >= 0 && i < KNX_GOT_MAX_ENTRIES; i++)`
  * must never read g_got[i] with i < 0. current_index == -1 is the canonical
  * "start" (used by find_first) and scans from index 0; any current_index < -1
  * yields a start index that is still negative, so the loop body never runs and
@@ -194,9 +236,9 @@ TEST_F(GoTableSearch, FindNextCurrentIndexAtOrPastEndReturnsNeg1)
 {
   uint32_t ga[] = { 9 };
   set_entry(3, 88, ga, 1);
-  EXPECT_EQ(oc_core_find_next_go_table_index_with_ga(9, GOT_MAX_ENTRIES - 1), -1);
-  EXPECT_EQ(oc_core_find_next_go_table_index_with_ga(9, GOT_MAX_ENTRIES), -1);
-  EXPECT_EQ(oc_core_find_next_go_table_index_with_ga(9, GOT_MAX_ENTRIES + 50), -1);
+  EXPECT_EQ(oc_core_find_next_go_table_index_with_ga(9, KNX_GOT_MAX_ENTRIES - 1), -1);
+  EXPECT_EQ(oc_core_find_next_go_table_index_with_ga(9, KNX_GOT_MAX_ENTRIES), -1);
+  EXPECT_EQ(oc_core_find_next_go_table_index_with_ga(9, KNX_GOT_MAX_ENTRIES + 50), -1);
 }
 
 TEST_F(GoTableSearch, FindMatchesCorrectGaWithinMultiGaEntry)
@@ -233,7 +275,7 @@ TEST_F(GoTableSearch, FindEmptySlotSkipsOccupiedLeadingSlots)
 TEST_F(GoTableSearch, FindEmptySlotFullTableReturnsNeg1)
 {
   uint32_t ga[] = { 1 };
-  for (int i = 0; i < GOT_MAX_ENTRIES; i++) {
+  for (int i = 0; i < KNX_GOT_MAX_ENTRIES; i++) {
     set_entry(i, 100 + i, ga, 1);
   }
   EXPECT_EQ(find_empty_slot_in_group_object_table(), -1);
@@ -243,7 +285,7 @@ TEST_F(GoTableSearch, FindEmptySlotFullTableReturnsNeg1)
 TEST_F(GoTableSearch, GetCflagsOutOfBoundsReturnsNone)
 {
   EXPECT_EQ(oc_core_get_cflags_from_group_object_table_index(-1), OC_CFLAG_NONE);
-  EXPECT_EQ(oc_core_get_cflags_from_group_object_table_index(GOT_MAX_ENTRIES),
+  EXPECT_EQ(oc_core_get_cflags_from_group_object_table_index(KNX_GOT_MAX_ENTRIES),
             OC_CFLAG_NONE);
 }
 
@@ -260,7 +302,7 @@ TEST_F(GoTableSearch, GetGaLenOutOfBoundsReturnsZero)
 {
   EXPECT_EQ(oc_core_get_ga_table_len_from_group_object_table_index(-1), 0);
   EXPECT_EQ(
-    oc_core_get_ga_table_len_from_group_object_table_index(GOT_MAX_ENTRIES), 0);
+    oc_core_get_ga_table_len_from_group_object_table_index(KNX_GOT_MAX_ENTRIES), 0);
 }
 
 TEST_F(GoTableSearch, GetGaLenReturnsStoredLength)
@@ -276,26 +318,26 @@ TEST_F(GoTableSearch, GetGaLenReturnsStoredLength)
 
 TEST(FpTableSizes, RecipientMatchesBuildConstant)
 {
-  EXPECT_EQ(oc_core_get_recipient_table_size(), GRT_MAX_ENTRIES);
+  EXPECT_EQ(oc_core_get_recipient_table_size(), KNX_GRT_MAX_ENTRIES);
 }
 
 TEST(FpTableSizes, PublisherMatchesBuildConstant)
 {
   /* OC_PUBLISHER_TABLE is defined in this build */
-  EXPECT_EQ(oc_core_get_publisher_table_size(), GPT_MAX_ENTRIES);
+  EXPECT_EQ(oc_core_get_publisher_table_size(), KNX_GPT_MAX_ENTRIES);
 }
 
 TEST(FpTableSizes, RecipientEntryBounds)
 {
   EXPECT_EQ(oc_core_get_recipient_table_entry(-1), nullptr);
-  EXPECT_EQ(oc_core_get_recipient_table_entry(GRT_MAX_ENTRIES), nullptr);
+  EXPECT_EQ(oc_core_get_recipient_table_entry(KNX_GRT_MAX_ENTRIES), nullptr);
   EXPECT_NE(oc_core_get_recipient_table_entry(0), nullptr);
 }
 
 TEST(FpTableSizes, PublisherEntryBounds)
 {
   EXPECT_EQ(oc_core_get_publisher_table_entry(-1), nullptr);
-  EXPECT_EQ(oc_core_get_publisher_table_entry(GPT_MAX_ENTRIES), nullptr);
+  EXPECT_EQ(oc_core_get_publisher_table_entry(KNX_GPT_MAX_ENTRIES), nullptr);
   EXPECT_NE(oc_core_get_publisher_table_entry(0), nullptr);
 }
 
@@ -404,7 +446,7 @@ TEST_F(GoTableHref, GetHrefOutOfBoundsReturnsEmpty)
   EXPECT_EQ(oc_string_len(oc_core_get_href_from_group_object_table_index(-1)),
             0u);
   EXPECT_EQ(oc_string_len(oc_core_get_href_from_group_object_table_index(
-              GOT_MAX_ENTRIES)),
+              KNX_GOT_MAX_ENTRIES)),
             0u);
 }
 
@@ -575,21 +617,33 @@ TEST_F(BelongsHref, NonDiscoverableSkippedWhenDiscoverableRequested)
  * had no boolean case, so 'non' was silently dropped on reload.
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Must match GRT_STORE / GPT_STORE in api/oc_knx_fp.c. */
-static const char *kRcpStore = "dev_knx_rcv_entry";
-static const char *kPubStore = "dev_knx_pub_entry";
-static const char *kFpStoreDir = "knx_storage_fp_unit_test";
+/* The table base keys from api/oc_knx_fp.h, the production writer and loader use the same. */
+static const char *kRcpStore = KNX_STORAGE_KEY_GRT_ENTRY;
+static const char *kPubStore = KNX_STORAGE_KEY_GPT_ENTRY;
+static const char *kFpStoreDirPrefix = "fpt_";
 
 class GroupTableStorage : public ::testing::Test {
 protected:
-  static void SetUpTestSuite()
-  {
-    /* mkdir returns 0 on create, -1 if it already exists - both fine. */
-    oc_storage_config(kFpStoreDir);
-  }
-
   void SetUp() override
   {
+    /* gtest_discover_tests registers each TEST_F as its own ctest test, so
+     * `ctest -j` can run several of these as separate OS processes at the
+     * same time. oc_storage_config() only tracks one directory per process,
+     * but the directory itself is a plain path on the shared filesystem: a
+     * directory reused across tests lets one process's TearDown() (which
+     * deletes every per-entry file) race a concurrently running process's
+     * SetUp()/test body. Keying the directory by the test's own name gives
+     * every test - and thus every concurrent process - its own storage
+     * directory, and no OS/filesystem race is left. Total path (this
+     * directory + the longest per-entry filename) must still stay under
+     * STORE_PATH_SIZE (64, see port storage.c). */
+    const ::testing::TestInfo *info =
+      ::testing::UnitTest::GetInstance()->current_test_info();
+    char dir[64];
+    (void)snprintf(dir, sizeof(dir), "%s%s", kFpStoreDirPrefix, info->name());
+    /* mkdir returns 0 on create, -1 if it already exists - both fine. */
+    oc_storage_config(dir);
+
     /* erase any stale per-entry files and reset the RAM tables */
     oc_delete_group_tables();
   }
@@ -825,3 +879,380 @@ TEST_F(GroupTableStorage, WriterEncodesNonAsBoolean)
   EXPECT_TRUE(found_bool) << "'non' key missing or not a boolean";
   EXPECT_TRUE(non_value);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * /fp/g, /fp/p, /fp/r resource handlers
+ *
+ * The handlers are static, but the const oc_resource_t definitions that carry
+ * them are not, so they are invoked through `<resource>.get_handler.cb` the
+ * same way test_oc_knx_dev.cpp / test_oc_knx_swu.cpp do. Only oc_mmem_init()
+ * and a stack-allocated request/response pair are needed — no device or
+ * network init.
+ *
+ * Not covered here: the POST handlers' table-mutation paths and the DELETE
+ * happy path (requires LSM_S_LOADING, which is persisted through storage);
+ * those remain integration-level per tests/COVERAGE_LEDGER.md.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+extern "C" {
+extern const oc_resource_t core_resource_knx_fp_g;
+extern const oc_resource_t core_resource_knx_fp_g_x;
+extern const oc_resource_t core_resource_knx_fp_p;
+extern const oc_resource_t core_resource_knx_fp_p_x;
+extern const oc_resource_t core_resource_knx_fp_r;
+extern const oc_resource_t core_resource_knx_fp_r_x;
+}
+
+class FpHandlers : public ::testing::Test {
+protected:
+  uint8_t buf[2048];
+  oc_request_t request;
+  oc_response_t response;
+  oc_response_buffer_t response_buffer;
+
+  void SetUp() override
+  {
+    oc_mmem_init();
+    clear_tables();
+  }
+  void TearDown() override { clear_tables(); }
+
+  static void clear_group_table_array(oc_group_table_t *e)
+  {
+    if (oc_string_len(e->at) > 0) {
+      oc_free_string(&e->at);
+    }
+    e->id = -1; /* empty slot sentinel */
+    e->ia = -1;
+    e->grpid = 0;
+    e->fid = -1;
+    e->iid = -1;
+    e->ga = nullptr;
+    e->ga_len = 0;
+  }
+
+  static void clear_tables()
+  {
+    for (int i = 0; i < oc_core_get_group_object_table_total_size(); i++) {
+      oc_group_object_table_t *e = oc_core_get_group_object_table_entry(i);
+      if (oc_string_len(e->href) > 0) {
+        oc_free_string(&e->href);
+      }
+      e->id = -1;
+      e->ga = nullptr;
+      e->ga_len = 0;
+    }
+    for (int i = 0; i < oc_core_get_publisher_table_size(); i++) {
+      clear_group_table_array(oc_core_get_publisher_table_entry(i));
+    }
+    for (int i = 0; i < oc_core_get_recipient_table_size(); i++) {
+      clear_group_table_array(oc_core_get_recipient_table_entry(i));
+    }
+  }
+
+  /* Invoke a handler with a freshly zeroed request/response pair. `uri_path`
+     is the invoked path (no leading '/'), needed by the /fp/x/* wildcard
+     handlers to extract the entry id. */
+  int invoke(const oc_resource_t &res, oc_request_callback_t cb,
+             oc_content_format_t accept, oc_interface_mask_t iface,
+             const char *query = nullptr, const char *uri_path = nullptr)
+  {
+    memset(&request, 0, sizeof(request));
+    memset(&response, 0, sizeof(response));
+    memset(&response_buffer, 0, sizeof(response_buffer));
+    memset(buf, 0, sizeof(buf));
+    response_buffer.buffer = buf;
+    response_buffer.buffer_size = sizeof(buf);
+    response.response_buffer = &response_buffer;
+    request.response = &response;
+    request.resource = &res;
+    request.accept = accept;
+    if (query != nullptr) {
+      request.query = query;
+      request.query_len = strlen(query);
+    }
+    if (uri_path != nullptr) {
+      request.uri_path = uri_path;
+      request.uri_path_len = strlen(uri_path);
+    }
+    oc_rep_new(buf, sizeof(buf));
+    cb(&request, iface, nullptr);
+    return response_buffer.code;
+  }
+
+  int invoke_list(const oc_resource_t &res, oc_content_format_t accept,
+                  const char *query = nullptr)
+  {
+    return invoke(res, res.get_handler.cb, accept, OC_IF_LI, query, nullptr);
+  }
+
+  int invoke_entry_get(const oc_resource_t &res, oc_content_format_t accept,
+                       const char *uri_path)
+  {
+    return invoke(res, res.get_handler.cb, accept, OC_IF_D, nullptr, uri_path);
+  }
+
+  int invoke_entry_del(const oc_resource_t &res, const char *uri_path)
+  {
+    return invoke(res, res.delete_handler.cb, APPLICATION_CBOR, OC_IF_C,
+                  nullptr, uri_path);
+  }
+
+  /* raw scan of the serialized link-format response for a literal substring */
+  bool response_contains(const char *needle) const
+  {
+    const size_t needle_len = strlen(needle);
+    size_t len = static_cast<size_t>(response_buffer.response_length);
+    if (len == 0 || len > sizeof(buf)) {
+      len = sizeof(buf);
+    }
+    if (needle_len == 0 || needle_len > len) {
+      return false;
+    }
+    for (size_t i = 0; i + needle_len <= len; i++) {
+      if (memcmp(buf + i, needle, needle_len) == 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+};
+
+/* ───────────────────────── list handlers: wrong Accept ───────────────────── */
+
+TEST_F(FpHandlers, GoListWrongAcceptBadRequest)
+{
+  EXPECT_EQ(invoke_list(core_resource_knx_fp_g, APPLICATION_CBOR),
+            oc_status_code(OC_STATUS_BAD_REQUEST));
+}
+
+TEST_F(FpHandlers, PubListWrongAcceptBadRequest)
+{
+  EXPECT_EQ(invoke_list(core_resource_knx_fp_p, APPLICATION_CBOR),
+            oc_status_code(OC_STATUS_BAD_REQUEST));
+}
+
+TEST_F(FpHandlers, RcpListWrongAcceptBadRequest)
+{
+  EXPECT_EQ(invoke_list(core_resource_knx_fp_r, APPLICATION_CBOR),
+            oc_status_code(OC_STATUS_BAD_REQUEST));
+}
+
+/* ──────────────────── list handlers: empty table -> 2.05 ─────────────────── */
+
+TEST_F(FpHandlers, GoListEmptyTableReturnsOk)
+{
+  EXPECT_EQ(invoke_list(core_resource_knx_fp_g, APPLICATION_LINK_FORMAT),
+            oc_status_code(OC_STATUS_OK));
+}
+
+TEST_F(FpHandlers, PubListEmptyTableReturnsOk)
+{
+  EXPECT_EQ(invoke_list(core_resource_knx_fp_p, APPLICATION_LINK_FORMAT),
+            oc_status_code(OC_STATUS_OK));
+}
+
+TEST_F(FpHandlers, RcpListEmptyTableReturnsOk)
+{
+  EXPECT_EQ(invoke_list(core_resource_knx_fp_r, APPLICATION_LINK_FORMAT),
+            oc_status_code(OC_STATUS_OK));
+}
+
+/* ─────────────── list handlers: invalid paging -> 4.00 ───────────────────── */
+
+TEST_F(FpHandlers, GoListInvalidPageSizeBadRequest)
+{
+  oc_core_get_group_object_table_entry(0)->id = 1;
+  EXPECT_EQ(invoke_list(core_resource_knx_fp_g, APPLICATION_LINK_FORMAT, "ps=0"),
+            oc_status_code(OC_STATUS_BAD_REQUEST));
+}
+
+TEST_F(FpHandlers, GoListInvalidPageNumberBadRequest)
+{
+  oc_core_get_group_object_table_entry(0)->id = 1;
+  EXPECT_EQ(invoke_list(core_resource_knx_fp_g, APPLICATION_LINK_FORMAT, "pn=-1"),
+            oc_status_code(OC_STATUS_BAD_REQUEST));
+}
+
+TEST_F(FpHandlers, PubListInvalidPageSizeBadRequest)
+{
+  oc_core_get_publisher_table_entry(0)->id = 1;
+  EXPECT_EQ(invoke_list(core_resource_knx_fp_p, APPLICATION_LINK_FORMAT, "ps=0"),
+            oc_status_code(OC_STATUS_BAD_REQUEST));
+}
+
+TEST_F(FpHandlers, RcpListInvalidPageSizeBadRequest)
+{
+  oc_core_get_recipient_table_entry(0)->id = 1;
+  EXPECT_EQ(invoke_list(core_resource_knx_fp_r, APPLICATION_LINK_FORMAT, "ps=0"),
+            oc_status_code(OC_STATUS_BAD_REQUEST));
+}
+
+/* ────────────── list handlers: populated table -> link format ────────────── */
+
+TEST_F(FpHandlers, GoListPopulatedListsEntry)
+{
+  oc_core_get_group_object_table_entry(0)->id = 7;
+  EXPECT_EQ(invoke_list(core_resource_knx_fp_g, APPLICATION_LINK_FORMAT),
+            oc_status_code(OC_STATUS_OK));
+  EXPECT_TRUE(response_contains("</fp/g/7>"));
+  EXPECT_TRUE(response_contains(";ct=60"));
+}
+
+TEST_F(FpHandlers, PubListPopulatedListsEntry)
+{
+  oc_core_get_publisher_table_entry(0)->id = 3;
+  EXPECT_EQ(invoke_list(core_resource_knx_fp_p, APPLICATION_LINK_FORMAT),
+            oc_status_code(OC_STATUS_OK));
+  EXPECT_TRUE(response_contains("</fp/p/3>"));
+}
+
+TEST_F(FpHandlers, RcpListPopulatedListsEntry)
+{
+  oc_core_get_recipient_table_entry(0)->id = 5;
+  EXPECT_EQ(invoke_list(core_resource_knx_fp_r, APPLICATION_LINK_FORMAT),
+            oc_status_code(OC_STATUS_OK));
+  EXPECT_TRUE(response_contains("</fp/r/5>"));
+}
+
+TEST_F(FpHandlers, GoListSeparatesMultipleEntriesWithComma)
+{
+  oc_core_get_group_object_table_entry(0)->id = 1;
+  oc_core_get_group_object_table_entry(1)->id = 2;
+  EXPECT_EQ(invoke_list(core_resource_knx_fp_g, APPLICATION_LINK_FORMAT),
+            oc_status_code(OC_STATUS_OK));
+  EXPECT_TRUE(response_contains("</fp/g/1>"));
+  EXPECT_TRUE(response_contains("</fp/g/2>"));
+  EXPECT_TRUE(response_contains(","));
+}
+
+TEST_F(FpHandlers, GoListPageSizeOneAddsNextPageIndicator)
+{
+  /* two entries with ps=1 -> the page is full and a next-page link must be
+     appended (drives add_next_page_indicator via request->resource->uri). */
+  oc_core_get_group_object_table_entry(0)->id = 1;
+  oc_core_get_group_object_table_entry(1)->id = 2;
+  EXPECT_EQ(invoke_list(core_resource_knx_fp_g, APPLICATION_LINK_FORMAT, "ps=1"),
+            oc_status_code(OC_STATUS_OK));
+  EXPECT_TRUE(response_contains("</fp/g/1>"));
+  EXPECT_TRUE(response_contains("pn="));
+}
+
+/* ─────────────── entry (wildcard) GET handlers: wrong Accept ─────────────── */
+
+TEST_F(FpHandlers, GoEntryGetWrongAcceptBadRequest)
+{
+  EXPECT_EQ(invoke_entry_get(core_resource_knx_fp_g_x, APPLICATION_LINK_FORMAT,
+                             "fp/g/1"),
+            oc_status_code(OC_STATUS_BAD_REQUEST));
+}
+
+TEST_F(FpHandlers, PubEntryGetWrongAcceptBadRequest)
+{
+  EXPECT_EQ(invoke_entry_get(core_resource_knx_fp_p_x, APPLICATION_LINK_FORMAT,
+                             "fp/p/1"),
+            oc_status_code(OC_STATUS_BAD_REQUEST));
+}
+
+TEST_F(FpHandlers, RcpEntryGetWrongAcceptBadRequest)
+{
+  EXPECT_EQ(invoke_entry_get(core_resource_knx_fp_r_x, APPLICATION_LINK_FORMAT,
+                             "fp/r/1"),
+            oc_status_code(OC_STATUS_BAD_REQUEST));
+}
+
+/* ───────────── entry GET handlers: unknown id -> 4.04 Not Found ──────────── */
+
+TEST_F(FpHandlers, GoEntryGetUnknownIdNotFound)
+{
+  EXPECT_EQ(invoke_entry_get(core_resource_knx_fp_g_x, APPLICATION_CBOR,
+                             "fp/g/9"),
+            oc_status_code(OC_STATUS_NOT_FOUND));
+}
+
+TEST_F(FpHandlers, PubEntryGetUnknownIdNotFound)
+{
+  EXPECT_EQ(invoke_entry_get(core_resource_knx_fp_p_x, APPLICATION_CBOR,
+                             "fp/p/9"),
+            oc_status_code(OC_STATUS_NOT_FOUND));
+}
+
+TEST_F(FpHandlers, RcpEntryGetUnknownIdNotFound)
+{
+  EXPECT_EQ(invoke_entry_get(core_resource_knx_fp_r_x, APPLICATION_CBOR,
+                             "fp/r/9"),
+            oc_status_code(OC_STATUS_NOT_FOUND));
+}
+
+/* ───────────── entry GET handlers: known id -> 2.05 + CBOR body ──────────── */
+
+TEST_F(FpHandlers, GoEntryGetKnownIdReturnsCbor)
+{
+  oc_group_object_table_t *e = oc_core_get_group_object_table_entry(0);
+  static uint32_t ga[] = { 11, 22 };
+  e->id = 4;
+  e->ga = ga;
+  e->ga_len = 2;
+  e->cflags = OC_CFLAG_READ;
+  oc_new_string(&e->href, "/p/1", strlen("/p/1"));
+
+  EXPECT_EQ(invoke_entry_get(core_resource_knx_fp_g_x, APPLICATION_CBOR,
+                             "fp/g/4"),
+            oc_status_code(OC_STATUS_OK));
+  EXPECT_GT(response_buffer.response_length, 0);
+  EXPECT_TRUE(response_contains("/p/1"));
+}
+
+TEST_F(FpHandlers, PubEntryGetKnownIdReturnsCbor)
+{
+  oc_group_table_t *e = oc_core_get_publisher_table_entry(0);
+  static uint32_t ga[] = { 33 };
+  e->id = 6;
+  e->ia = 12;
+  e->ga = ga;
+  e->ga_len = 1;
+
+  EXPECT_EQ(invoke_entry_get(core_resource_knx_fp_p_x, APPLICATION_CBOR,
+                             "fp/p/6"),
+            oc_status_code(OC_STATUS_OK));
+  EXPECT_GT(response_buffer.response_length, 0);
+}
+
+TEST_F(FpHandlers, RcpEntryGetKnownIdReturnsCbor)
+{
+  oc_group_table_t *e = oc_core_get_recipient_table_entry(0);
+  static uint32_t ga[] = { 44 };
+  e->id = 8;
+  e->grpid = 0x80000001;
+  e->ga = ga;
+  e->ga_len = 1;
+
+  EXPECT_EQ(invoke_entry_get(core_resource_knx_fp_r_x, APPLICATION_CBOR,
+                             "fp/r/8"),
+            oc_status_code(OC_STATUS_OK));
+  EXPECT_GT(response_buffer.response_length, 0);
+}
+
+/* ───────── entry DELETE handlers: rejected outside the loading state ─────── */
+
+TEST_F(FpHandlers, GoEntryDeleteOutsideLoadingStateBadRequest)
+{
+  ASSERT_NE(oc_knx_get_lsm(), LSM_S_LOADING) << "test assumes the device is not loading";
+  EXPECT_EQ(invoke_entry_del(core_resource_knx_fp_g_x, "fp/g/1"),
+            oc_status_code(OC_STATUS_BAD_REQUEST));
+}
+
+TEST_F(FpHandlers, PubEntryDeleteOutsideLoadingStateBadRequest)
+{
+  ASSERT_NE(oc_knx_get_lsm(), LSM_S_LOADING) << "test assumes the device is not loading";
+  EXPECT_EQ(invoke_entry_del(core_resource_knx_fp_p_x, "fp/p/1"),
+            oc_status_code(OC_STATUS_BAD_REQUEST));
+}
+
+TEST_F(FpHandlers, RcpEntryDeleteOutsideLoadingStateBadRequest)
+{
+  ASSERT_NE(oc_knx_get_lsm(), LSM_S_LOADING) << "test assumes the device is not loading";
+  EXPECT_EQ(invoke_entry_del(core_resource_knx_fp_r_x, "fp/r/1"),
+            oc_status_code(OC_STATUS_BAD_REQUEST));
+}
+

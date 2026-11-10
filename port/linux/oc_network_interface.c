@@ -1,8 +1,8 @@
-/* 
+/*
  * Copyright (c) 2025 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
- */   
+ */
 
 #include <sys/types.h>
 #include <ifaddrs.h>

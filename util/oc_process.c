@@ -1,35 +1,12 @@
 /*
  * Copyright (c) 2016 Intel Corporation
- *
- * Copyright (c) 2005, Swedish Institute of Computer Science
+ * Copyright (c) 2005 Swedish Institute of Computer Science
  * All rights reserved.
+ * Copyright (c) 2026 KNX Association
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the Institute nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
+ * SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
  *
  * This file is part of the Contiki operating system.
- *
  */
 
 #include "oc_process.h"
@@ -61,10 +38,6 @@ static unsigned long OC_PROCESS_NUMEVENTS = 10;
 
 static oc_process_num_events_t nevents, fevent;
 static struct event_data* events;
-
-#if OC_PROCESS_CONF_STATS
-oc_process_num_events_t process_maxevents;
-#endif
 
 static volatile unsigned char poll_requested;
 
@@ -199,9 +172,6 @@ void oc_process_init(void)
   lastevent = OC_PROCESS_EVENT_MAX;
 
   nevents = fevent = 0;
-  #if OC_PROCESS_CONF_STATS
-  process_maxevents = 0;
-  #endif 
 
   oc_process_current = NULL;
   oc_process_list = NULL;
@@ -279,7 +249,7 @@ static void do_event(void)
     {
       /* This is not a broadcast event, so we deliver it to the specified process. */
       /* If the event was an INIT event, we should also update the state of the process. */
-      
+
       if (ev == OC_PROCESS_EVENT_INIT)
       {
         receiver->state = OC_PROCESS_STATE_RUNNING;
@@ -354,13 +324,6 @@ int oc_process_post(struct oc_process* p, oc_process_event_t ev, oc_process_data
   events[snum].data = data;
   events[snum].p = p;
   ++nevents;
-
-  #if OC_PROCESS_CONF_STATS
-  if (nevents > process_maxevents)
-  {
-    process_maxevents = nevents;
-  }
-  #endif 
 
   return OC_PROCESS_ERR_OK;
 }

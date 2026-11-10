@@ -1,35 +1,10 @@
-/*    
+/*
  * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2024-2026 KNX Association
- *  
- * SPDX-License-Identifier: Apache-2.0
- *
- * Copyright (c) 2013, Institute for Pervasive Computing, ETH Zurich
+ * Copyright (c) 2013 Institute for Pervasive Computing, ETH Zurich
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the Institute nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
+ * SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
  */
 
 #include "oc_config.h"
@@ -44,12 +19,10 @@
 #include "port/oc_clock.h"
 #include <stdlib.h>
 
-#ifdef OC_BLOCK_WISE
 #include "oc_blockwise.h"
-#include <errno.h>
-#endif
 #include "oc_coap.h"
 #include "oc_endpoint.h"
+#include "oc_knx_helpers.h"
 #include "oc_rep.h"
 #include "oc_ri.h"
 
@@ -96,15 +69,9 @@ static int coap_remove_observer_handle_by_uri(const oc_endpoint_t* endpoint, con
 }
 
 
-#ifdef OC_BLOCK_WISE
 static int add_observer(const oc_resource_t* resource, uint16_t block2_size,
                         const oc_endpoint_t* endpoint, const uint8_t* token, size_t token_len,
                         const char* uri, size_t uri_len)
-#else
-static int add_observer(const oc_resource_t* resource, oc_endpoint_t* endpoint,
-                        const uint8_t* token, size_t token_len, const char* uri,
-                        size_t uri_len)
-#endif
 {
   const int duplicate = coap_remove_observer_handle_by_uri(endpoint, uri, (int)uri_len);
 
@@ -135,9 +102,7 @@ static int add_observer(const oc_resource_t* resource, oc_endpoint_t* endpoint,
     o->obs_counter = observe_counter;
     o->resource = resource;
 
-    #ifdef OC_BLOCK_WISE
     o->block2_size = block2_size;
-    #endif
     
     // knx iot defaults, overridden after observe registration
     o->lifetime = 0;                          // not set, will be updated by oc_ri after registration
@@ -159,7 +124,6 @@ static void coap_remove_observer(coap_observer_t* o)
 {
   OC_DBG("removing observer for /%s [0x%02X%02X]", oc_string_checked(o->url), o->token[0], o->token[1]);
 
-  #ifdef OC_BLOCK_WISE
   oc_blockwise_state_t* response_state = oc_blockwise_find_response_buffer(
     oc_string(o->resource->uri) + 1, oc_string_len(o->resource->uri) - 1,
     &o->endpoint, COAP_GET, NULL, 0, OC_BLOCKWISE_SERVER);
@@ -167,7 +131,6 @@ static void coap_remove_observer(coap_observer_t* o)
   {
     response_state->ref_count = 0;
   }
-  #endif
 
   o->resource->runtime_data->num_observers--;
   oc_free_string(&o->url);
@@ -296,9 +259,7 @@ int coap_notify_observers(const oc_resource_t* resource, oc_response_buffer_t* r
   // remove expired observers before sending notifications (stale notifications are only deleted here, no cyclic check)
   coap_remove_expired_observers();
 
-  #ifdef OC_BLOCK_WISE
   oc_blockwise_state_t* response_state = NULL;
-  #endif
 
   /*
       prepare request from "void" with data needed for the application callback GET to retrieve the 
@@ -375,29 +336,15 @@ int coap_notify_observers(const oc_resource_t* resource, oc_response_buffer_t* r
         */
         coap_packet_t request_virtual[1];
 
-        #ifdef OC_TCP
-        if (obs->endpoint.flags & TCP)
-        {
-          coap_tcp_init_message(request_virtual, COAP_GET);
-        }
-        else
-        #endif
-        {
-          coap_udp_init_message(request_virtual, COAP_TYPE_NON, COAP_GET, 0);
-        }
+        coap_udp_init_message(request_virtual, COAP_TYPE_NON, COAP_GET, 0);
         memcpy(request_virtual->token, obs->token, obs->token_len);
         request_virtual->token_len = obs->token_len;
         coap_set_header_uri_path(request_virtual, oc_string(resource->uri), oc_string_len(resource->uri));
 
         OC_DBG("creating separate (CON) response for notification");
 
-        #ifdef OC_BLOCK_WISE
         if (coap_separate_accept(request_virtual, response_obj.separate_response, &obs->endpoint, obs->obs_counter, obs->block2_size) == 1)
         {
-        #else
-        if (coap_separate_accept(request_virtual, response_obj.separate_response, &obs->endpoint, obs->obs_counter) == 1)
-        {
-        #endif
           response_obj.separate_response->active = true;
         }
       }
@@ -410,27 +357,11 @@ int coap_notify_observers(const oc_resource_t* resource, oc_response_buffer_t* r
         const coap_message_type_t msg_type = obs->use_con ? COAP_TYPE_CON : COAP_TYPE_NON;
         const uint16_t mid = coap_get_next_mid();
 
-        #ifdef OC_TCP
-        if (obs->endpoint.flags & TCP)
-        {
-          coap_tcp_init_message(notification, CONTENT_2_05);
-        }
-        else
-        #endif
-        {
-          // KNX spec 2.5.9.4: use CON by default; NON when observer registered with "non=true"
-          coap_udp_init_message(notification, msg_type, CONTENT_2_05, mid);
-        }
+        // KNX spec 2.5.9.4: use CON by default; NON when observer registered with "non=true"
+        coap_udp_init_message(notification, msg_type, CONTENT_2_05, mid);
 
-        #ifdef OC_BLOCK_WISE
-        #ifdef OC_TCP
-        if (!(obs->endpoint.flags & TCP) && response_buf->response_length > obs->block2_size)
-        {
-
-        #else
         if (response_buf->response_length > obs->block2_size)
         {
-          #endif
           notification->type = COAP_TYPE_CON;
           response_state = oc_blockwise_find_response_buffer(
             oc_string(obs->resource->uri) + 1,
@@ -475,18 +406,10 @@ int coap_notify_observers(const oc_resource_t* resource, oc_response_buffer_t* r
           }
         }
         else
-        #endif
         { // payload fits
 
-          #ifdef OC_TCP
-          if (!(obs->endpoint.flags & TCP) && obs->use_con && obs->obs_counter % COAP_OBSERVE_REFRESH_INTERVAL == 0)
-          {
-
-          #else
           if (obs->use_con && obs->obs_counter % COAP_OBSERVE_REFRESH_INTERVAL == 0)
           {
-            #endif
-
             // RFC 7641 4.5: periodic CON to verify client is still alive; skip for NON observers
             OC_DBG("coap_observe_notify: forcing CON notification to check for client liveness");
             notification->type = COAP_TYPE_CON;
@@ -564,11 +487,7 @@ int coap_notify_observers(const oc_resource_t* resource, oc_response_buffer_t* r
   return resource->runtime_data->num_observers;
 }
 
-#ifdef OC_BLOCK_WISE
 int coap_observe_handler(void* request, void* response, const oc_resource_t* resource, uint16_t block2_size, oc_endpoint_t* endpoint)
-#else
-int coap_observe_handler(void* request, void* response, const oc_resource_t* resource, oc_endpoint_t* endpoint)
-#endif
 {
   coap_packet_t* const coap_req = (coap_packet_t*)request;
   coap_packet_t* const coap_res = (coap_packet_t*)response;
@@ -584,14 +503,9 @@ int coap_observe_handler(void* request, void* response, const oc_resource_t* res
       if (coap_req->observe == OC_OBSERVE_REGISTER)
       { // register
 
-        #ifdef OC_BLOCK_WISE
         result = add_observer(
            resource, block2_size, endpoint, coap_req->token, coap_req->token_len, 
            coap_req->uri_path, coap_req->uri_path_len);
-
-        #else
-        result = add_observer(resource, endpoint, coap_req->token, coap_req->token_len, coap_req->uri_path, coap_req->uri_path_len);
-        #endif
 
         if (result >= 0)
         { // added new or refreshed observe relationship
@@ -617,20 +531,20 @@ int coap_observe_handler(void* request, void* response, const oc_resource_t* res
               return -2;
             }
 
-            errno = 0;
-            const uint32_t lifetime = (uint32_t)strtoul(lt_value, NULL, 10);
             /*
               KNX spec 2.5.11.6: device SHALL support a minimum lifetime of 86400s (24h).
               This means any value up to 86400 is valid; reject values above the supported maximum.
+              Note that 'lt_value' points into the request buffer and is NOT NUL terminated.
             */
-            if (errno || lifetime == 0 || lifetime > 86400)
+            int lifetime = 0;
+            if (!oc_parse_sint32_from_base10_string(lt_value, lt_len, &lifetime) || lifetime == 0 || lifetime > 86400)
             {
-              OC_WRN("observe register rejected: unsupported 'lt' value %u", (unsigned)lifetime);
+              OC_WRN("observe register rejected: unsupported 'lt' value");
               coap_remove_observer(obs);
               return -2;
             }
 
-            obs->lifetime = lifetime;
+            obs->lifetime = (uint32_t)lifetime;
 
             // parse "non" (non-confirmable) -- KNX spec 2.5.11.6
             const char* non_value = NULL;
@@ -701,16 +615,7 @@ void coap_notify_k_observers(const uint8_t* payload, size_t payload_len)
         // KNX spec 2.5.9.4: use CON by default; NON when observer registered with "non=true"
         const coap_message_type_t msg_type = obs->use_con ? COAP_TYPE_CON : COAP_TYPE_NON;
 
-        #ifdef OC_TCP
-        if (obs->endpoint.flags & TCP)
-        {
-          coap_tcp_init_message(notification, CONTENT_2_05);
-        }
-        else
-        #endif
-        {
-          coap_udp_init_message(notification, msg_type, CONTENT_2_05, mid);
-        }
+        coap_udp_init_message(notification, msg_type, CONTENT_2_05, mid);
 
         // build notification with the fully-formed S-Mode envelope payload (same bytes as the sent S-Mode message)
         coap_set_header_content_format(notification, APPLICATION_CBOR);

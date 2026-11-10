@@ -1,20 +1,10 @@
 /*
-// Copyright (c) 2016-2019 Intel Corporation
-// Copyright (c) 2021-2022 Cascoda Ltd
-// Copyright (c) 2024-2025 KNX Association
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
+ * Copyright (c) 2016-2019 Intel Corporation
+ * Copyright (c) 2021-2022 Cascoda Ltd
+ * Copyright (c) 2026 KNX Association
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 /**
   @brief Main API of the stack for client and server.
@@ -47,12 +37,10 @@
 
 */
 
-#ifndef OC_API_H
-#define OC_API_H
+#pragma once
 #include "messaging/coap/oc_coap.h"
 #include "oc_client_state.h"
 #include "oc_knx.h"
-#include "oc_rep.h"
 #include "oc_ri.h"
 
 
@@ -253,31 +241,6 @@ extern "C"
   void oc_set_restart_cb(oc_restart_cb_t cb, void* data);
 
   /**
-   * Callback invoked by the stack to set the host name
-   *
-   * @param[in] host_name the host name to be set
-   * @param[in] data the user supplied data
-   *
-   */
-  typedef void (*oc_hostname_cb_t)(oc_string_t host_name, void* data);
-
-  /**
-   * Host name (set) callback.
-   *
-   * The host name callback is called by the stack when the host name will be set (aka PUT request)
-   *
-   * @note
-   * - oc_set_hostname_cb() must be called before oc_main_init()
-   * - called on each external PUT request to the ep dev/hname, but not on a GET request
-   *
-   * @param[in] cb oc_hostname_cb_t function pointer to be called
-   * @param[in] data context pointer that is passed to the oc_restart_cb_t
-   *                 the pointer must be a valid pointer till after oc_main_init()
-   *                 call completes.
-   */
-  void oc_set_hostname_cb(oc_hostname_cb_t cb, void* data);
-
-  /**
    * Set the programming mode callback
    * 
    * 
@@ -307,29 +270,36 @@ extern "C"
   void oc_set_programming_mode_cb(oc_programming_mode_cb_t cb, void* data);
 
   /**
-   * Callback invoked by the stack to set the software
+   * SWU update callback handler, called when a a MaC triggers a 'a/swu' PUT call (PUSH Mode)
+   *
+   * Blocks arrive in order and without gaps: a download starts with block_offset 0
+   * and each following block_offset equals the number of bytes passed before.
+   * The stack rejects blocks that would leave a gap and passes only the new bytes
+   * of a repeated or overlapping block.
    *
    * @param[in] response the instance of an internal struct that is used to track
    *                     the state of the separate response
    * @param[in] binary_size the full size of the binary
-   * @param[in] block_offset the offset (in the file)
+   * @param[in] block_offset the offset (in the file)  
    * @param[in] block_data the block data
    * @param[in] block_len the size of the block_data
    * @param[in] data the user supplied data
+   *
+   * @note ETS 6.4 does not support binary_size (pgks) yet; ETS 6.5 will
+   *       provide the fix. (TODO: remove once 6.5 is the baseline)
    *
    */
   typedef void (*oc_swu_cb_t)(oc_separate_response_t* response, size_t binary_size, size_t block_offset,
                               const uint8_t* block_data, size_t block_len, void* data);
 
   /**
-   * Software update trigger callback,
-   * called by the stack when /swu/update is triggered
+   * SWU trigger callback handler, called when a MaC triggers a '/swu/update' PUT call
    *
    * Application should:
-   * - Perform the actual firmware upgrade
-   * - Call oc_swu_set_state(OC_SWU_STATE_IDLE) when done
-   * - Call oc_swu_set_result() with success/failure
-   * - Update device firmware version if successful
+   * - perform the actual firmware upgrade
+   * - call oc_swu_set_state(OC_SWU_STATE_IDLE) when done
+   * - call oc_swu_set_result() with success/failure
+   * - update device firmware version if successful
    *
    * @param[in] defer_time the requested defer time in seconds
    * @param[in] data user supplied context data
@@ -337,12 +307,10 @@ extern "C"
   typedef void (*oc_swu_upgrade_cb_t)(int defer_time, void* data);
 
   /**
-   * Sets the software update callback,
-   * called by the stack when the software update is performed
+   * Sets SWU update callback, called when a a MaC triggers a 'a/swu' PUT call (PUSH Mode)
    *
    * @note
    * - oc_set_swu_cb() must be called before oc_main_init()
-   * - called on each external PUT request to the ep a/swu, but not on a GET request
    *
    * @param[in] cb oc_swu_cb_t function pointer to be called
    * @param[in] data context pointer that is passed to the oc_swu_cb_t,
@@ -638,7 +606,7 @@ extern "C"
    *   - The position in the query string of the next key=value string pair
    *   - `-1` if there are no additional query parameters
    */
-  int oc_iterate_query(oc_request_t* request, char** key, size_t* key_len, char** value, size_t* value_len);
+  int oc_iterate_query(oc_request_t* request, const char** key, size_t* key_len, const char** value, size_t* value_len);
 
   /**
    * Iterate though the URI query parameters for a specific key.
@@ -674,7 +642,7 @@ extern "C"
    *
    * @return True if there are more query parameters to iterate through
    */
-  bool oc_iterate_query_get_values(oc_request_t* request, const char* key, char** value, int* value_len);
+  bool oc_iterate_query_get_values(oc_request_t* request, const char* key, const char** value, int* value_len);
 
   /**
    * Get a pointer to the start of the value in a URL query parameter key=value
@@ -692,7 +660,7 @@ extern "C"
    *   - The position in the query string of the next key=value string pair
    *   - `-1` if there are no additional query parameters
    */
-  int oc_get_query_value(oc_request_t* request, const char* key, char** value);
+  int oc_get_query_value(oc_request_t* request, const char* key, const char** value);
 
   /**
    * Checks if a query parameter 'key' exist in the URL query parameter
@@ -962,29 +930,6 @@ extern "C"
   bool oc_do_well_known_message_update(void);
 
   /**
-   * @brief close the tls session on the indicated endpoint
-   *
-   * @param endpoint endpoint indicating a session
-   */
-  void oc_close_session(oc_endpoint_t* endpoint);
-
-  #ifdef OC_TCP
-  /**
-   * @brief send CoAP ping over the TCP connection
-   *
-   * @param custody custody on/off
-   * @param endpoint endpoint to be used
-   * @param timeout_seconds timeout for the ping
-   * @param handler the response handler
-   * @param user_data the user data to be conveyed to the response handler
-   * @return true
-   * @return false
-   */
-  bool oc_send_ping(bool custody, oc_endpoint_t* endpoint, uint16_t timeout_seconds, oc_response_handler_t handler,
-                    void* user_data);
-  #endif 
-
-  /**
    * @brief Schedule a callback to be invoked after a set number of seconds.
    *
    * @param[in] cb_data user defined context pointer that is passed to the oc_trigger_t callback
@@ -1007,11 +952,12 @@ extern "C"
    * @param[in] cb_data the user defined context pointer that was passed to the
    *                   oc_sed_delayed_callback() function
    * @param[in] callback the delayed callback that is being removed
+   *
+   * @note A callback may remove itself while it runs, to cancel itself or to arm itself again
+   *       with another delay. Its entry is freed after the callback has returned.
    */
   void oc_remove_delayed_callback(void* cb_data, oc_trigger_t callback);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

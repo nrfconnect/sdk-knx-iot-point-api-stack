@@ -59,6 +59,24 @@ protected:
   void SetUp() override { oc_mmem_init(); }
 };
 
+static bool g_force_resource_alloc_failure;
+extern "C" oc_resource_t *__real_oc_ri_alloc_resource(void);
+extern "C" oc_resource_data_t *__real_oc_ri_alloc_resource_data(void);
+extern "C" oc_resource_t *__wrap_oc_ri_alloc_resource(void)
+{
+  return g_force_resource_alloc_failure ? nullptr : __real_oc_ri_alloc_resource();
+}
+extern "C" oc_resource_data_t *__wrap_oc_ri_alloc_resource_data(void)
+{
+  return g_force_resource_alloc_failure ? nullptr : __real_oc_ri_alloc_resource_data();
+}
+
+extern "C" void __wrap_oc_ri_add_timed_event_callback_seconds(
+  void *, oc_trigger_t, uint16_t) {}
+extern "C" void __wrap_oc_ri_add_timed_event_callback_ticks(
+  void *, oc_trigger_t, oc_clock_time_t) {}
+extern "C" void __wrap_oc_ri_remove_timed_event_callback(void *, oc_trigger_t) {}
+
 } // namespace
 
 /* ─────────────────────────── query helpers ──────────────────────────────── */
@@ -67,7 +85,7 @@ using ServerApiQuery = ServerApiBase;
 
 TEST_F(ServerApiQuery, GetQueryValueNullRequest)
 {
-  char *value = nullptr;
+  const char *value = nullptr;
   EXPECT_EQ(oc_get_query_value(nullptr, "a", &value), -1);
 }
 
@@ -78,7 +96,7 @@ TEST_F(ServerApiQuery, GetQueryValueFindsValue)
   request.query = (char *)"a=1&bb=22";
   request.query_len = strlen(request.query);
 
-  char *value = nullptr;
+  const char *value = nullptr;
   int len = oc_get_query_value(&request, "bb", &value);
   EXPECT_EQ(len, 2);
   ASSERT_NE(value, nullptr);
@@ -92,7 +110,7 @@ TEST_F(ServerApiQuery, GetQueryValueMissingKey)
   request.query = (char *)"a=1";
   request.query_len = strlen(request.query);
 
-  char *value = nullptr;
+  const char *value = nullptr;
   EXPECT_EQ(oc_get_query_value(&request, "z", &value), -1);
 }
 
@@ -135,8 +153,8 @@ TEST_F(ServerApiQuery, IterateQueryWalksAllPairs)
 
   oc_init_query_iterator();
 
-  char *key = nullptr;
-  char *value = nullptr;
+  const char *key = nullptr;
+  const char *value = nullptr;
   size_t key_len = 0, value_len = 0;
 
   int pos = oc_iterate_query(&request, &key, &key_len, &value, &value_len);
@@ -156,7 +174,7 @@ TEST_F(ServerApiQuery, IterateQueryGetValuesFindsAndMisses)
   request.query = (char *)"href=/p&pn=1";
   request.query_len = strlen(request.query);
 
-  char *value = nullptr;
+  const char *value = nullptr;
   int value_len = 0;
 
   oc_init_query_iterator();
@@ -166,6 +184,18 @@ TEST_F(ServerApiQuery, IterateQueryGetValuesFindsAndMisses)
 
   oc_init_query_iterator();
   EXPECT_FALSE(oc_iterate_query_get_values(&request, "missing", &value, &value_len));
+  EXPECT_EQ(value_len, -1);
+}
+
+TEST_F(ServerApiQuery, EmptyQueryIterationReturnsFalse)
+{
+  oc_request_t request;
+  memset(&request, 0, sizeof(request));
+  oc_init_query_iterator();
+  const char *value = nullptr;
+  int value_len = 0;
+  EXPECT_FALSE(oc_iterate_query_get_values(&request, "missing", &value,
+                                           &value_len));
   EXPECT_EQ(value_len, -1);
 }
 
@@ -214,6 +244,15 @@ TEST_F(ServerApiResponse, PrepareJsonResponseWithPayloadIsJson)
   EXPECT_EQ(ctx.response_buffer.content_format, APPLICATION_JSON);
 }
 
+TEST_F(ServerApiResponse, PrepareJsonResponseEmptyPayloadHasNoFormat)
+{
+  uint8_t buf[16];
+  oc_rep_new(buf, sizeof(buf));
+  RespCtx ctx;
+  oc_prepare_json_response(&ctx.request, OC_STATUS_OK);
+  EXPECT_EQ(ctx.response_buffer.content_format, CONTENT_NONE);
+}
+
 TEST_F(ServerApiResponse, PrepareLinkformatResponse)
 {
   RespCtx ctx;
@@ -250,6 +289,18 @@ TEST_F(ServerApiResponse, ResponseBuildersNullSafe)
   SUCCEED();
 }
 
+TEST_F(ServerApiResponse, ResponseBuildersIgnoreMissingResponseBuffer)
+{
+  oc_request_t request;
+  memset(&request, 0, sizeof(request));
+  oc_prepare_cbor_response(&request, OC_STATUS_OK);
+  oc_prepare_json_response(&request, OC_STATUS_OK);
+  oc_prepare_linkformat_response(&request, OC_STATUS_OK, 4);
+  oc_prepare_no_format_response_no_payload(&request, OC_STATUS_OK);
+  oc_ignore_request(&request);
+  SUCCEED();
+}
+
 /* ──────────────────────── resource construction ─────────────────────────── */
 
 using ServerApiResource = ServerApiBase;
@@ -272,6 +323,33 @@ TEST_F(ServerApiResource, NewResourceTooLongPathReturnsNull)
   path[0] = '/';
   path[sizeof(path) - 1] = '\0';
   EXPECT_EQ(oc_new_resource(path, 1), nullptr);
+}
+
+TEST_F(ServerApiResource, NewResourceAllocationFailureReturnsNull)
+{
+  g_force_resource_alloc_failure = true;
+  char path[] = "/allocation-failure";
+  EXPECT_EQ(oc_new_resource(path, 1), nullptr);
+  g_force_resource_alloc_failure = false;
+}
+
+TEST_F(ServerApiResource, DelayedCallbackForwardersCallRiHooks)
+{
+  oc_set_delayed_callback(nullptr, nullptr, 1);
+  oc_set_delayed_callback_ms(nullptr, nullptr, 1);
+  oc_remove_delayed_callback(nullptr, nullptr);
+  SUCCEED();
+}
+
+TEST_F(ServerApiResource, SeparateResponseSetupInitializesHandle)
+{
+  RespCtx ctx;
+  oc_separate_response_t handle;
+  memset(&handle, 0, sizeof(handle));
+
+  oc_prepare_separate_response(&ctx.request, &handle);
+  EXPECT_EQ(ctx.request.response->separate_response, &handle);
+  EXPECT_EQ(ctx.response_buffer.response_length, 0);
 }
 
 /* mutators / getters — driven on a stack resource (no RI needed) */
@@ -353,6 +431,34 @@ TEST_F(ServerApiResource, GetAclForMethod)
   EXPECT_FALSE(oc_resource_get_acl_for_method(nullptr, COAP_GET, &scope));
 }
 
+TEST_F(ServerApiResource, GetAclForAllMethodsAndUnknownMethod)
+{
+  oc_resource_t r;
+  memset(&r, 0, sizeof(r));
+  r.post_handler.acl_scope_mask = OC_ACL_C;
+  r.delete_handler.acl_scope_mask = OC_ACL_D;
+  oc_acl_mask_t scope = OC_ACL_NONE;
+  EXPECT_TRUE(oc_resource_get_acl_for_method(&r, COAP_POST, &scope));
+  EXPECT_EQ(scope, OC_ACL_C);
+  EXPECT_TRUE(oc_resource_get_acl_for_method(&r, COAP_DELETE, &scope));
+  EXPECT_EQ(scope, OC_ACL_D);
+  EXPECT_FALSE(oc_resource_get_acl_for_method(&r, COAP_FETCH, &scope));
+}
+
+TEST_F(ServerApiResource, InterfacesIncludePostAndDeleteHandlers)
+{
+  oc_resource_t r;
+  memset(&r, 0, sizeof(r));
+  oc_interface_mask_t interfaces = OC_IF_NONE;
+  r.post_handler.cb = (oc_request_callback_t)0x1;
+  r.post_handler.interface_mask = OC_IF_C;
+  r.delete_handler.cb = (oc_request_callback_t)0x2;
+  r.delete_handler.interface_mask = OC_IF_D;
+  EXPECT_TRUE(oc_resource_get_all_interfaces_for_a_resource(&r, &interfaces));
+  EXPECT_TRUE(interfaces & OC_IF_C);
+  EXPECT_TRUE(interfaces & OC_IF_D);
+}
+
 TEST_F(ServerApiResource, SetPeriodicObservable)
 {
   oc_resource_t r;
@@ -378,6 +484,15 @@ TEST_F(ServerApiResource, SetAndResetProperties)
   EXPECT_FALSE(r.properties & OC_OBSERVABLE);
   EXPECT_FALSE(r.properties & OC_PERIODIC);
   EXPECT_TRUE(r.properties & OC_DISCOVERABLE); /* untouched */
+}
+
+TEST_F(ServerApiResource, ResetPropertiesOnConstResourceIsNoop)
+{
+  oc_resource_t r;
+  memset(&r, 0, sizeof(r));
+  r.is_const = true;
+  oc_resource_reset_properties(&r, (oc_resource_properties_t)OC_OBSERVABLE);
+  EXPECT_EQ(r.properties, (oc_resource_properties_t)0);
 }
 
 TEST_F(ServerApiResource, SetFunctionalBlockData)
@@ -441,4 +556,53 @@ TEST_F(ServerApiResource, MutatorsRespectIsConst)
   EXPECT_EQ(r.observe_period_seconds, 0);
   EXPECT_EQ(r.fb_data, (uint32_t)0);
   EXPECT_EQ(r.get_handler.cb, nullptr);
+}
+
+TEST_F(ServerApiResource, AllConstMutatorsAreNoops)
+{
+  oc_resource_t r;
+  memset(&r, 0, sizeof(r));
+  r.is_const = true;
+  oc_new_string_array(&r.types, 1);
+
+  oc_resource_bind_resource_type(&r, "type");
+  oc_resource_bind_dpt(&r, "dpt");
+  oc_resource_bind_content_type(&r, APPLICATION_CBOR, CONTENT_NONE);
+  oc_resource_set_properties_cbs(&r, dummy_get_props, nullptr,
+                                 dummy_set_props, nullptr);
+
+  EXPECT_STREQ(oc_string_array_get_item(r.types, 0), "");
+  EXPECT_EQ(oc_string_len(r.dpt), 0);
+  EXPECT_EQ(r.content_type[0], 0);
+  EXPECT_EQ(r.get_properties.cb.get_props, nullptr);
+  oc_free_string_array(&r.types);
+}
+
+TEST_F(ServerApiResource, NullMutatorsAreSafe)
+{
+  oc_resource_set_periodic_observable(nullptr, 1);
+  oc_resource_set_properties(nullptr, (oc_resource_properties_t)0);
+  oc_resource_reset_properties(nullptr, (oc_resource_properties_t)0);
+  oc_resource_set_functional_block_data(nullptr, 1, 2, 3);
+  oc_resource_set_properties_cbs(nullptr, dummy_get_props, nullptr,
+                                 dummy_set_props, nullptr);
+  oc_resource_set_request_handler(nullptr, COAP_GET, nullptr, nullptr,
+                                  OC_ACL_NONE, OC_IF_NONE);
+  oc_resource_bind_resource_type(nullptr, "type");
+  oc_resource_bind_dpt(nullptr, "dpt");
+  oc_resource_bind_content_type(nullptr, APPLICATION_CBOR, CONTENT_NONE);
+  SUCCEED();
+}
+
+TEST_F(ServerApiResource, UnknownRequestMethodIsIgnored)
+{
+  oc_resource_t r;
+  memset(&r, 0, sizeof(r));
+  oc_resource_set_request_handler(&r, COAP_FETCH,
+                                  (oc_request_callback_t)0x1, nullptr,
+                                  OC_ACL_D, OC_IF_D);
+  EXPECT_EQ(r.get_handler.cb, nullptr);
+  EXPECT_EQ(r.put_handler.cb, nullptr);
+  EXPECT_EQ(r.post_handler.cb, nullptr);
+  EXPECT_EQ(r.delete_handler.cb, nullptr);
 }

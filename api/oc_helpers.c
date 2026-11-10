@@ -2,7 +2,7 @@
  * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2022,2023 Cascoda Ltd.
  * Copyright (c) 2024-2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <inttypes.h>
-#include <errno.h>
+#include "oc_knx_helpers.h"
 
 static bool mmem_initialized = false;
 
@@ -318,11 +318,28 @@ int oc_conv_byte_array_to_hex_string(const uint8_t* array, size_t array_len, cha
     *hex_str_len += 2;
   }
 
-  // set to next char after string and add string termination
-  *hex_str_len += 1;
+  /*
+     snprintf already wrote the terminator at hex_str[*hex_str_len]
+     - for an empty array, the loop above never ran, and it still needs writing the \0 terminator
+     - write it in place instead of one byte further, then include it in the reported length 
+
+     0100 -> 0100\0 len 4
+     1    -> 01\0   len 2
+
+  */
   hex_str[*hex_str_len] = '\0';
+  *hex_str_len += 1;
 
   return 0;
+}
+
+// int for error return, -1 = error, 0..15 = hex value
+int oc_hex_digit_value(char c)
+{
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return -1;
 }
 
 int oc_conv_hex_string_to_byte_array(const char* hex_str, size_t hex_str_len, uint8_t* array, size_t* array_len)
@@ -332,55 +349,75 @@ int oc_conv_hex_string_to_byte_array(const char* hex_str, size_t hex_str_len, ui
     return -1;
   }
 
-  size_t a = (size_t)((double)hex_str_len / 2.0 + 0.5);
+  // calculate needed bytes to store the hex string, odd -> rounding up (8->9/2 = 4, 7->8/2 = 4)
+  size_t a = (hex_str_len + 1) / 2;
 
   if (*array_len < a)
   {
+    // not enough space in array
     return -1;
   }
 
+  // store the actual number of bytes written to the (inbound) array
   *array_len = a;
+  
+  // reset
   a = 0;
 
-  uint32_t tmp;
   size_t start;
 
   if (hex_str_len % 2 == 0)
   {
+    // even, loop does it all
     start = 0;
   }
   else
   {
+    // odd (see examples below) 
     start = 1;
-    int processed_fields = sscanf(&hex_str[0], "%1x", &tmp);
-    if (processed_fields != 1)
+
+    // save lone (low) digit
+    const int lo = oc_hex_digit_value(hex_str[0]);
+
+    if (lo < 0)
     {
       return -1;
     }
 
-    array[a++] = (uint8_t)tmp;
+    // store lone (low) digit as low nibble in case of odd length hex string, the high nibble is assumed to be 0
+    array[a++] = (uint8_t)lo;
   }
 
-  if (hex_str_len >= 2)
-  {
-    // save guard against string lengths of 1
-    for (size_t i = start; i <= hex_str_len - 2; i += 2)
-    {
-      int processed_fields = sscanf(&hex_str[i], "%2x", &tmp);
-      if (processed_fields != 1)
-      {
-        return -1;
-      }
+  /* 
+     sscanf("%x", ...) is not used here
+     - it scans past hex_str_len looking for more hex digits or a NUL terminator 
+     - causing an out-of-bounds read on buffers that are exactly hex_str_len bytes long 
 
-      array[a++] = (uint8_t)tmp;
+     examples:
+     1    -> 1 byte   = 01    -> lone digit 1, high nibble is assumed to be 0
+     01   -> 1 byte   = 01
+     122  -> 2 bytes  = 01 22 -> lone digit 1, high nibble is assumed to be 0
+     0122 -> 2 bytes  = 01 22
+
+  */
+  for (size_t i = start; i + 1 < hex_str_len; i += 2)
+  {
+    const int hi = oc_hex_digit_value(hex_str[i]);
+    const int lo = oc_hex_digit_value(hex_str[i + 1]);
+
+    if (hi < 0 || lo < 0)
+    {
+      // conversion error
+      return -1;
     }
+
+    array[a++] = (uint8_t)((hi << 4) | lo);
   }
 
   return 0;
 }
 
-int oc_conv_hex_string_to_oc_string(const char* hex_str, size_t hex_str_len,
-                                    oc_string_t* out)
+int oc_conv_hex_string_to_oc_string(const char* hex_str, size_t hex_str_len, oc_string_t* out)
 {
   int return_value = -1;
   size_t size_bytes = (hex_str_len / 2);
@@ -388,10 +425,10 @@ int oc_conv_hex_string_to_oc_string(const char* hex_str, size_t hex_str_len,
   oc_free_string(out);
 
   oc_alloc_string(out, size_bytes);
-  char* ptr = oc_string(*out);
+  uint8_t* ptr = oc_byte_string(*out);
   if (ptr != NULL)
   {
-    return_value = oc_conv_hex_string_to_byte_array(hex_str, hex_str_len, ptr, &size_bytes);
+    return_value = oc_conv_hex_string_to_byte_array(hex_str, hex_str_len, (uint8_t*)ptr, &size_bytes);
   }
 
   OC_INF("oc_conv_hex_string_to_oc_string result=%d", return_value);
@@ -423,6 +460,8 @@ size_t oc_char_print_hex(const char* str, size_t str_len)
 
   return str_len;
 #else
+  (void)str;
+  (void)str_len;
   return 0;
 #endif
 }
@@ -558,15 +597,12 @@ int oc_uri_get_wildcard_int_value_as_int(const char* uri_resource, size_t uri_le
         - fp/g/004_abc, f/4abc, f/abc results in string errors '-1'
       */
 
-      char* ptr_last_converted_digit = NULL;
       const char* ptr_first_to_be_converted_digit = &uri_invoked[uri_len - 2];
+      const int to_be_converted_len = (int)invoked_len - (int)(uri_len - 2);
 
-      errno = 0;
-      const int converted_value = strtol(ptr_first_to_be_converted_digit, &ptr_last_converted_digit, 10);
-
-      // accept only entire numbers (ptr_last_converted_digit = last string position)
-      // with no conversion errors (see 'strtol' details)
-      if (errno || ptr_last_converted_digit != &uri_invoked[invoked_len])
+      // accept only entire numbers, no trailing characters and no conversion errors
+      int converted_value = -1;
+      if (!oc_parse_sint32_from_base10_string(ptr_first_to_be_converted_digit, to_be_converted_len, &converted_value))
       {
         return -1;
       }
@@ -594,7 +630,6 @@ int oc_uri_get_fb_string_value_as_int(const char* resource_uri, size_t resource_
       const char* ptr_last_to_be_converted_digit = &invoked_uri[invoked_len];
       const char* underscore = strchr(ptr_first_to_be_converted_digit, '_');
 
-      errno = 0;
       if (underscore)
       {
         // an FB with instance is asked (x_y)
@@ -632,12 +667,11 @@ int oc_uri_get_fb_string_value_as_int(const char* resource_uri, size_t resource_
         }
       }
 
-      char* ptr_last_is_converted_digit;
-      const int converted_value = strtol(ptr_first_to_be_converted_digit, &ptr_last_is_converted_digit, 10);
+      const int to_be_converted_len = (int)(ptr_last_to_be_converted_digit - ptr_first_to_be_converted_digit);
 
-      // accept only entire numbers (ptr_last_converted_digit = '_' string position)
-      // with no conversion errors (see 'strtol' details)
-      if (errno || ptr_last_is_converted_digit != ptr_last_to_be_converted_digit)
+      // accept only entire numbers (up to the '_' string position or the end) with no conversion errors
+      int converted_value = -1;
+      if (!oc_parse_sint32_from_base10_string(ptr_first_to_be_converted_digit, to_be_converted_len, &converted_value))
       {
         return -1;
       }
@@ -672,13 +706,13 @@ int oc_uri_get_wildcard_value_as_string(const char* uri_resource, size_t resourc
   return -1;
 }
 
-char* oc_strnchr(char* string, char p, int size)
+const char* oc_strnchr(const char* string, char p, int size)
 {
   for (int i = 0; i < size; i++)
   {
     if (string[i] == p)
     {
-      return &string[i];
+      return (char*)&string[i];
     }
   }
 
@@ -696,10 +730,57 @@ int oc_charstream_convert_to_lower(char* stream)
   return 0;
 }
 
+int oc_charstream_convert_to_upper(char* stream)
+{
+  for (; *stream; stream++)
+  {
+    // loops until *str is 0, e.g.; stream ends with \0
+    *stream = (char)toupper(*stream);
+  }
+
+  return 0;
+}
+
+bool oc_charstream_validate_is_lower(const char* stream)
+{
+  for (; *stream; stream++)
+  {
+    // loops until *str is 0, e.g.; stream ends with \0
+    if ((*stream < '0' || *stream > '9') && (*stream < 'a' || *stream > 'f'))
+    {
+      /*
+        must be a lowercase hexadecimal char, e.g.; '0'...'9' or 'a'...'f',
+        not any other char, e.g.; no space, no special char, no upper case
+      */
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool oc_charstream_validate_is_upper(const char* stream)
+{
+  for (; *stream; stream++)
+  {
+    // loops until *str is 0, e.g.; stream ends with \0
+    if ((*stream < '0' || *stream > '9') && (*stream < 'A' || *stream > 'F'))
+    {
+      /*
+        must be an uppercase hexadecimal char, e.g.; '0'...'9' or 'A'...'F',
+        not any other char, e.g.; no space, no special char, no lower case
+      */
+      return false;
+    }
+  }
+
+  return true;
+}
+
 bool oc_check_string_on_zero_content(const char* stream_ptr, uint8_t stream_len)
 {
   for (const char* ptr = stream_ptr; ptr < stream_ptr + stream_len; ptr++)
-  { // loops until byte stream end defined by '\0' 
+  { // loops until byte stream end, excluding the null terminator, e.g.; stream ends with \0
     
     if (*ptr)
     {

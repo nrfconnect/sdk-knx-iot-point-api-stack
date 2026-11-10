@@ -312,7 +312,7 @@ TEST(UriFbValue, NoInstance_ReturnsZero)
 TEST(Strnchr, FindsCharacter)
 {
   char str[] = "hello/world";
-  char *p = oc_strnchr(str, '/', sizeof(str));
+  const char *p = oc_strnchr(str, '/', sizeof(str));
   ASSERT_NE(p, nullptr);
   EXPECT_EQ(p - str, 5);
 }
@@ -320,7 +320,7 @@ TEST(Strnchr, FindsCharacter)
 TEST(Strnchr, NotFound)
 {
   char str[] = "hello";
-  char *p = oc_strnchr(str, '/', sizeof(str));
+  const char *p = oc_strnchr(str, '/', sizeof(str));
   EXPECT_EQ(p, nullptr);
 }
 
@@ -328,7 +328,7 @@ TEST(Strnchr, LimitedSearch)
 {
   char str[] = "hello/world";
   // Search only in "hello" (5 chars) — should not find '/'
-  char *p = oc_strnchr(str, '/', 5);
+  const char *p = oc_strnchr(str, '/', 5);
   EXPECT_EQ(p, nullptr);
 }
 

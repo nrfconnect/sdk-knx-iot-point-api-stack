@@ -19,6 +19,8 @@
 extern "C" {
 #include "messaging/coap/observe.h"
 #include "messaging/coap/coap.h"
+#include "messaging/coap/oc_coap.h"
+#include "messaging/coap/transactions.h"
 #include "messaging/coap/constants.h"
 #include "port/oc_network_events_mutex.h"
 #include "oc_ri.h"
@@ -65,7 +67,8 @@ struct TestResource {
  */
 static int add_test_observer(oc_resource_t *resource, oc_endpoint_t *ep,
                              const uint8_t *token, uint8_t token_len,
-                             const char *uri, size_t uri_len)
+                             const char *uri, size_t uri_len,
+                             const char *query = "lt=86400")
 {
   coap_packet_t req;
   memset(&req, 0, sizeof(req));
@@ -78,19 +81,32 @@ static int add_test_observer(oc_resource_t *resource, oc_endpoint_t *ep,
   req.uri_path_len = (uint32_t)uri_len;
 
   /* lt=86400 is mandatory for observe registration after implement_observe */
-  req.uri_query = "lt=86400";
-  req.uri_query_len = 8;
+  req.uri_query = query;
+  req.uri_query_len = (uint32_t)strlen(query);
   SET_OPTION(&req, COAP_OPTION_URI_QUERY);
 
   coap_packet_t res;
   memset(&res, 0, sizeof(res));
   res.code = CONTENT_2_05;
 
-#ifdef OC_BLOCK_WISE
   return coap_observe_handler(&req, &res, resource, 0, ep);
-#else
-  return coap_observe_handler(&req, &res, resource, ep);
-#endif
+}
+
+static void observe_get_handler(oc_request_t *request, oc_interface_mask_t,
+                                void *)
+{
+  static const uint8_t payload[] = {0xA1, 0x01, 0xF5};
+  memcpy(request->response->response_buffer->buffer, payload, sizeof(payload));
+  request->response->response_buffer->response_length = sizeof(payload);
+  request->response->response_buffer->code = CONTENT_2_05;
+  request->response->response_buffer->content_format = APPLICATION_CBOR;
+}
+
+extern "C" bool __wrap_oc_main_initialized(void) { return true; }
+extern "C" void __wrap_oc_etimer_restart(struct oc_etimer *) {}
+extern "C" void __wrap_coap_send_message(oc_message_t *message)
+{
+  oc_message_unref(message);
 }
 
 /* ---------------- fixture ------------------------------------------------ */
@@ -302,13 +318,91 @@ TEST_F(CoapObserve, DeregisterViaHandler)
   memset(&res, 0, sizeof(res));
   res.code = CONTENT_2_05;
 
-#ifdef OC_BLOCK_WISE
   coap_observe_handler(&req, &res, &tr.resource, 0, &ep);
-#else
-  coap_observe_handler(&req, &res, &tr.resource, &ep);
-#endif
 
   EXPECT_EQ(tr.data.num_observers, 0);
+}
+
+TEST_F(CoapObserve, HandlerRejectsMissingObserveOptionAndBadCodes)
+{
+  TestResource tr("/test");
+  oc_endpoint_t ep = make_endpoint(5683);
+  coap_packet_t request;
+  coap_packet_t response;
+  memset(&request, 0, sizeof(request));
+  memset(&response, 0, sizeof(response));
+  request.code = COAP_GET;
+  response.code = CONTENT_2_05;
+  request.token_len = 1;
+  request.token[0] = 1;
+  request.uri_path = "test";
+  request.uri_path_len = 4;
+  EXPECT_EQ(coap_observe_handler(&request, &response, &tr.resource, 0, &ep), -1);
+
+  SET_OPTION(&request, COAP_OPTION_OBSERVE);
+  request.observe = OC_OBSERVE_REGISTER;
+  response.code = BAD_REQUEST_4_00;
+  EXPECT_EQ(coap_observe_handler(&request, &response, &tr.resource, 0, &ep), -1);
+  EXPECT_EQ(tr.data.num_observers, 0);
+}
+
+TEST_F(CoapObserve, RemovalByMidNoMatchReturnsZero)
+{
+  oc_endpoint_t ep = make_endpoint(5683);
+  EXPECT_EQ(coap_remove_observer_by_mid(&ep, 1234), 0);
+}
+
+TEST_F(CoapObserve, RegistrationRejectsMissingInvalidAndOverlongLifetime)
+{
+  TestResource tr("/test");
+  oc_endpoint_t ep = make_endpoint(5683);
+  uint8_t token[] = {0xC0};
+
+  EXPECT_EQ(add_test_observer(&tr.resource, &ep, token, 1, "test", 4, ""), -2);
+  EXPECT_EQ(tr.data.num_observers, 0);
+  EXPECT_EQ(add_test_observer(&tr.resource, &ep, token, 1, "test", 4,
+                              "lt=nope"), -2);
+  EXPECT_EQ(tr.data.num_observers, 0);
+  EXPECT_EQ(add_test_observer(&tr.resource, &ep, token, 1, "test", 4,
+                              "lt=86401"), -2);
+  EXPECT_EQ(tr.data.num_observers, 0);
+}
+
+TEST_F(CoapObserve, RegistrationAcceptsNonTrue)
+{
+  TestResource tr("/test");
+  oc_endpoint_t ep = make_endpoint(5683);
+  uint8_t token[] = {0xC1};
+
+  EXPECT_EQ(add_test_observer(&tr.resource, &ep, token, 1, "test", 4,
+                              "lt=60&non=true"), 0);
+  EXPECT_EQ(tr.data.num_observers, 1);
+  coap_free_all_observers();
+}
+
+TEST_F(CoapObserve, NotifyObserverCanFilterByEndpoint)
+{
+  TestResource tr("/test");
+  tr.resource.get_handler.cb = observe_get_handler;
+  oc_endpoint_t ep1 = make_endpoint(5683);
+  oc_endpoint_t ep2 = make_endpoint(5684);
+  uint8_t token[] = {0xC3};
+  ASSERT_EQ(add_test_observer(&tr.resource, &ep1, token, 1, "test", 4), 0);
+
+  EXPECT_EQ(coap_notify_observers(&tr.resource, nullptr, &ep2), 1);
+  coap_free_all_observers();
+}
+
+TEST_F(CoapObserve, NotifyObserverBuildsAndSendsNotification)
+{
+  TestResource tr("/test");
+  tr.resource.get_handler.cb = observe_get_handler;
+  oc_endpoint_t ep = make_endpoint(5683);
+  uint8_t token[] = {0xC4};
+  ASSERT_EQ(add_test_observer(&tr.resource, &ep, token, 1, "test", 4), 0);
+
+  EXPECT_EQ(coap_notify_observers(&tr.resource, nullptr, nullptr), 1);
+  coap_free_all_observers();
 }
 
 /* ---------------- coap_notify_k_observers (KNX clause 2.5.9.1) ------------ */

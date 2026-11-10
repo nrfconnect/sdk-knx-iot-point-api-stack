@@ -1,52 +1,15 @@
 /*
-// Copyright (c) 2016 Intel Corporation
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
-/*
- *
+ * Copyright (c) 2016 Intel Corporation
+ * Copyright (c) 2026 KNX Association
  * Copyright (c) 2013, Institute for Pervasive Computing, ETH Zurich
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the Institute nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
+ * SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
  *
  * This file is part of the Contiki operating system.
  */
 
-#ifndef CONSTANTS_H
-#define CONSTANTS_H
+#pragma once
 
 #ifdef __cplusplus
 extern "C" {
@@ -79,7 +42,24 @@ extern "C" {
 #define COAP_ETAG_LEN 8     /* Etag len (exactly, stack sends always this amount of etag bytes) */
 #define COAP_ECHO_LEN 40    /* The maximum size of the Echo option */
 
-#define COAP_VERSION 1      /* current CoAP version is '1' (see RFC7252), don't allow other values on own sending  */
+/*
+  Upper bounds on the Uri-Path and Uri-Query the stack serializes into an outgoing message.
+
+  COAP_SERIALIZE_STRING_OPTION splits the string on '/' (Uri-Path) resp. '&' (Uri-Query) and emits one CoAP option
+  per part, so the on-wire cost of the option group is 'characters + one option header per part'. Therefore, both a
+  character budget and a part-count budget are needed to bound the group (see COAP_MAX_INNER_HEADER_SIZE in conf.h).
+
+  The values cover the longest URIs this stack emits (KNX resource paths such as '/.well-known/knx/f/...' and
+  discovery filters such as 'd=urn:knx:ia.65535&if=urn:knx:if.pm') with headroom for application supplied URIs.
+  An application that exceeds them does not corrupt memory: coap_oscore_serialize_message() detects the overflow
+  and fails the send with an explicit error.
+*/
+#define KNX_MAX_URI_PATH_LEN 48       /* max number of characters in a Uri-Path handed to coap_set_header_uri_path()   */
+#define KNX_MAX_URI_PATH_SEGMENTS 8   /* max number of '/' separated segments in that Uri-Path                         */
+#define KNX_MAX_URI_QUERY_LEN 64      /* max number of characters in a Uri-Query handed to coap_set_header_uri_query() */
+#define KNX_MAX_URI_QUERY_PARAMS 4    /* max number of '&' separated parameters in that Uri-Query                      */
+
+#define COAP_VERSION 1                /* current CoAP version is '1' (see RFC7252), don't allow other values on own sending  */
 #define COAP_HEADER_VERSION_MASK 0xC0
 #define COAP_HEADER_VERSION_POSITION 6
 #define COAP_HEADER_TYPE_MASK 0x30
@@ -90,21 +70,14 @@ extern "C" {
 #define COAP_HEADER_OPTION_DELTA_MASK 0xF0
 #define COAP_HEADER_OPTION_SHORT_LENGTH_MASK 0x0F
 
-#define COAP_TCP_DEFAULT_HEADER_LEN  2 /* | len:0xF0 tkl:0x0F | .... | code |  */
-#define COAP_TCP_MAX_EXTENDED_LENGTH_LEN 4
 #define COAP_PAYLOAD_MARKER_LEN 1 /* 0xFF */
 
-#define COAP_TCP_HEADER_LEN_MASK 0xF0
-#define COAP_TCP_HEADER_LEN_POSITION 4
-
-#define COAP_TCP_EXTENDED_LENGTH_1 13
-#define COAP_TCP_EXTENDED_LENGTH_1_DEFAULT_LEN 13
-
-#define COAP_TCP_EXTENDED_LENGTH_2 14
-#define COAP_TCP_EXTENDED_LENGTH_2_DEFAULT_LEN 269
-
-#define COAP_TCP_EXTENDED_LENGTH_3 15
-#define COAP_TCP_EXTENDED_LENGTH_3_DEFAULT_LEN 65805
+/*
+  RFC 7252 clause 4.6: if the path MTU is not known, a CoAP message size of 1152 bytes and a payload size of
+  1024 bytes are the recommended upper bounds for IPv6. The stack uses this to clamp the block-wise block size so
+  that a serialized datagram (outer header + inner header + block + AEAD tag) stays below the guidance.
+*/
+#define COAP_MAX_MESSAGE_SIZE 1152
 
 /** CoAP message types */
 typedef enum {
@@ -159,8 +132,7 @@ typedef enum {
   MEMORY_ALLOCATION_ERROR = 192,
   PACKET_SERIALIZATION_ERROR,
   CLEAR_TRANSACTION,
-  EMPTY_ACK_RESPONSE,
-  CLOSE_ALL_TLS_SESSIONS
+  EMPTY_ACK_RESPONSE
 } coap_status_t;
 
 /** CoAP header option numbers */
@@ -193,5 +165,3 @@ typedef enum {
 #ifdef __cplusplus
 }
 #endif
-
-#endif 

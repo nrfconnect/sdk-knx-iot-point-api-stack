@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: KNX IoT Demos <noreply@knx.org>
+Date: Fri, 27 Mar 2026 00:00:00 +0000
+Subject: [PATCH] drivers: ieee802154: esp32: Implement get_sch_acc
+
+Implement the get_sch_acc radio API callback, which returns the crystal
+oscillator accuracy in PPM. The Zephyr OpenThread platform calls this
+via otPlatRadioGetCslAccuracy() -> otPlatTimeGetXtalAccuracy() when
+CONFIG_OPENTHREAD_TIME_SYNC is enabled. Without this implementation
+the function pointer is NULL, causing a fatal crash the first time
+OpenThread tries to upgrade the device to router role (Address Solicit).
+
+The accuracy value is configurable via
+CONFIG_IEEE802154_ESP32_XTAL_ACCURACY_PPM (default: 20 ppm, matching
+the ESP32-C6 40 MHz crystal datasheet specification).
+
+Signed-off-by: KNX IoT Demos <noreply@knx.org>
+---
+ drivers/ieee802154/Kconfig.esp32      | 9 +++++++++
+ drivers/ieee802154/ieee802154_esp32.c | 8 ++++++++
+ 2 files changed, 17 insertions(+)
+
+diff --git a/drivers/ieee802154/Kconfig.esp32 b/drivers/ieee802154/Kconfig.esp32
+index c0bc39c599..bd280c9aaa 100644
+--- a/drivers/ieee802154/Kconfig.esp32
++++ b/drivers/ieee802154/Kconfig.esp32
+@@ -205,4 +205,13 @@ config IEEE802154_ESP32_SLEEP_ENABLE
+ 	  current consumption. The driver releases the SoC PM policy lock
+ 	  when the radio is in sleep.
+ 
++config IEEE802154_ESP32_XTAL_ACCURACY_PPM
++	int "Crystal oscillator accuracy in PPM"
++	default 20
++	range 1 255
++	help
++	  Accuracy of the crystal oscillator in parts per million (PPM).
++	  Used by OpenThread for CSL scheduling and time synchronization.
++	  The ESP32-C6 uses a 40 MHz crystal with +/-20 ppm typical accuracy.
++
+ endif # IEEE802154_ESP32
+diff --git a/drivers/ieee802154/ieee802154_esp32.c b/drivers/ieee802154/ieee802154_esp32.c
+index 6b001c648c..1083ed126f 100644
+--- a/drivers/ieee802154/ieee802154_esp32.c
++++ b/drivers/ieee802154/ieee802154_esp32.c
+@@ -904,6 +904,13 @@ static void esp32_iface_init(struct net_if *iface)
+ #endif
+ }
+ 
++static uint8_t esp32_get_sch_acc(const struct device *dev)
++{
++	ARG_UNUSED(dev);
++
++	return CONFIG_IEEE802154_ESP32_XTAL_ACCURACY_PPM;
++}
++
+ static const struct ieee802154_radio_api esp32_radio_api = {
+ 	.iface_api.init = esp32_iface_init,
+ 	.get_time         = esp32_get_time,
+@@ -918,6 +925,7 @@ static const struct ieee802154_radio_api esp32_radio_api = {
+ 	.ed_scan          = esp32_ed_scan,
+ 	.configure        = esp32_configure,
+ 	.attr_get         = esp32_attr_get,
++	.get_sch_acc      = esp32_get_sch_acc,
+ };
+ 
+ #if defined(CONFIG_NET_L2_IEEE802154)
+-- 
+2.51.0.windows.1
+

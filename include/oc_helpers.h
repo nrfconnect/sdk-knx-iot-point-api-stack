@@ -2,16 +2,15 @@
  * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2021 Cascoda Ltd.
  * Copyright (c) 2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
- */   
+ */
 
 /**
   @brief generic helpers
   @file
 */
-#ifndef OC_HELPERS_H
-#define OC_HELPERS_H
+#pragma once
 
 #include "util/oc_list.h"
 #include "util/oc_mmem.h"
@@ -303,6 +302,14 @@ void _oc_alloc_string_array(oc_string_array_t* ocstringarray, size_t size);
 /** Conversions between hex encoded strings and byte arrays */
 
 /**
+ * @brief value of a single hex digit character
+ *
+ * @param[in] c the character
+ * @return int 0..15 on success, -1 if `c` is not a hex digit
+ */
+int oc_hex_digit_value(char c);
+
+/**
  * @brief convert array to hex
  *
  * Note: hex_str is pre allocated with hex_str_len
@@ -310,7 +317,7 @@ void _oc_alloc_string_array(oc_string_array_t* ocstringarray, size_t size);
  * @param[in] array the array of bytes
  * @param[in] array_len length of the array
  * @param hex_str data as hex
- * @param hex_str_len length of the hex string
+ * @param hex_str_len length of the hex string (including the terminator)
  * @return int 0 success
  */
 int oc_conv_byte_array_to_hex_string(const uint8_t* array, size_t array_len,
@@ -458,15 +465,39 @@ int oc_uri_get_wildcard_value_as_string(const char* uri_resource,
  * @param size the max size of the string to be searched in (MUST not exceed string total size)
  * @return NULL = not found, otherwise position in string
  */
-char* oc_strnchr(char* string, char p, int size);
+const char* oc_strnchr(const char* string, char p, int size);
 
 /**
- * @brief converts the input string to lower case
+ * @brief converts the NUL terminated input string to lower case
  *
  * @param[in] stream the input string that gets converted
  * @return int 0 success
  */
 int oc_charstream_convert_to_lower(char* stream);
+
+/**
+ * @brief converts the NUL terminated input string to upper case
+ *
+ * @param[in] stream the input string that gets converted
+ * @return int 0 success
+ */
+int oc_charstream_convert_to_upper(char* stream);
+
+/**
+ * @brief validates that the input string contains only lowercase hexadecimal characters ('0'...'9', 'a'...'f')
+ *
+ * @param[in] stream the input string that gets validated
+ * @return bool true if the string is a valid lowercase hexadecimal string, false otherwise
+ */
+bool oc_charstream_validate_is_lower(const char* stream);
+
+/**
+ * @brief validates that the input string contains only uppercase hexadecimal characters ('0'...'9', 'A'...'F')
+ *
+ * @param[in] stream the input string that gets validated
+ * @return bool true if the string is a valid uppercase hexadecimal string, false otherwise
+ */
+bool oc_charstream_validate_is_upper(const char* stream);
 
 /**
  * @brief helper function to check if a byte string contains only of zero values (0)
@@ -587,5 +618,3 @@ int oc_conv_uint64_to_hex_string(char* str, uint64_t number);
 #ifdef __cplusplus
 }
 #endif
-
-#endif 

@@ -1,25 +1,18 @@
 /*
-// Copyright (c) 2016-2019 Intel Corporation
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
+ * Copyright (c) 2016-2019 Intel Corporation
+ * Copyright (c) 2026 KNX Association
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * This file was created with the assistance of AI tools.
+ * Copyright 2026 KNXA (to the extent protectable under applicable law)
+ */
 
 /**
   @brief request and response payload handling in cbor
   @file
 */
-#ifndef OC_REP_H
-#define OC_REP_H
+#pragma once
 
 #include "cbor.h"
 #include "oc_helpers.h"
@@ -32,7 +25,17 @@ extern "C" {
 #endif
 
 extern CborEncoder g_encoder, root_map, links_array;
-extern CborError g_err;
+
+/* 
+   int, not CborError
+   
+   - the g_err |= cbor_encode_*(...) macros below rely on the enum operands promoting to int for the bitwise OR. 
+     Assigning that int result back to an enum-typed g_err needs an implicit int->enum conversion, which C++
+     forbids in an assignment; Clang rejects it even under -f permissive. 
+   
+   - Kept as CborError only at the oc_rep_get_cbor_errno() boundary. 
+*/
+extern int g_err;
 
 /*
   The macros are based on stringizing operator (also known as Stringify)
@@ -54,6 +57,13 @@ void oc_rep_new(uint8_t *payload, int size);
  *
  * This can be used to check if the cbor encode data will fit inside the payload
  * buffer. If the payload buffer is too small -1 is returned.
+ *
+ * There are three distinct outcomes, callers must pick their guard accordingly:
+ *  - '-1' the encoding failed (e.g. CborErrorOutOfMemory), there is no usable payload
+ *  - '0'  nothing was encoded, which is a valid result (an empty response)
+ *  - '>0' the number of encoded bytes
+ * Use 'size > 0' / 'size <= 0' when an encoding error and an empty payload are handled the same way,
+ * use 'size < 0' only when an empty payload is a meaningful result that must not be treated as an error.
  *
  * @return
  *  - the size of the cbor encoded data.
@@ -2567,6 +2577,4 @@ size_t oc_rep_to_json_base64_encoded_byte_string(char* buf, size_t buf_size, cha
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

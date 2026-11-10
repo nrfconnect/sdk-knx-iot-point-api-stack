@@ -5,26 +5,30 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef DNS_SD_H
-#define DNS_SD_H
+#pragma once
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "oc_knx.h"
+#include "oc_core_res.h" // oc_device_info_t
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include <stdint.h>
-#include "../api/oc_knx_fp.h"  // for oc_ip_status_t
-
 /**
-   TODO 13 FIXME Review mDNS vs DNS-SD terminology in the API and docs.
-   @brief Publish a KNX mDNS service in order to enable DNS-SD discovery on server side.
-  
-   @param serial_no KNX serial number
-   @param iid KNX Installation ID, set to 0 if the device has not been commissioned yet
-   @param ia KNX Individual Address, set to 0 if the device has not been commissioned yet
-   @param pm True if the device is in Programming Mode, false otherwise
+   @brief Publish a KNX mDNS service with new values in order to enable DNS-SD discovery on server side.
+          Sends 'goodbye' with old values before the new publishing (if not yet done, such as on a previous call of 
+          'dns stop' service). 
+          Sends the new announcement a second time one second later (RFC 6762, section 8.3 and 8.4).
+          The repeat runs on the RI event loop, so the caller keeps polling with oc_main_poll().
 
-   @return int 0 on success, -1 on error
+   @param device the device info, must be oc_core_get_device_info(), the record is built from its current serial number,
+                 iid, ia, pm and host name; no copy or other struct: mDNS takes the host name from
+                 oc_core_get_device_info() regardless, a copy would mix its values with the live host name
+
+   @return int 0 on success, -1 on error (also for a NULL device or a NULL serial number)
   
    @note
    DNS-SD <domain>
@@ -40,9 +44,8 @@ extern "C" {
 
    
  */
-int knx_dns_sd_update_service(const char *serial_no, uint64_t iid, uint16_t ia, bool pm);
+int knx_dns_sd_update_service(const oc_device_info_t *device);
 
- 
 /**
  * @brief Set the advertised sleep period within the mDNS service.
  *
@@ -60,9 +63,6 @@ void knx_dns_sd_set_sleep_period(uint16_t sp);
  *
  */
 uint16_t knx_dns_sd_get_used_port(void);
-
-/** Maximum serial-number string length (12 lower-case hex chars, excluding null terminator). */
-#define SN_STR_LEN_MAX (12)
 
 /**
  * @brief Snapshot of the current mDNS advertisement state.
@@ -107,6 +107,4 @@ void knx_dns_sd_stop(void);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

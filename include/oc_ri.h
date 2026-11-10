@@ -2,12 +2,14 @@
  * Copyright (c) 2016-2019 Intel Corporation
  * Copyright (c) 2021 Cascoda Ltd
  * Copyright (c) 2024-2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * This file was created with the assistance of AI tools.
+ * Copyright 2026 KNXA (to the extent protectable under applicable law)
  */
 
-#ifndef OC_RI_H
-#define OC_RI_H
+#pragma once
 
 #ifndef __ZEPHYR__
 #include "ipadapter.h"
@@ -22,6 +24,8 @@
 extern "C" {
 #endif
 
+/* The blockwise state is only forward declared here, oc_blockwise.h includes this header. */
+struct oc_blockwise_state_s;
 
 /**
  * @brief CoAP observe codes, see https://www.rfc-editor.org/rfc/rfc7641#section-2
@@ -90,9 +94,8 @@ typedef enum {
   OC_STATUS_SERVICE_UNAVAILABLE,       /**< Service Unavailable 5.03*/
   OC_STATUS_GATEWAY_TIMEOUT,           /**< Gateway Timeout 5.04*/
   OC_STATUS_PROXYING_NOT_SUPPORTED,    /**< Proxying not supported 5.05 */
-  NUMBER_OF_OC_STATUS_CODES,           // artificial code to count above codes 
-  OC_IGNORE,                           /**< Ignore, do not respond to a request */
-  OC_PING_TIMEOUT                      /**< Ping Time out */
+  NUMBER_OF_OC_STATUS_CODES,           // artificial code to count above codes
+  OC_IGNORE                            /**< Ignore, do not respond to a request */
 } oc_status_t;
 
 /**
@@ -144,7 +147,23 @@ typedef enum oc_content_format {
   APPLICATION_VND_OMA_LWM2M_TLV = 11542,       /**< application/vnd.oma.lwm2m+tlv */
   APPLICATION_VND_OMA_LWM2M_JSON = 11543,      /**< application/vnd.oma.lwm2m+json */
   APPLICATION_VND_OMA_LWM2M_CBOR = 11544,      /**< application/vnd.oma.lwm2m+cbor */
-  CONTENT_NONE = 99999                 /**< no content format */
+  /*
+    Internal 'no content format' marker, NOT an IANA CoAP Content-Format.
+
+    Taken from the 64998-64999 block that the IANA CoAP Content-Formats registry reserves for
+    documentation, so it can never collide with an operationally assigned format, and it fits the
+    uint16_t that coap_packet_t uses for content_format and accept. 
+    
+    The previous value 99999 was outside the 0-65535 registry range and silently truncated to 34463
+    when stored in those fields, which lands in the 33000-64997 Expert Review range and is therefore
+    indistinguishable from a real assignment.
+
+    - application layer only (oc_request_t)
+    - not passed by coap_set_header_content_format() on the wire by omitting the option
+    - clause 2.2.4 defines what a receiver assumes then, the default format of the corresponding 
+      device resource
+  */
+  CONTENT_NONE = 64999
 } oc_content_format_t;
 
 /**
@@ -310,7 +329,7 @@ typedef enum {
   OC_DEV_HWV,                          /**< Hardware version */
   OC_DEV_FWV,                          /**< Firmware version */
   OC_DEV_HWT,                          /**< The hardware type is a manufacture specific id for a device type (MaC uses this id for compatibility checks) */
-  OC_DEV_MODEL,                        /**< Device model */
+  OC_DEV_ORDER_NUMBER,                 /**< Device order number (former device model) */
   OC_DEV_HOSTNAME,                     /**< Device host name for DNS resolution. */
   OC_DEV_IID,                          /**< KNX installation ID */
   OC_DEV_PM,                           /**< Programming Mode */
@@ -323,18 +342,16 @@ typedef enum {
   OC_DEV_MID,                          /**< /dev/mid the manufacturer ID */
   OC_DEV,                              /**< core link */
   OC_APP,                              /**< application ID (list) */
-  OC_APP_X,                            /**< application ID entry */
+  OC_APP_PV,                           /**< application program version */
   OC_A_LSM,                            /**< load state machine */
   OC_KNX_SPAKE,                        /**< spake */
-  OC_KNX_IDEVID,                       /**< IDevID */
-  OC_KNX_LDEVID,                       /**< LDevID */
   OC_KNX_K,                            /**< k */
   OC_KNX_FINGERPRINT,                  /**< FINGERPRINT value of loaded contents */
   OC_KNX_IA,                           /**< .well-known / knx / ia */
   OC_KNX,                              /**< .well-known / knx */
   OC_KNX_FP_G,                         /**< FP/G */
   OC_KNX_FP_G_X,                       /**< FP/G/X */
-#ifdef OC_PUBLISHER_TABLE              /** read the notes above on the enum order! */
+  #ifdef OC_PUBLISHER_TABLE            /** read the notes above on the enum order! */
   OC_KNX_FP_P,                         /**< FP/P */
   OC_KNX_FP_P_X,                       /**< FP/P/X */
   #endif
@@ -344,7 +361,6 @@ typedef enum {
   OC_KNX_F,                            /**< f */
   OC_KNX_F_X,                          /**< f/X */
   OC_KNX_SWU_PROTOCOL,                 /**< software update protocol */
-  OC_KNX_SWU_MAXDEFER,                 /**< swu max defer */
   OC_KNX_SWU_HWREF,                    /**< swu hwref */
   OC_KNX_SWU_METHOD,                   /**< swu method */
   OC_KNX_SWU_LASTUPDATE,               /**< swu last update */
@@ -354,11 +370,9 @@ typedef enum {
   OC_KNX_SWU_PKGV,                     /**< swu package version */
   OC_KNX_SWU_PKGCMD,                   /**< swu package command , a/swu*/
   OC_KNX_SWU_PKGBYTES,                 /**< swu package bytes*/
-  OC_KNX_SWU_PKGQURL,                  /**< swu query url */
   OC_KNX_SWU_PKGNAMES,                 /**< swu package names*/
   OC_KNX_SWU,                          /**< swu top level */
   OC_KNX_SUB,                          /**< delete all device subscriptions */
-  OC_KNX_A_SEN,                        /**< a/sen resource */
   OC_KNX_AUTH_O_REPLWDO,               /**< oscore replay window*/
   OC_KNX_AUTH_O_OSNDELAY,              /**< oscore osn delay*/
   OC_KNX_AUTH_O,                       /**< auth/o oscore functional block properties list*/
@@ -457,7 +471,7 @@ typedef struct oc_resource_data_t {
  *
  */
 struct oc_resource {
-  struct oc_resource* next;             /**< link to next res. (can't be const since an application resources have volatile pointers */
+  const struct oc_resource* next;       /**< link to the next resource; static core links are const and application links are assigned at runtime */
   oc_string_t uri;                      /**< resource path (e.g. '/p/lsab/soo') */
   oc_string_array_t types;              /**< resource type array (for a DPA such as 'urn:knx:dpa.0.58' -> dev/da, for an FB such as 'fb.0' -> dev/) */
   oc_string_t dpt;                      /**< resource datapoint type */
@@ -640,7 +654,7 @@ bool oc_ri_delete_resource(oc_resource_t* resource);
  * @param n the position to query
  * @return int the position of the next key value pair in the query or NULL
  */
-int oc_ri_get_query_nth_key_value(const char* query, size_t query_len, char** key, size_t* key_len, char** value, size_t* value_len, size_t n);
+int oc_ri_get_query_nth_key_value(const char* query, size_t query_len, const char** key, size_t* key_len, const char** value, size_t* value_len, size_t n);
 
 /**
  * @brief retrieve the value of the query parameter "key"
@@ -651,7 +665,7 @@ int oc_ri_get_query_nth_key_value(const char* query, size_t query_len, char** ke
  * @param value a pointer to the value
  * @return int the length of the value
  */
-int oc_ri_get_query_value(const char* query, size_t query_len, const char* key, char** value);
+int oc_ri_get_query_value(const char* query, size_t query_len, const char* key, const char** value);
 
 /**
  * @brief checks if key exist in query
@@ -673,7 +687,37 @@ int oc_ri_query_exists(const char* query, size_t query_len, const char* key);
  * @param n
  * @return int
  */
-int oc_ri_query_nth_key_exists(const char* query, size_t query_len, char** key, size_t* key_len, size_t n);
+int oc_ri_query_nth_key_exists(const char* query, size_t query_len, const char** key, size_t* key_len, size_t n);
+
+/**
+ * @brief dispatches an inbound CoAP request to the handler of the addressed resource and fills
+ *        in the response, the server side entry point of the resource interface
+ *
+ * @note
+ *  - called by the CoAP engine (coap_receive) once the request is assembled, applications
+ *    never call it
+ *  - the resource lookup, the access scope check, the GET/PUT/POST/DELETE handler callback,
+ *    observe registration, separate responses and the observer notification happen here
+ *  - the response state is allocated here when it is NULL, the response payload is written
+ *    into its buffer
+ *
+ * @param request the inbound coap_packet_t
+ * @param response the coap_packet_t the response is written to
+ * @param request_state blockwise state holding the request payload, the payload is empty when
+ *                      it is NULL
+ * @param response_state blockwise state receiving the response payload, allocated when NULL
+ * @param block2_size block size for the response
+ * @param endpoint endpoint the request was received from
+ *
+ * @return true when the request reached the handler of a matching resource, false when this
+ *         function set an error status on the response itself (bad request, forbidden, not
+ *         found, method not allowed, entity too large)
+ */
+bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
+                                      struct oc_blockwise_state_s** request_state,
+                                      struct oc_blockwise_state_s** response_state,
+                                      uint16_t block2_size,
+                                      oc_endpoint_t* endpoint);
 
 /**
  * @brief frame the interface mask in the response, as string in the uri
@@ -726,5 +770,3 @@ oc_event_callback_retval_t oc_ri_remove_client_cb(void* data);
 #ifdef __cplusplus
 }
 #endif
-
-#endif 

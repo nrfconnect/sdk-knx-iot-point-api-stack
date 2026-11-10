@@ -6,7 +6,13 @@ Goal: **unit tests for the complete stack.** Every source file has a
 not unit-testable in isolation, and the concrete reason is recorded here.
 
 Runtime/conformance tests (`tests/runtime/`) are tracked **separately** and are
-**never** a reason to skip a unit test.
+**never** a reason to skip a unit test. The hand-written **runtime** tier
+covers only behaviour the conformance template does not; the **conformance**
+tier runs the template itself with the test tool (`tests/iot-test-tool/`).
+A runtime test a note below cites by name may be gone: the 2026-09-11
+cleanup removed the hand-written tests the template already covers (mapping
+in commit 1edfc8ab, part "runtime tier: drop template-covered tests, mark
+overlaps").
 
 ## Status codes
 
@@ -43,7 +49,7 @@ Runtime/conformance tests (`tests/runtime/`) are tracked **separately** and are
 | oc_client_api.c | test_oc_client_api.cpp | DONE |
 | oc_discovery.c | test_oc_discovery.cpp | DONE |
 | oc_clock.c | test_oc_clock.cpp | DONE |
-| oc_core_res.c | test_oc_core_res.cpp | DONE |
+| oc_core_res.c | test_oc_core_res.cpp | DONE (incl. oc_core_set_device_mfd and oc_core_set_device_hwv by-reference semantics) |
 | oc_endpoint.c | test_oc_endpoint.cpp | DONE |
 | oc_helpers.c | test_oc_helpers.cpp | DONE |
 | oc_knx.c | test_oc_knx.cpp | DONE |
@@ -62,7 +68,6 @@ Runtime/conformance tests (`tests/runtime/`) are tracked **separately** and are
 | oc_replay.c | test_oc_replay.cpp | DONE |
 | oc_ri.c | test_oc_ri.cpp | DONE |
 | oc_server_api.c | test_oc_server_api.cpp | DONE |
-| oc_session_events.c | test_oc_session_events.cpp | DONE |
 | oc_test_control.c | test_oc_test_control.cpp | DONE |
 | oc_uuid.c | test_oc_uuid.cpp | DONE |
 
@@ -72,8 +77,7 @@ Runtime/conformance tests (`tests/runtime/`) are tracked **separately** and are
 |--------|-----------|--------|
 | oc_oscore_context.c | test_oc_oscore_context.cpp | DONE |
 | oc_oscore_crypto.c | test_oc_oscore_crypto.cpp | DONE |
-| oc_oscore_engine.c | — | INTEGRATION |
-| oc_tls.c | — | COMPILED-OUT |
+| oc_oscore_engine.c | test_oc_oscore_echo_tx.cpp | PARTIAL (echo ring, inbound parser/decrypt and wrapped unicast/multicast request plus normal-response transport boundaries; echo-response and observe variants remain integration-level) |
 | spake2plus.c | test_spake2plus.cpp | DONE |
 
 ### messaging/coap/
@@ -81,7 +85,6 @@ Runtime/conformance tests (`tests/runtime/`) are tracked **separately** and are
 | Source | Test file | Status |
 |--------|-----------|--------|
 | coap.c | test_coap.cpp | DONE |
-| coap_signal.c | — | COMPILED-OUT |
 | engine.c | test_coap_engine.cpp | DONE |
 | observe.c | test_coap_observe.cpp | DONE |
 | oscore.c | test_coap_oscore.cpp | DONE |
@@ -114,9 +117,8 @@ Runtime/conformance tests (`tests/runtime/`) are tracked **separately** and are
 | port/linux/oc_network_interface.c | test_oc_network_interface.cpp | DONE |
 | port/random_psa.c | test_oc_random.cpp | DONE |
 | port/oc_log.c | test_oc_log.cpp | DONE |
-| port/dns-sd_mdns.c | — | INTEGRATION |
+| port/dns-sd_mdns.c | test_dns_sd_mdns.cpp | DONE |
 | port/linux/ipadapter.c | — | INTEGRATION |
-| port/linux/tcpadapter.c | — | COMPILED-OUT |
 
 > Note: `port/windows/*` and `port/zephyr/*` variants (mutex.c,
 > network_addresses.c, random.c, connectivity_*.c, dns-sd-thread/wifi.c,
@@ -130,7 +132,7 @@ Runtime/conformance tests (`tests/runtime/`) are tracked **separately** and are
 Filled in as each `TODO`/`PARTIAL` file is worked. Only functions marked
 `UNTESTABLE` need a reason; everything else is driven to `DONE`.
 
-### api/oc_knx_helpers.c — DONE (paging + framing + query helpers)
+### api/oc_knx_helpers.c — DONE (paging + framing + query helpers + bounded integer parsers)
 
 Unit-tested in `test_oc_knx_helpers.cpp`. The paging helpers (`oc_knx_get_next_page`,
 etc.) are pure arithmetic on stack values. The CBOR/string framing helpers are
@@ -143,6 +145,21 @@ file-local (no public header declaration) so they are reached via test-local
 `query_l_was_processed` (no-query / no-l → false, l+ps → 2.05, l+total → 2.05,
 l-without-ps-or-total → 4.04, l+ps+extra → 4.00).
 
+The four public integer parsers are the single entry point for converting
+network-supplied strings. They share the file-static `parse_64bit_from_string`,
+which copies the (not NUL terminated) value into a bounded local buffer before
+calling `strtoull`, then rejects on `errno`, an `endptr` that does not land on
+`value_len`, and a value above the wrapper's maximum; a leading `-`/`+` is
+rejected before conversion because `strtoull` would otherwise negate modulo
+2^64 without an error. Each wrapper encodes its base and its range in its own
+name and result type rather than taking them as arguments, so a caller cannot
+pass a mismatched bound. The length bound of each wrapper is the widest valid
+value of its target type (5 and 10 decimal digits, 4 and 16 hex digits), which
+accepts leading zeros up to that width but rejects a zero-padded max-width
+value. The static is covered behaviorally through all four wrappers, including
+a case per wrapper that passes a length shorter than the literal to prove
+nothing is read past `value_len`.
+
 | Function | Status |
 |----------|--------|
 | oc_knx_get_next_page family | DONE |
@@ -150,10 +167,15 @@ l-without-ps-or-total → 4.04, l+ps+extra → 4.00).
 | oc_frame_query_l | DONE (file-local; test-local forward decl + oc_rep buffer) |
 | evaluate_query_px | DONE |
 | query_l_was_processed | DONE |
+| oc_parse_uint16_from_base10_string | DONE (valid/leading zeros; rejects NULL, empty, negative len, `abc`, `2abc`, `-1`, `+1`, 65536, >5 chars incl. zero-padded `065535`; bounded read) |
+| oc_parse_uint16_from_base16_string | DONE (hex incl. upper/lower case and leading zeros; rejects NULL value, NULL result, empty, negative len, `1a2z`, `-1`, `+1`, >4 chars, `g`; bounded read) |
+| oc_parse_sint32_from_base10_string | DONE (0..INT_MAX and leading zeros; rejects 2147483648, `-1`, trailing garbage, empty, >10 chars incl. zero-padded `02147483647`) |
+| oc_parse_uint64_from_base16_string | DONE (hex incl. full 64-bit range, upper/lower case, leading zeros; rejects NULL value, NULL result, empty, `1a2zz`, `-1`, `+1`, >16 chars, `g`; bounded read) |
+| parse_64bit_from_string | DONE (file-static; covered through the four wrappers above) |
 
-### api/oc_knx_fb.c — DONE (dp parser + FB query/count drivers exercising the statics)
+### api/oc_knx_fb.c — DONE (FB query/count drivers exercising the statics)
 
-Unit-tested in `test_oc_knx_fb.cpp`. `get_fb_number_from_dp` is a pure parser.
+Unit-tested in `test_oc_knx_fb.cpp`.
 The two file-static helpers cannot be reached directly (no external linkage) and
 oc_knx_fb.c cannot be `#include`-compiled because it carries `const oc_resource_t`
 aggregate initializers that do not build under g++; both are therefore covered
@@ -169,11 +191,10 @@ behaviorally through their public callers:
 
 | Function | Status |
 |----------|--------|
-| get_fb_number_from_dp | DONE |
 | oc_check_if_functional_blocks_need_to_add | DONE (also covers static bounded_strstr) |
 | oc_count_functional_blocks_from_application | DONE (also covers static check_array_for_scanned_fbs_and_add_if_fresh) |
 
-### api/oc_knx_fp.c — DONE (cflags string + GO/recipient/publisher table accessors + payload-id parser + href lookups); table CRUD / handlers / storage / s-mode tx are integration-level
+### api/oc_knx_fp.c — DONE (cflags string + GO/recipient/publisher table accessors + payload-id parser + href lookups + list/entry CoAP handlers); table CRUD / storage / s-mode tx are integration-level
 
 Unit-tested in `test_oc_knx_fp.cpp`. `oc_cflags_as_string` is a pure bitmask
 formatter. The GO/recipient/publisher tables are file-static arrays reached for
@@ -197,23 +218,31 @@ fixtures clear every slot to the empty sentinel and craft deterministic entries:
   (in-range / >65535→-2 / negative→-2 / no-id-int→-1 / NULL→-1).
 - `BelongsHref`: `oc_belongs_href_to_resource` driven with registered app
   resources (discoverable filter honoured).
+- `FpHandlers`: the `/fp/g`, `/fp/p`, `/fp/r` list handlers and their `/*` entry
+  handlers. The handlers are `static` but reachable through the non-static
+  `const oc_resource_t` definitions (`core_resource_knx_fp_g` etc.), so a
+  stack-allocated `oc_request_t` / `oc_response_t` / `oc_response_buffer_t`
+  triple plus `oc_mmem_init()` is enough — no device, RI table or network.
+  Covered: wrong-Accept → 4.00, empty table → 2.05, `first_entry >= total` /
+  `ps < 1` / `pn < 0` → 4.00, populated link-format serialisation incl. the
+  comma separator and `add_next_page_indicator`, entry GET (unknown id → 4.04,
+  known id → 2.05 CBOR) and entry DELETE outside `LSM_S_LOADING` → 4.00.
 
 INTEGRATION (concrete reasons): `oc_core_set_group_object_table` /
 `oc_core_set_recipient_table` / `oc_core_set_publisher_table` and the
 `oc_store_*` / `oc_delete_*` / `oc_print_*` table helpers read/write persistent
 storage (`oc_storage_write`/`oc_storage_read`) and re-register group multicast;
-the `oc_core_fp_*_get_handler` / `oc_core_fp_*_post_handler` and
-`oc_core_fp_gm_*` handlers parse CBOR requests, mutate device state, drive
-group register/unregister and s-mode unicast/multicast CoAP send — all need a
-bootstrapped device + populated RI tables + network.
+the `oc_core_fp_*_post_handler` and `oc_core_fp_gm_*` handlers parse CBOR
+requests, mutate device state, drive group register/unregister and s-mode
+unicast/multicast CoAP send — all need a bootstrapped device + populated RI
+tables + network.
 
-### api/oc_knx_sec.c — DONE (string helper + OSCORE config getters/setter + AT-table slot accessors and content ops); ACL eval / handlers / storage / OSCORE auth are integration-level
+### api/oc_knx_sec.c — DONE (string helper + OSCORE config getters/setter + AT-table slot accessors and content ops + /auth CoAP handlers + ACL gate); storage / OSCORE auth are integration-level
 
 Unit-tested in `test_oc_knx_sec.cpp`. Pure helpers: `oc_at_profile_to_string`.
-OSCORE config lives
-in file-static RAM: `get_oscore_replay_window_size` (const RFC default 32),
-`get_oscore_osn_delay_ms` / `set_oscore_osn_delay_ms` (round-trip, restored).
-The AT table is the file-static `g_at_entries[G_AT_MAX_ENTRIES]`, reached for
+OSCORE config: `OSCORE_REPLAY_WINDOW_SIZE` (RFC default 32),
+osn delay in the device instance `oc_device_info_t.osn_delay` (default checked), `set_and_store_oscore_osn_delay_ms` (range -EINVAL, failed NVM write -EIO keeps RAM).
+The AT table is the file-static `g_at_entries[KNX_ATT_MAX_ENTRIES]`, reached for
 read/write through the public slot pointer `oc_get_auth_at_entry` plus
 `oc_core_get_at_table_size`:
 - `oc_get_auth_at_entry` (in-bounds entry / out-of-bounds NULL),
@@ -226,14 +255,37 @@ read/write through the public slot pointer `oc_get_auth_at_entry` plus
   entries, retains OSCORE entries).
 The `AtTable` fixture does `oc_mmem_init` and scrubs every slot via
 `oc_delete_at_table_entry` in SetUp/TearDown for determinism.
+- `SecHandlers`: the `/auth`, `/auth/o`, `/auth/o/osndelay`, `/auth/o/replwdo`,
+  `/auth/at` and `/auth/at/*` handlers, reached through the non-static
+  `const oc_resource_t` definitions with the same stack request/response harness
+  as `FpHandlers`. Covered: wrong-Accept → 4.00 on every handler, the CBOR GET
+  bodies of `osndelay` and `replwdo`, `osndelay` PUT (no matching int → 4.00,
+  valid → 2.04 and the value is observable via `oc_core_get_device_info()->osn_delay`),
+  `/auth/at` DELETE → 2.02, the wildcard entry GET/DELETE guards (no token in
+  the invoked URI → 4.00, unknown token → 4.00).
+  The link-format list bodies of `/auth`, `/auth/o` and `/auth/at` walk the core
+  resource table via `oc_check_request_from_index`, so only their deterministic
+  guard paths (wrong Accept, `ps=0`, `pn=-1`) are asserted.
+- `SecAcl`: `oc_knx_sec_check_acl`, the gate every inbound request passes
+  through. All four parameters are plain structs and the helpers it calls
+  (`oc_resource_get_acl_for_method`, `oc_at_get_scope_mask`, the file-static
+  `check_access_token_for_group_address`) only read struct fields, so no device,
+  OSCORE context, storage or network is needed. Every case asserts fail-closed
+  behaviour: NULL resource / unsupported method → deny; per-method handler scope
+  resolution; the `OSCORE|OSCORE_DECRYPTED` mask (each flag alone → deny);
+  disjoint vs. overlapping scopes; missing access token → deny; and the
+  `OC_ACL_GA` payload scan (empty and NULL ga list, ga absent from payload,
+  non-object payload, first/last list entry, broadcast address). The `<ga>`
+  cases are also what covers `check_access_token_for_group_address`.
+  `SecAcl.GaScopeRejectsForeignGaAnywhereInOneSMap` and
+  `SecAcl.GaScopeRejectsForeignGaInASecondSMap` pin the F-026 fix.
 
-INTEGRATION (concrete reasons): `oc_knx_sec_check_acl` evaluates a live request
-against a populated AT table + bootstrapped device; `oc_oscore_set_auth_shared`,
+INTEGRATION (concrete reasons): `oc_oscore_set_auth_shared`,
 `oc_init_oscore_from_storage`, `oc_load_at_table`, `oc_store_at_table_entry`,
 `oc_write_ssn_to_storage` read/write persistent storage and (re)build OSCORE
 sender/recipient contexts; `oc_create_knx_sec_resources` and the
-`oc_core_auth_at_*_handler` resource handlers register RI resources and parse
-CBOR requests — all require oc_main_init + storage + network.
+`oc_core_auth_at_post_handler` CBOR-parsing path register RI resources and build
+OSCORE contexts — all require oc_main_init + storage + network.
 
 ### api/oc_main.c — DONE (callback registry + config accessors); bootstrap/teardown is integration-level
 
@@ -248,10 +300,9 @@ or tear down the whole stack and are INTEGRATION.
 | oc_set_factory_presets_cb / oc_get_factory_presets_cb | DONE |
 | oc_set_reset_cb / oc_get_reset_cb | DONE |
 | oc_set_restart_cb / oc_get_restart_cb | DONE |
-| oc_set_hostname_cb / oc_get_hostname_cb | DONE |
 | oc_set_programming_mode_cb / oc_get_programming_mode_cb | DONE |
 | oc_set_lsm_change_cb / oc_get_lsm_change_cb | DONE |
-| oc_set_mtu_size / oc_get_mtu_size | DONE (test_oc_buffer_settings.cpp) |
+| oc_set_pdu_size / oc_get_pdu_size | DONE (test_oc_buffer_settings.cpp) |
 | oc_get_max_app_data_size / oc_get_block_size | DONE (test_oc_buffer_settings.cpp) |
 | oc_main_initialized | DONE |
 | _oc_signal_event_loop | DONE (NULL-callbacks guard path) |
@@ -259,26 +310,6 @@ or tear down the whole stack and are INTEGRATION.
 | oc_main_poll | INTEGRATION — runs the process / etimer loop |
 | oc_main_shutdown | INTEGRATION — tears down mDNS, RI, connectivity |
 | oc_shutdown_device (static) | INTEGRATION — connectivity + mutex destroy |
-| oc_set_drop_commands / oc_drop_command | INTEGRATION — deref drop_commands buffer allocated only by oc_main_init |
-
-### api/oc_session_events.c — DONE (oc_handle_session); TCP block is compiled out in this config
-
-In the unit-test build OC_TCP is NOT defined, so the entire `#ifdef OC_TCP`
-block is excluded from the binary and cannot be exercised. The only compiled
-function is `oc_handle_session`, tested in `test_oc_session_events.cpp` for both
-session states on a stack endpoint (KNX_TCP_TLS off -> observer-removal only;
-OC_SESSION_EVENTS on -> callback no-op when unset).
-
-| Function | Status |
-|----------|--------|
-| oc_handle_session | DONE |
-| oc_session_events_is_ongoing | UNTESTABLE here — OC_TCP-only, compiled out |
-| oc_session_events_set_event_delay | UNTESTABLE here — OC_TCP-only, compiled out |
-| oc_session_start_event | UNTESTABLE here — OC_TCP-only, compiled out (INTEGRATION when OC_TCP) |
-| oc_session_end_event | UNTESTABLE here — OC_TCP-only, compiled out (INTEGRATION when OC_TCP) |
-| free_session_state_delayed (static) | UNTESTABLE here — OC_TCP-only, compiled out (INTEGRATION when OC_TCP) |
-| oc_process_session_event (static) | UNTESTABLE here — OC_TCP-only, compiled out (INTEGRATION when OC_TCP) |
-| oc_session_events OC_PROCESS_THREAD | UNTESTABLE here — OC_TCP-only, compiled out (INTEGRATION when OC_TCP) |
 
 ### api/oc_network_events.c — DONE (process-not-running early-out); scheduler-driven paths are integration-level
 
@@ -333,12 +364,10 @@ INTEGRATION.
 | oc_lf_get_line (static) | DONE (transitive) |
 | oc_lf_get_entry_uri | DONE |
 | oc_lf_get_entry_param | DONE |
-| oc_close_session | DONE (plain no-op path; SECURED/TCP branches INTEGRATION) |
 | oc_do_s_mode_message_update | INTEGRATION — builds + sends an s-mode CoAP message |
 | oc_do_well_known_message_update | INTEGRATION — builds + sends a .well-known update |
 | oc_init_s_mode_message_update | INTEGRATION — allocates request buffer + CoAP packet for tx |
 | oc_init_well_known_message_update | INTEGRATION — allocates request buffer + CoAP packet for tx |
-| oc_send_ping / oc_remove_ping_handler | INTEGRATION — OC_TCP CoAP ping + client-cb/delayed-callback registry |
 
 ### api/oc_knx.c — DONE (LSM string/getter, runtime predicate, and the read-only GET handlers); stateful POST handlers + storage/crypto/SPAKE paths are integration-level
 
@@ -349,9 +378,7 @@ and every read-only GET handler reached via the non-static `const oc_resource_t`
 literals: `oc_core_knx_get_handler` (JSON + CBOR + bad-accept),
 `oc_core_a_lsm_get_handler` (current LSM + bad-accept),
 `oc_core_knx_fingerprint_get_handler` (503+max-age when not in runtime, 2.05 when
-runtime), `oc_core_knx_ldevid_get_handler` / `oc_core_knx_idevid_get_handler`
-(raw PKCS7 cert bytes via the public `oc_knx_set_ldevid`/`oc_knx_set_idevid`
-setters + bad-accept). `oc_rep_new(buf,size)` is set up in the fixture so the
+runtime). `oc_rep_new(buf,size)` is set up in the fixture so the
 handlers' CBOR/raw writes can be read back.
 
 INTEGRATION (concrete reasons):
@@ -366,9 +393,12 @@ INTEGRATION (concrete reasons):
   register/unregister, datapoint init, GO/recipient-table walks, s-mode
   unicast/multicast CoAP send and DNS-SD republish (need a bootstrapped device +
   populated RI tables + network). The `oc_core_knx_k_post_handler` st="a"
-  Write+Update rule (FINDINGS F-005 RESOLVED) is exercised at the runtime level
-  by `test_5_4_1_10`/`test_5_4_1_10b` (tracked in `tests/runtime/EITT_TEST_COVERAGE.md`),
-  not by a unit test.
+  Write+Update rule (FINDINGS F-005 RESOLVED) is exercised at the runtime level,
+  not by a unit test: `test_5_4_1_10_multicast_answer_updates_value` (pre-rename name) was removed
+  in the 2026-09-11 runtime-tier cleanup (replaced by EITT template case 5.4.1.10,
+  eitt tier), while `test_answer_updates_update_only_go` — the update-only GO
+  case the template does not have — stays in
+  `tests/runtime/test_group_comm.py`.
 - `oc_core_knx_spake_post_handler`, `oc_core_knx_spake_separate_post_handler`,
   `oc_spake2plus_init_data` — SPAKE2+ crypto exchange, OSCORE auth-token store
   writes, separate-response delayed callbacks and the brute-force timer.
@@ -463,31 +493,20 @@ C++ front-end rejects — enum-flag arithmetic (`endpoint.flags |= OSCORE_DECRYP
 → "invalid conversion from int to transport_flags") and out-of-order designated
 initializers for `oc_oscore_context_params_t` in `oc_oscore_send_*`. These appear
 in the send/receive engine functions (not the parsers), but a single TU must
-compile as a whole, so the 3 otherwise-unit-testable static parsers
-(`oscore_parse_outer_message`, `oscore_parse_inner_message`,
-`increment_ssn_in_context`) cannot be reached without refactoring production code.
+compile as a whole, so the 2 otherwise-unit-testable static parsers
+(`oscore_parse_outer_message`, `oscore_parse_inner_message`) cannot be reached without refactoring production code.
 Concrete reason: **not g++-includable (C-only enum arithmetic + designated-init
 ordering)**; the engine send/receive paths are additionally INTEGRATION
 (global OSCORE context store, replay window, network stack, process events).
 
 | Function | Status |
 |----------|--------|
-| oscore_parse_outer_message (static) | INTEGRATION — TU not g++-includable (see above) |
+| oscore_parse_outer_message (static) | INTEGRATION — TU not g++-includable (see above); the EMPTY-message rejection (RFC 7252 4.1) is covered at runtime by `TestEmptyMessageIsNotOscore` in `tests/runtime/test_security.py` |
 | oscore_parse_inner_message (static) | INTEGRATION — TU not g++-includable (see above) |
-| increment_ssn_in_context (static) | INTEGRATION — TU not g++-includable (see above) |
 | oc_oscore_receive_message (static) | INTEGRATION — global context store/replay/network/process |
 | oc_oscore_send_unicast_message (static) | INTEGRATION — context lookup, encrypt, network/process events |
 | oc_oscore_send_multicast_message (static) | INTEGRATION — multicast context, encrypt, network/process events |
 | OC_PROCESS_THREAD(oc_oscore_handler) | INTEGRATION — live process/event loop |
-
-### security/oc_tls.c — COMPILED-OUT (entire file under `#ifdef KNX_TCP_TLS`)
-
-The whole of `oc_tls.c` is wrapped in `#ifdef KNX_TCP_TLS`, which is **OFF** in
-the `linux-test` build (and in all unit-test presets). Every function
-(`oc_tls_pbkdf2`, `oc_tls_prf`, `oc_sec_derive_owner_psk`, all peer/session/
-handler functions) is therefore compiled out and not present in the unit binary.
-Concrete reason: **compiled out by `#ifdef KNX_TCP_TLS` (disabled in test build)**.
-TLS handshake/PRF behavior is validated at runtime/integration with TLS enabled.
 
 ### messaging/coap/separate.c — DONE (full public OC_SERVER API)
 
@@ -508,14 +527,6 @@ remove + free).
 | coap_separate_resume | DONE (type/code/mid/token + observe-0 header) |
 | coap_separate_clear | DONE (middle-of-list removal + free) |
 | coap_separate_accept (CON request) | INTEGRATION — sends an empty ACK over the network (`coap_send_response_with_empty_ack`) |
-
-### messaging/coap/coap_signal.c — COMPILED-OUT (entire file under `#ifdef OC_TCP`)
-
-The complete body of `coap_signal.c` (lines 24–411) is wrapped in `#ifdef OC_TCP`,
-which is **OFF** in the `linux-test` build. All CSM/Ping/Pong/Release/Abort
-signaling functions are compiled out and absent from the unit binary.
-Concrete reason: **compiled out by `#ifdef OC_TCP` (disabled in test build)**.
-CoAP-over-TCP signaling is validated at runtime/integration with TCP enabled.
 
 ### util/oc_process.c — DONE (full cooperative scheduler API)
 
@@ -629,17 +640,32 @@ it is absent from the unit binary.
 | knx_log_bytes_hex | DONE (single line, empty, 16-byte, 33-byte wrap) |
 | oc_file_print | COMPILED-OUT — `#if defined(OC_PRINT) && defined(KNX_LOG_TO_FILE)` (off) |
 
-### port/dns-sd_mdns.c — INTEGRATION (mDNS sockets + listener thread)
+### port/dns-sd_mdns.c — DONE (`--wrap` for the sockets, real listener thread)
 
-The public service-announcement API (`knx_publish_service` and friends) opens
-multicast UDP sockets, spawns a background listener thread, and sends/receives
-real mDNS packets — all network/thread behavior validated at integration level.
-The pure static helpers (`dns_name_equal`, `is_knx_subtype_query`) are
-**file-static** and only reachable by `#include`-ing `dns-sd_mdns.c`, which is not
-viable: it is already compiled into `libkis-port` (duplicate symbols) and pulls
-in the header-only `mdns.h` plus POSIX socket code that does not compile as part
-of a g++ test TU. Concrete reason: **network/thread I/O + statics unreachable
-without a duplicate-symbol `#include`**.
+`test_dns_sd_mdns.cpp` covers every public function and, through the listener
+thread, the static query responder:
+
+- `knx_dns_sd_update_service`: one announcement at once, the RFC 6762 section 8.3
+  repeat one second later, the restart of that repeat on a change within the
+  second, the goodbye for the old record, NULL serial number, rollback on a
+  send failure, failure without an interface.
+- `knx_dns_sd_set_sleep_period`: SP in the TXT record, the TXT goodbye when SP
+  goes back to 0, no goodbye when SP was unset, nothing before a publish.
+- `knx_dns_sd_stop`: goodbye, cancel of the pending repeat, nothing without a
+  publish.
+- `knx_dns_sd_get_used_port`, `knx_dns_sd_get_current_record`.
+- `mdns_query_callback` and the `send_*_response` helpers (static): PTR for the
+  service type, the serial, the IA and the `_pm` subtype (only in programming
+  mode), SRV, AAAA, TXT and ANY, plus foreign names and unhandled types.
+
+The test links with `--wrap=sendto` (records the packets), `--wrap=recvfrom`
+(hands the listener thread the queries the test queued, an empty socket
+otherwise), `--wrap=get_ip_context_for_device` (one fake loopback endpoint)
+and `--wrap=oc_clock_time` (a test-controlled clock, no real sleep for the
+repeat). The responder cases wait for the real listener thread with a bounded
+poll. The target is registered
+under `if(UNIX)`, because the source and the `--wrap` facility are POSIX/GNU ld
+only.
 
 ### port/linux/ipadapter.c — INTEGRATION (live UDP/multicast sockets + RX threads)
 
@@ -648,13 +674,6 @@ Every public function (`oc_connectivity_init`, `oc_send_buffer`,
 etc.) binds real sockets, joins multicast groups, and runs receive threads.
 Concrete reason: **requires live network sockets and the connectivity thread
 loop** — exercised by integration tests.
-
-### port/linux/tcpadapter.c — COMPILED-OUT (entire body under `#ifdef OC_TCP`)
-
-The functional body of `tcpadapter.c` (everything after the includes) is wrapped
-in `#ifdef OC_TCP`, which is **OFF** in the test build. No TCP adapter symbols
-are present in the unit binary. Concrete reason: **compiled out by `#ifdef
-OC_TCP` (disabled in test build)**.
 
 ### api/oc_buffer.c — DONE (pool primitives); message routing is integration-level
 
@@ -673,12 +692,11 @@ API that also lives logically alongside the buffer module is covered by
 | oc_message_unref | DONE |
 | oc_receive_message | INTEGRATION — posts INBOUND_NETWORK_EVENT to the message_buffer_handler process; needs the process scheduler + event table |
 | oc_send_message | INTEGRATION — posts OUTBOUND_NETWORK_EVENT + signals the event loop; routes to OSCORE/IP layers |
-| oc_close_all_tls_sessions | INTEGRATION — `KNX_TCP_TLS`-gated, posts TLS_CLOSE_ALL_SESSIONS |
 | message_buffer_handler (OC_PROCESS_THREAD) | INTEGRATION — routes to OSCORE/CoAP processes and calls oc_send_buffer (real network I/O) |
 
 ### api/oc_blockwise.c — DONE (all public functions, full alloc/find/scrub/free lifecycle)
 
-Compiled into the test build because `OC_BLOCK_WISE` is defined in `port/linux/oc_config.h`. The file-static `oc_blockwise_requests` / `oc_blockwise_responses` lists are populated through the public `alloc_*` API and scrubbed clean in the fixture `TearDown` via `oc_blockwise_scrub_buffers(true)`. The static `oc_blockwise_init_buffer` / `oc_blockwise_free_buffer` are exercised transitively by every alloc/free test. The timed-event registration inside the allocators (`oc_ri_add_timed_event_callback_seconds`, `oc_etimer_set`) and the response ETag generation (`oc_random_value`) run crash-free without a live process loop, so no part of this module needed integration-level deferral. Client-only finders (`*_by_token/_by_mid/_by_client_cb`) are reached by setting the `token`/`mid`/`client_cb` fields on an allocated buffer (the allocators do not populate them).
+The file-static `oc_blockwise_requests` / `oc_blockwise_responses` lists are populated through the public `alloc_*` API and scrubbed clean in the fixture `TearDown` via `oc_blockwise_scrub_buffers(true)`. The static `oc_blockwise_init_buffer` / `oc_blockwise_free_buffer` are exercised transitively by every alloc/free test. The timed-event registration inside the allocators (`oc_ri_add_timed_event_callback_seconds`, `oc_etimer_set`) and the response ETag generation (`oc_random_value`) run crash-free without a live process loop, so no part of this module needed integration-level deferral. Client-only finders (`*_by_token/_by_mid/_by_client_cb`) are reached by setting the `token`/`mid`/`client_cb` fields on an allocated buffer (the allocators do not populate them).
 
 | Function | Status |
 |----------|--------|
@@ -709,7 +727,7 @@ Static GET/PUT handlers are reached through their owning `const oc_resource_t co
 | Function | Status |
 |----------|--------|
 | oc_knx_swu_protocol_get/put_handler | DONE |
-| oc_knx_swu_max_defer_get/put_handler | DONE |
+| oc_knx_swu_max_defer_get/put_handler | REMOVED (resource /swu/maxdefer no longer exists) |
 | oc_knx_swu_hwref_get_handler | DONE |
 | oc_knx_swu_method_get/put_handler | DONE |
 | oc_knx_swu_last_update_get_handler | DONE |
@@ -719,13 +737,14 @@ Static GET/PUT handlers are reached through their owning `const oc_resource_t co
 | oc_knx_swu_pkg_version_get_handler | DONE (4.04 / DOWNLOADED 2.05) |
 | oc_knx_swu_pkg_name_get_handler | DONE (4.04 / DOWNLOADED 2.05) |
 | oc_knx_swu_bytes_get_handler | DONE |
-| oc_knx_swu_pkg_query_url_get/put_handler | DONE |
-| oc_knx_swu_a_put_handler (/a/swu) | DONE wrong-accept / invalid-query / no-cb 5.01 / cb fast-path 2.04; separate-response slow-path + DOWNLOADING->DOWNLOADED completion = INTEGRATION (live CoAP transaction / event loop) |
+| oc_knx_swu_pkg_query_url_get/put_handler | REMOVED (resource /swu/pkgqurl no longer exists) |
+| oc_knx_swu_a_put_handler (/a/swu) | DONE wrong-accept / no-cb 5.01 / cb fast-path 2.04; full po/ps/pkgs query validation via the 18-case `KnxSwuABlockInvalidQuery` suite (non-numeric, trailing garbage, negative, zero, above INT_MAX, too many digits, empty) plus po=0 / leading-zero-is-decimal / no-read-past-length; separate-response slow-path + DOWNLOADING->DOWNLOADED completion = INTEGRATION (live CoAP transaction / event loop) |
 | oc_core_knx_swu_get_handler (/swu list) | DONE wrong-accept; link-format SUCCESS body = INTEGRATION (serializes RI resource table via oc_check_request_from_index over RI singleton) |
 | oc_set_swu_upgrade_cb / oc_get_swu_upgrade_cb | DONE (verified via update PUT) |
 | oc_set_swu_cb (oc_main.c) | DONE (verified via /a/swu cb path) |
-| oc_swu_set_package_name/last_update/hwref/package_bytes/package_version/state/query_url/result | DONE (verified via GET handlers) |
-| oc_create_knx_swu_resources | INTEGRATION — calls oc_storage_read during init and is meaningful only against the RI resource table |
+| oc_swu_set_package_name/last_update/hwref/package_bytes/package_version/state/result | DONE (verified via GET handlers) |
+| oc_swu_set_query_url | REMOVED (function no longer exists) |
+| oc_create_knx_swu_resources | INTEGRATION - calls oc_storage_read during init and is meaningful only against the RI resource table; the device mfg_date seeding of /swu/lastupdate is covered at runtime by `TestSwuLastUpdateLifecycle` in test_swu.py |
 
 ### api/oc_server_api.c — DONE (pure helpers + resource mutators); network/RI paths integration-level
 
@@ -790,7 +809,7 @@ Static handlers reached through the public `const oc_resource_t core_resource_de
 | oc_core_dev_port_get_handler (static) | DONE (wrong-accept→4.00). Happy path is integration-level — `knx_dns_sd_get_used_port()`→`get_ip_context_for_device()->port` NULL-derefs without an initialised connectivity layer. |
 | oc_core_dev_ipv6_get_handler (static) | DONE — wrong-accept→4.00; no connectivity endpoints→4.00. Multi-endpoint paging path is integration-level (needs live endpoints). |
 | oc_core_dev_dev_get_handler / oc_core_ap_get_handler (static, link-format lists) | DONE (wrong-accept→4.00). Success path is integration-level — link-format serialisation over the core resource table writes into the transaction response buffer. |
-| oc_core_dev_hostname/iid/fid/pm_put_handler + oc_core_ap_x_put_handler (static) | DONE — wrong-accept→4.00 and empty/invalid-payload→4.00 (ap/pv also wrong-array-size→4.00). Success branches are integration-level (storage writes, DNS-SD re-registration, app-version store). |
+| oc_core_dev_pm_put_handler + oc_core_ap_x_put_handler (static) | DONE — wrong-accept→4.00 and empty/invalid-payload→4.00 (ap/pv also wrong-array-size→4.00); `/dev/hname`, `/dev/iid` and `/dev/fid` have no PUT handler (optional in the specification, removed; IID and FID are written via `/.well-known/knx/ia`). Success branches are integration-level (storage writes, app-version store). |
 | oc_knx_load_device / oc_knx_device_storage_reset / oc_knx_device_restart (public) | UNTESTABLE in isolation — require an initialised storage backend + device singleton (and DNS-SD); destructive global side effects. |
 
 ### messaging/coap (G4 function-level gap-fill) — DONE except network-send wrappers
@@ -805,7 +824,6 @@ functions push a message onto the outbound process queue and are integration-lev
 | coap.c: coap_get_next_mid | DONE — monotonic increment (test_coap.cpp) |
 | coap.c: coap_init_connection | DONE — seeds MID; next two MIDs consecutive |
 | coap.c: coap_get_query_variable | DONE — no-option→0, found value, missing name→0 |
-| coap.c: coap_get_header_proxy_uri / coap_set_header_proxy_uri | DONE — set/get round-trip + no-option→0 |
 | coap.c: coap_get_header_uri_query | DONE — set/get + leading-`?` skip + no-option→0 |
 | coap.c: coap_set_header_location_query | DONE — stores value, sets option, skips leading `?` |
 | observe.c: get_observe_counter | DONE — ≥ OC_OBSERVE_FIRST_NOTIFICATION_VALUE, side-effect-free |

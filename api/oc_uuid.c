@@ -1,115 +1,100 @@
 /*
-// Copyright (c) 2016 Intel Corporation
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
-
-#include "oc_uuid.h"
-#include "port/oc_random.h"
-#include <ctype.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <string.h>
-
-/* This module implements the generation of type-4 UUIDs
- * based on its specification in RFC 4122, along with routines
- * to convert between their string and binary representations.
+ * Copyright (c) 2016 Intel Corporation
+ * Copyright (c) 2026 KNX Association
+ *
+ * SPDX-License-Identifier: Apache-2.0
  */
 
-void
-oc_str_to_uuid(const char *str, oc_uuid_t *uuid)
+#include "oc_uuid.h"
+#include "oc_helpers.h"
+#include "port/oc_random.h"
+#include <stdint.h>
+#include <string.h>
+
+/* 
+   This module implements the generation of type-4 UUIDs
+   based on its specification in RFC 4122, along with routines
+   to convert between their string and binary representations.
+ */
+
+void oc_str_to_uuid(const char *str, oc_uuid_t *uuid)
 {
-  if (str[0] == '*' && strlen(str) == 1) {
-    memset(uuid->id, 0, 16);
+  memset(uuid->id, 0, 16);
+
+  if (str[0] == '*' && str[1] == '\0') 
+  {
+    // wildcard, RFC 4122 does not define a wildcard, but we use it to indicate a wildcard UUID
     uuid->id[0] = '*';
     return;
   }
-  int i, j = 0, k = 1;
-  uint8_t c = 0;
 
-  for (i = 0; i < 36; i++) {
-    if (str[i] == '-')
-      continue;
-    else if (isalpha((int)str[i])) {
-      switch (str[i]) {
-      case 65:
-      case 97:
-        c |= 0x0a;
-        break;
-      case 66:
-      case 98:
-        c |= 0x0b;
-        break;
-      case 67:
-      case 99:
-        c |= 0x0c;
-        break;
-      case 68:
-      case 100:
-        c |= 0x0d;
-        break;
-      case 69:
-      case 101:
-        c |= 0x0e;
-        break;
-      case 70:
-      case 102:
-        c |= 0x0f;
-        break;
-      }
-    } else
-      c |= str[i] - 48;
-    if ((j + 1) * 2 == k) {
-      uuid->id[j++] = c;
-      c = 0;
-    } else
-      c = c << 4;
-    k++;
+  /* 
+     canonical RFC 4122 layout: 8-4-4-4-12 hex digits, dashes fixed at these
+     four positions; anything else is left zeroed rather than guessed at 
+   */
+  if (strlen(str) != 36 || str[8] != '-' || str[13] != '-' || str[18] != '-' || str[23] != '-')
+    return;
+
+  int si = 0;
+  for (int byte = 0; byte < 16; byte++) 
+  {
+    // skip non digits
+    if (si == 8 || si == 13 || si == 18 || si == 23)
+      si++;
+
+    const int hi = oc_hex_digit_value(str[si++]);
+    const int lo = oc_hex_digit_value(str[si++]);
+    
+    if (hi < 0 || lo < 0) 
+    { // error -> wipe
+      memset(uuid->id, 0, 16);
+      return;
+    }
+    uuid->id[byte] = (uint8_t)((hi << 4) | lo);
   }
 }
 
-void
-oc_uuid_to_str(const oc_uuid_t *uuid, char *buffer, int buflen)
+void oc_uuid_to_str(const oc_uuid_t *uuid, char *buffer, int buflen)
 {
-  int i, j = 0;
-  if (buflen < OC_UUID_LEN || !uuid)
+  if (!uuid || buflen < OC_UUID_LEN)
     return;
-  if (uuid->id[0] == '*') {
-    uint8_t zeros[15] = { 0 };
-    if (memcmp(&uuid->id[1], zeros, 15) == 0) {
+
+  if (uuid->id[0] == '*') 
+  {
+    const uint8_t zeros[15] = { 0 };
+    if (memcmp(&uuid->id[1], zeros, 15) == 0) 
+    {
+      // wildcard -> 0
       memset(buffer, 0, buflen);
       buffer[0] = '*';
-      buffer[1] = '\0';
       return;
     }
   }
-  for (i = 0; i < 16; i++) {
-    switch (i) {
-    case 4:
-    case 6:
-    case 8:
-    case 10:
-      snprintf(&buffer[j], 2, "-");
-      j++;
-      break;
+
+  /* 
+     mirrors oc_str_to_uuid's canonical 8-4-4-4-12 layout
+     - dashes fixed at these four string positions, one hex nibble everywhere else
+  */
+  static const char hex[] = "0123456789abcdef";
+
+  for (int si = 0, bi = 0; si < 36; si++) 
+  {
+    if (si == 8 || si == 13 || si == 18 || si == 23) 
+    {
+      buffer[si] = '-';
+      continue;
     }
-    snprintf(&buffer[j], 3, "%02x", uuid->id[i]);
-    j += 2;
+    const uint8_t byte = uuid->id[bi / 2];
+
+    // convert the byte to two hex digits, hi -> >> 4, lo -> & 0x0f
+    buffer[si] = hex[bi % 2 == 0 ? byte >> 4 : byte & 0x0f];
+    bi++;
   }
+  // terminate the string
+  buffer[36] = '\0';
 }
 
-void
-oc_gen_uuid(oc_uuid_t *uuid)
+void oc_gen_uuid(oc_uuid_t *uuid)
 {
   
   uint32_t r;
@@ -131,7 +116,7 @@ oc_gen_uuid(oc_uuid_t *uuid)
 
   /*  From RFC 4122
       Set the four most significant bits of the
-      time_hi_and_version field (6th octect) to the
+      time_hi_and_version field (6th octet) to the
       4-bit version number from (0 1 0 0 => type 4)
       Section 4.1.3.
   */

@@ -1,20 +1,10 @@
 /*
-// Copyright (c) 2016 Intel Corporation
-// Copyright (c) 2021-2023 Cascoda Ltd
-// Copyright (c) 2024-2025 KNX Association
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
+ * Copyright (c) 2016 Intel Corporation
+ * Copyright (c) 2021-2023 Cascoda Ltd
+ * Copyright (c) 2026 KNX Association
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <errno.h>
 #include <inttypes.h>
@@ -30,22 +20,77 @@
 #include "oc_knx_dev.h"
 
 /*
- * - below resources must be in the uc/mc response for well-known/core,
- *   other resources may be added in real products, certification tests demands only the mandatory
- * - use int type to satisfy directly function call by using the array
- */
-const int core_resources_for_well_known[] = {
-  OC_DEV, // mandatory
-  OC_KNX_K, // mandatory
-  OC_KNX_SWU, // mandatory
-  OC_KNX_AUTH, // mandatory
-  OC_APP // optional
+  -  below first 4 resources (aka Functional Blocks) SHALL be in the uc/mc response for well-known/core (see clause 2.5.4),
+	   OC_APP as ap/ is fb.3 will be also included even though not mentioned directly in the clause
+	-  to reduce payload size and fit the response fit in a single message with CoAP PDU block size (512)
+     the 'rt' is included but 'if' is omitted (see clause 2.5.4), ct=40 defines it indirectly (linked list)
+*/
+static const int core_resources_for_well_known[] = 
+{ // array int type -> satisfy directly the later function call by using the array index as resource index
+  OC_DEV,					// mandatory
+  OC_KNX_K,				// mandatory
+  OC_KNX_SWU,			// mandatory
+  OC_KNX_AUTH,		// mandatory
+  OC_APP				  // optional
 };
 
 // number of core resources to be considered for well-known requests  
 #define RESOURCES_FOR_WELL_KNOWN (5)
 
-bool oc_add_resource_to_response_payload(const oc_resource_t* resource, size_t* response_length, bool truncate)
+#define EP_STR_LEN_DOT_SN (9) // knx://sn.
+
+bool oc_discovery_sn_matches(const char* ep_request, int ep_len, const char* serialnumber)
+{
+	/*
+	 * SN pos is fixed after first '.', '*' pos may follow somewhere after this (distance = max sn)
+	 * - max sn len is -> ep_len >= 9 - EP_STR_LEN_DOT_SN(9) = 0..12, but may be > 12 (attack/error)
+	 * - so limit to max 12
+	 * - 0 will end up in NOT FOUND on full SN no size match
+	 *
+	 * (a) sn.*                         fits always (to get all KNX devices in an IP network, note other system uses also well-known EP)
+	 * (b) sn.00fa12345678              fits to the SN entirely (useful on mc)
+	 * (c) sn.0* ... sn.00fa1234567*   fits to the SN partly (clause 2.6.1.3.4)
+	 */
+	const char* ep_serialnumber_start_pos = ep_request + EP_STR_LEN_DOT_SN;
+	const int ep_sn_len = ep_len - EP_STR_LEN_DOT_SN;
+	const int wildcard_scan_len = ep_sn_len < SN_STR_LEN_MAX ? ep_sn_len : SN_STR_LEN_MAX;
+	const char* ep_wildcard_pos = oc_strnchr(ep_serialnumber_start_pos, '*', wildcard_scan_len);
+
+	if (ep_wildcard_pos == ep_serialnumber_start_pos)
+	{
+		// a ('*' is next char after '.')
+		return true;
+	}
+
+	if (ep_wildcard_pos)
+	{
+		// partial compare somewhere in SN string, SN can be of 1..11 chars
+		const size_t ep_partial_sn_len = ep_wildcard_pos - ep_serialnumber_start_pos;
+		// compare SN prefix size 1..11
+		return strncmp(serialnumber, ep_serialnumber_start_pos, ep_partial_sn_len) == 0;
+	}
+
+	// full compare (device has a string, ep_request has a stream without /0, inbound SN != 12 is never a match)
+	return ep_sn_len == SN_STR_LEN_MAX
+				 && strncmp(serialnumber, ep_serialnumber_start_pos, SN_STR_LEN_MAX) == 0;
+}
+
+// multicast ignore, unicast respond with 4.04 Not Found (Len 0)
+static void oc_discovery_prepare_no_match_response(oc_request_t* request)
+{
+  if (request->origin && request->origin->flags & MULTICAST)
+	{
+    OC_DBG("discovery multicast request, no match -> ignore it");
+    oc_ignore_request(request);
+	}
+	else
+	{
+    OC_DBG("discovery unicast request, no match -> send unicast response with length = 0");
+	  oc_prepare_no_format_response_no_payload(request, OC_STATUS_NOT_FOUND);
+	}
+}
+
+bool oc_add_resource_to_response_payload(const oc_resource_t* resource, size_t* response_length, bool truncate, bool include_if)
 {
 
 	if (resource == NULL || oc_string_len(resource->uri) == 0)
@@ -117,10 +162,10 @@ bool oc_add_resource_to_response_payload(const oc_resource_t* resource, size_t* 
 		*response_length += oc_rep_add_line_to_buffer("\";");
 	}
 
-	// if's, if present
+	// if's, if present and if the caller wants them (see include_if in oc_discovery.h)
 	oc_interface_mask_t interfaces = OC_IF_NONE;
 
-	if (oc_resource_get_all_interfaces_for_a_resource(resource, &interfaces))
+	if (include_if && oc_resource_get_all_interfaces_for_a_resource(resource, &interfaces))
 	{
 		// open if's
 	  *response_length += oc_rep_add_line_to_buffer("if=\"");
@@ -136,15 +181,14 @@ bool oc_add_resource_to_response_payload(const oc_resource_t* resource, size_t* 
 		if (resource->content_type[1] != CONTENT_NONE)
 		{// 2 types, ct="60 40"
 
-			// space for two types (max 5 digits up to number of CONTENT_NONE = 99999)
-      #define MAX_CT_LEN_DOUBLE (3 + 1 + 5 + 1 + 5 + 1)
+      // space for two types (max 5 digits, the largest value in oc_content_format_t is CONTENT_NONE = 64999)
+      // "ct=" + '"' + number + ' ' + number + '"' + terminator
+      #define MAX_CT_LEN_DOUBLE (3 + 1 + 5 + 1 + 5 + 1 + 1)
 
       char double_my_ct_value[MAX_CT_LEN_DOUBLE];
 
-
-			// ct= + " + number + ' ' + number + "
-      (void)snprintf(double_my_ct_value, MAX_CT_LEN_DOUBLE, "ct=\"%d %d\"", 
-										 resource->content_type[0],
+      (void)snprintf(double_my_ct_value, MAX_CT_LEN_DOUBLE, "ct=\"%d %d\"",
+                     resource->content_type[0],
                      resource->content_type[1]);
       *response_length += oc_rep_add_line_to_buffer(double_my_ct_value);
 
@@ -152,14 +196,14 @@ bool oc_add_resource_to_response_payload(const oc_resource_t* resource, size_t* 
 		else
 		{// 1 type, ct=60
 
-			// space for one type (max 5 digits up to number of CONTENT_NONE = 99999)
-		  #define MAX_CT_LEN_SINGLE (3 + 5)
+      // space for one type (max 5 digits, the largest value in oc_content_format_t is CONTENT_NONE = 64999)
+      // "ct=" + number + terminator
+      #define MAX_CT_LEN_SINGLE (3 + 5 + 1)
 
       char single_my_ct_value[MAX_CT_LEN_SINGLE];
 
-		  // ct= + number 
-			(void)snprintf(single_my_ct_value, MAX_CT_LEN_SINGLE, "ct=%d", 
-										 resource->content_type[0]);
+      (void)snprintf(single_my_ct_value, MAX_CT_LEN_SINGLE, "ct=%d",
+                     resource->content_type[0]);
       *response_length += oc_rep_add_line_to_buffer(single_my_ct_value);
 		}
 	}
@@ -167,13 +211,13 @@ bool oc_add_resource_to_response_payload(const oc_resource_t* resource, size_t* 
 	return true;
 }
 
-bool oc_check_request_from_index(int index, oc_request_t* request, size_t* response_length, int* skipped, int first_entry, bool truncate)
+bool oc_check_request_from_index(int index, oc_request_t* request, size_t* response_length, int* skipped, int first_entry, bool truncate, bool include_if)
 {
   const oc_resource_t* indexed_resource = oc_core_get_core_resource_by_index(index);
-  return oc_check_request_from_resource(indexed_resource, request,response_length, skipped, first_entry, truncate);
+  return oc_check_request_from_resource(indexed_resource, request,response_length, skipped, first_entry, truncate, include_if);
 }
 
-bool oc_check_request_from_resource(const oc_resource_t* resource, oc_request_t* request,	size_t* response_length, int* skipped, int first_entry, bool truncate)
+bool oc_check_request_from_resource(const oc_resource_t* resource, oc_request_t* request,	size_t* response_length, int* skipped, int first_entry, bool truncate, bool include_if)
 {
   if (!resource)
   {
@@ -225,7 +269,7 @@ bool oc_check_request_from_resource(const oc_resource_t* resource, oc_request_t*
 		// result see above, last column
 	}
 
-	return oc_add_resource_to_response_payload(resource, response_length, truncate);
+	return oc_add_resource_to_response_payload(resource, response_length, truncate, include_if);
 }
 
 // filter for application resources (not all of them may be able to discover)
@@ -237,7 +281,8 @@ static bool oc_process_application_resources(oc_request_t* request,
 {
 	for (const oc_resource_t* resource = oc_ri_get_app_resources(); resource; resource = resource->next)
 	{
-	    if (oc_check_request_from_resource(resource, request, response_length, skipped, first_entry, false))
+	    // application resources are only reached when a query parameter is present, there the 'if' is wanted
+	    if (oc_check_request_from_resource(resource, request, response_length, skipped, first_entry, false, true))
       {
         (*query_parameter_kvpair_matches)++;
         if (first_entry + *query_parameter_kvpair_matches >= last_entry)
@@ -252,17 +297,18 @@ static bool oc_process_application_resources(oc_request_t* request,
 
 // filter for core resources (all of them are able to discover)
 static bool oc_process_core_resources(oc_request_t* request,
-                                      size_t* response_length, int* query_parameter_kvpair_matches, 
+                                      size_t* response_length, int* query_parameter_kvpair_matches,
 																			int* skipped,
-																			int first_entry, 
-																			int last_entry)
+																			int first_entry,
+																			int last_entry,
+																			bool include_if)
 {
 
   for (int i = 0; i < RESOURCES_FOR_WELL_KNOWN; i++)
 	{
     const int index = core_resources_for_well_known[i];
 
-	  if (oc_check_request_from_index(index, request, response_length, skipped, first_entry, false))
+	  if (oc_check_request_from_index(index, request, response_length, skipped, first_entry, false, include_if))
 		{
 			(*query_parameter_kvpair_matches)++;
 			if (first_entry + *query_parameter_kvpair_matches >= last_entry)
@@ -310,32 +356,32 @@ void oc_well_known_core_discovery_handler(oc_request_t* request, oc_interface_ma
 	(void) iface_mask;
 	(void) data;
 
-	char* key;								// one key pointer for a key=value 'pair' 
+	const char* key;                 // one key pointer for a key=value 'pair'
 	size_t key_len;
 
-	char* value;							// one value pointer for a key=value 'pair' 
+	const char* value;               // one value pointer for a key=value 'pair'
 	size_t value_len;
 
-	char* rt_request = NULL;	// 'rt'
+	const char* rt_request = NULL;   // 'rt'
 	int rt_len = 0;
 
-	char* ep_request = NULL;	// 'ep' 
+	const char* ep_request = NULL;   // 'ep'
 	int ep_len = 0;
 
-	char* if_request = NULL;	// 'if'
+	const char* if_request = NULL;   // 'if'
 	int if_len = 0;
 
-	char* d_request = NULL;		// 'd'
+	const char* d_request = NULL;    // 'd'
 	int d_len = 0;
 
-	int query_parameter_key_value_pair_matches = 0; // how many query parameter key/value pair matches where found AND added to the response
+  int query_parameter_key_value_pair_matches = 0; // how many query parameter key/value pair matches where found AND added to the response
 	size_t response_length = 0;
-  int skipped = 0;	// ignore resources that do not fit to the requested page
-	int query_pn = PAGE_NUMBER;
-	int query_ps = PAGE_SIZE;
+  int skipped = 0;																// ignore resources that do not fit to the requested page
+	int query_pn = KNX_PAGE_NUMBER;
+	int query_ps = KNX_PAGE_SIZE;
 
-	bool current_page_is_full = false;      // true if response page is full, no more resources can be added
-	bool query_parameter_key_match = false; // true if at least one query parameter KEY was found
+	bool current_page_is_full = false;							// true if response page is full, no more resources can be added
+	bool query_parameter_key_match = false;					// true if at least one query parameter KEY was found
 
 	if (!oc_accept_header_is_ok(request, APPLICATION_LINK_FORMAT))
 	{
@@ -352,19 +398,19 @@ void oc_well_known_core_discovery_handler(oc_request_t* request, oc_interface_ma
 			rt_len = (int) value_len;
 			query_parameter_key_match = true;
 		}
-		if (strncmp(key, "ep", key_len) == 0)
+		else if (strncmp(key, "ep", key_len) == 0)
 		{
 			ep_request = value;
 			ep_len = (int) value_len;
 			query_parameter_key_match = true;
 		}
-		if (strncmp(key, "if", key_len) == 0)
+		else if (strncmp(key, "if", key_len) == 0)
 		{
 			if_request = value;
 			if_len = (int) value_len;
 			query_parameter_key_match = true;
 		}
-		if (strncmp(key, "d", key_len) == 0)
+		else if (strncmp(key, "d", key_len) == 0)
 		{
 			d_request = value;
 			d_len = (int) value_len;
@@ -384,13 +430,13 @@ void oc_well_known_core_discovery_handler(oc_request_t* request, oc_interface_ma
    * unicast
    *
    * without rt/if query parameter
-   * - (a0) core resources (/dev, /k, ...) -> mandatory/ optional defined ones  
-   * - (b0) application functional blocks (FB) -> at least one resource type must be defined (such 'fb.0')
+   * - (a0) count core resources (/dev, /k, ...)      -> mandatory/ optional defined ones  
+   * - (b0) count application functional blocks (FB)  -> at least one resource type must be defined (such 'fb.0')
    *
    * with rt/if query parameter
-   * - (a1) core resources (/dev, /k, ...) -> for those the rt/if filter fits 
+   * - (a1) count core resources (/dev, /k, ...)      -> for those the rt/if filter fits 
    * - (b0) see above
-   * - (c1) all 'visible' application resources -> at least one resource path must be defined (such '/p/1')
+   * - (c1) count all 'visible' application resources -> at least one resource path must be defined (such '/p/1')
    */
 
 	// --- multicast w/wo query parameter OR unicast w/wo query parameter ---
@@ -410,8 +456,16 @@ void oc_well_known_core_discovery_handler(oc_request_t* request, oc_interface_ma
   // (b0)
   total += oc_count_functional_blocks_from_application();
 
-  // (c1) 
-	if (rt_len > 0 || if_len > 0)
+  /*
+    a plain discovery request gets the small form without the 'if' attribute (the response MAY carry only the
+    Functional Block resources to reduce the message size). A request that filters on 'rt' or 'if' asked for
+    detail, so there the 'if' is framed. This drives the application resource count below as well as the core
+    resources, the application resources and the FBs further down.
+  */
+  const bool query_parameter_present = rt_len > 0 || if_len > 0;
+
+  // (c1)
+	if (query_parameter_present)
 	{
 		for (const oc_resource_t* my_resource = oc_ri_get_app_resources(); my_resource; my_resource = my_resource->next)
 		{
@@ -425,69 +479,57 @@ void oc_well_known_core_discovery_handler(oc_request_t* request, oc_interface_ma
 	}
 
 	// handle query parameters l=ps and/or l=total
-	if (query_l_was_processed(request, PAGE_SIZE, total))
+	if (query_l_was_processed(request, KNX_PAGE_SIZE, total))
 		return;
 
 	// first entry number of a resource that will be placed on a page
 	const int first_entry = evaluate_query_px(request, &query_pn, &query_ps);
 
-	// check if requested page will carry at least one resource e.g
-	// - total=4, pn 5, ps 20, first entry = 100 -> no data on page 5 (all on page 0)
-	// - total=4, pn 1, ps 04, first entry = 004 -> no data on page 1 (all on page 0)no data on page 5 
-	if (first_entry >= total || query_ps == 0)
+	/* check if requested page will carry at least one resource e.g
+	   - total=4, pn 5, ps 20, first entry = 100 -> no data on page 5 (all on page 0)
+	   - total=4, pn 1, ps 04, first entry = 004 -> no data on page 1 (all on page 0) 
+		 - ps < 1 is invalid 
+		 - pn < 0 is invalid
+
+  */
+	if (first_entry >= total || query_ps < 1 || query_pn < 0)
 	{
 		oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
 		return;
 	}
 
-	// entries don't fit in a single page -> more pages are needed to get the full list
-	// - total=4, page number 1, page size 02, first entry = 002 -> no more data on next page 
-	// - total=4, page number 1, page size 01, first entry = 001 -> more data on next page
-	const bool more_request_needed = total > first_entry + query_ps ? true : false;
-
 	// on any query parameter present but no query parameter KEY match 
 	if (request->query_len > 0 && !query_parameter_key_match)
 	{
-		if (request->origin && request->origin->flags & MULTICAST)
-		{
-      // multicast: query parameter key NOT found = ignore request (response suppression)
-      oc_ignore_request(request);
-		}
-		else
-		{
-      // unicast: query parameter key NOT found
-      oc_prepare_no_format_response_no_payload(request, OC_STATUS_NOT_FOUND);
-		}
+		oc_discovery_prepare_no_match_response(request);
 		return;
 	}
 
-	// handle sector, if device belongs to a GA ?d=urn:knx:g.s.[ga] list the data points to which the GA applies to
-	if (d_len > 12 && strncmp(d_request, "urn:knx:g.s.", 12) == 0)
-	{
-		
-		if (strncmp(d_request, "urn:knx:g.s.*", 13) == 0)
-    {
-      // quote from EITT test 5.1.1.8: "Must fail since the response would likely be excessively large"
-      oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
-      return;
-    }
-	  
-	  // ga must be decimal coded and at least one digit long, if ga value exceeds 32 bit it is cut to 32 bit 
-	  errno = 0;
-    const uint32_t group_address = strtol(&d_request[12], NULL, 10);
-    OC_DBG("group address: %04x", group_address);
+	#define LEN_DOT_SECTOR (12) // urn:knx:g.s.
 
-		// if not in 'runtime' or a conversion error just return
-    if (!oc_is_device_in_runtime() || errno)
+	// handle sector, if device belongs to a GA ?d=urn:knx:g.s.[ga] list the data points to which the GA applies to
+	if (d_len >= LEN_DOT_SECTOR && strncmp(d_request, "urn:knx:g.s.", LEN_DOT_SECTOR) == 0)
+	{
+		const int ga_len = d_len - LEN_DOT_SECTOR;
+
+		// GA must be decimal coded and within the 16-bit range, note that the value is not NUL terminated
+		int converted_ga = 0;
+		if (!oc_parse_uint16_from_base10_string(&d_request[LEN_DOT_SECTOR], ga_len, &converted_ga) || !oc_is_device_in_runtime())
 		{
-			// handle bad request, note below layer ignores this message if it is a multicast request
+			/*
+				no GA value present, GA value too long, not a decimal coded GA value or the device is not at 'runtime',
+				note that the below layer ignores this response if it is a multicast request
+			*/
 			OC_ERR("device not at 'runtime' or ga conversion error");
 			oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
 			return;
 		}
 
+		const uint32_t group_address = (uint32_t)converted_ga;
+		OC_DBG("group address: %04" PRIx32, group_address);
+
 		// create the response
-		bool const at_least_one_added = oc_add_points_from_group_object_table_to_response(request, group_address, &response_length);
+		bool const at_least_one_added = oc_add_points_from_group_object_table_to_response(group_address, &response_length);
 
 		if (at_least_one_added)
 		{
@@ -496,16 +538,7 @@ void oc_well_known_core_discovery_handler(oc_request_t* request, oc_interface_ma
 		}
 		else
 		{
-			if (request->origin && request->origin->flags & MULTICAST)
-			{
-        // on multicast request w/ query parameter and NO hit
-        oc_ignore_request(request);
-			}
-			else
-			{ 
-        // on unicast request w/ query parameter and NO hit
-        oc_prepare_no_format_response_no_payload(request, OC_STATUS_NOT_FOUND);
-			}
+			oc_discovery_prepare_no_match_response(request);
 		}
 		return;
 	}
@@ -514,217 +547,129 @@ void oc_well_known_core_discovery_handler(oc_request_t* request, oc_interface_ma
 	if (if_len == 13 && strncmp(if_request, "urn:knx:if.pm", 13) == 0)
 	{
 		if (oc_knx_device_in_programming_mode())
-		{ // PRG mode on
+		{ 
 			/*
-				 - add only '<>; ep="knx://sn.<serial-number> knx://ia.<ia>"' when the interface
-					 is if.pm && device is in programming mode, return immediately (do not process any other query params)
+				 device PRG mode on + if=urn:knx:if.pm 
 
-				 - the ep=knx://sn.* and if=urn:knx:if.pm concatenation is ignored since HERE only
-					 needs to respond when the device is in programming mode
+         (a) sn.*												fits always (to get all KNX devices in an IP network, note other system uses also well-known EP)
+         (b) sn.00fa12345678						fits to the sn entirely (useful on mc)
+         (c) sn.0* ... sn.00fa1234567*  fits to the sn partly (clause 2.6.1.3.4)
+
+         (a/b/c) 
+         - add '<>; ep="knx://sn.<serial-number> knx://ia.<ia>"' 
+         - return immediately (do not process any other (possible) query params after if.pm and sn.xyz EVEN if they would invalidate the query)
+			
 			*/
 
-			OC_INF("oc_well_known_core_discovery_handler PM HANDLING: PRG mode on");
-
-			if (ep_request && ep_len > 9 && strncmp(ep_request, "knx://sn.", 9) == 0)
-			{ // query parameter if=urn:knx:if.pm AND ep=knx://sn. AND some extra xx data present
-
-				// get sn from request, fix position
-				const char* ep_serialnumber = ep_request + 9;
-
-				if (strncmp(device->serialnumber, ep_serialnumber, strlen(device->serialnumber)) != 0)
-				{ // SN does NOT match, xx data can be anything
-
-					OC_INF("oc_well_known_core_discovery_handler PM HANDLING: PRG mode on, SN no direct match");
-
-					if (request->origin && request->origin->flags & MULTICAST)
-					{
-            // on multicast request w/ query parameter and NO hit
-            oc_ignore_request(request);
-					}
-					else
-					{
-            // on unicast request w/ query parameter and NO hit
-            oc_prepare_no_format_response_no_payload(request, OC_STATUS_NOT_FOUND);
-					}
-					return;
+			if (ep_request && ep_len >= EP_STR_LEN_DOT_SN && strncmp(ep_request, "knx://sn.", EP_STR_LEN_DOT_SN) == 0)
+      { // (a/b/c)
+				if (oc_discovery_sn_matches(ep_request, ep_len, device->serialnumber))
+        {
+          OC_INF("oc_well_known_core_discovery_handler PM HANDLING: PRG mode on, SN match");
+				  response_length = frame_sn(device->serialnumber, device->iid, device->ia);
+          oc_prepare_linkformat_response(request, OC_STATUS_OK, response_length);
+        }
+        else
+				{ 
+					OC_INF("oc_well_known_core_discovery_handler PM HANDLING: PRG mode on, SN no match");
+					oc_discovery_prepare_no_match_response(request);
 				}
-				OC_INF("oc_well_known_core_discovery_handler PM HANDLING: PRG mode on, SN 1:1 match");
-				// SN does match 1:1, leaves here and continues on 'handle serial number' (with double code)
+        return;
+			}
+			
+			// query parameter is if=urn:knx:if.pm AND something extra, but no 'knx://sn.'  
+			if (skipped < first_entry)
+			{ // do not add, is lower than needed for this page
+				skipped++;
 			}
 			else
-			{ // query parameter if=urn:knx:if.pm AND some extra xx (nothing up to wildcard)  
-
-				if (skipped < first_entry)
-				{ // do not add, is lower than needed for this page
-					skipped++;
-				}
-				else
-				{
-					// add sn to response for unicast/multicast (but don't send now)
-					response_length = frame_sn(device->serialnumber, device->iid, device->ia);
-					query_parameter_key_value_pair_matches++;
-				}
-
-				OC_INF("oc_well_known_core_discovery_handler PM HANDLING: PRG mode on, SN MAY match");
-				// SN may match, leaves here and continues on 'handle serial number' (with double code)
+			{
+				// add sn to response for unicast/multicast (but don't send now)
+				response_length = frame_sn(device->serialnumber, device->iid, device->ia);
+				query_parameter_key_value_pair_matches++;
 			}
+
+			OC_INF("oc_well_known_core_discovery_handler PM HANDLING: PRG mode on, but no ep=knx://sn.xyz");
+			// leaves here and continues on check other query key/values 
 		}
 		else
-		{ // PRG mode off
+    { // device PRG mode off - return immediately
 
 			OC_INF("oc_well_known_core_discovery_handler PM HANDLING: PRG mode off");
-
-			if (request->origin && request->origin->flags & MULTICAST)
-			{
-        // multicast request w/ query parameter and NO PRG mode set
-        oc_ignore_request(request);
-			}
-			else
-			{
-        // unicast request w/ query parameter and NO PRG mode set
-        oc_prepare_no_format_response_no_payload(request, OC_STATUS_NOT_FOUND);
-			}
+			oc_discovery_prepare_no_match_response(request);
 			return;
 		}
 	}
 
-	// handle individual address 
-	if (ep_request && ep_len > 9 && strncmp(ep_request, "knx://ia.", 9) == 0)
+	
+  // handle individual address 
+	if (ep_request && ep_len >= LEN_DOT_IA && strncmp(ep_request, "knx://ia.", LEN_DOT_IA) == 0)
 	{
 		/* 
 		   same principle as on outbound discovery for unicast s-mode messages
 		   
-		   request with knx://ia.IID.IA -> knx://ia.d773e094b6.1101 (no leading IID zeros)
+		   request with knx://ia.IID.IA -> knx://ia.d773e094b6.1101 (no leading IID zeros in this example)
 			 the ia is NOT always at a fixed pos; IID = 40 BIT = 5 byte = 10 char, leading zeros are omitted
 		*/
 
-		#define LEN_DOT_IA (9)				// knx://ia.
-		#define IID_STR_LEN_MAX (10)	// max IID length in hex coded ASCII if no leading zeros are omitted (5 octets = 40 bit)
-		#define IA_STR_LEN_MAX  (4)		// max IA length in hex coded ASCII (2 octets = 16 bit)
-
 		// IID pos is fixed after first '.', IA pos follows after second '.' (max size to be searched for second '.' = max iid + 1)
-    char* ep_iid_start_pos = ep_request + LEN_DOT_IA;
-    char* ep_ia_dot_pos = oc_strnchr(ep_iid_start_pos, '.', IID_STR_LEN_MAX + 1);
+    const char* ep_iid_start_pos = ep_request + LEN_DOT_IA;
+    const int ep_ia_len = ep_len - LEN_DOT_IA;
+    const int dot_scan_len = ep_ia_len < IID_STR_LEN_MAX + 1 ? ep_ia_len : IID_STR_LEN_MAX + 1;
+    const char* ep_ia_dot_pos = oc_strnchr(ep_iid_start_pos, '.', dot_scan_len);
 
 		if (ep_ia_dot_pos)
     { // convert only if a '.' was found 
 
-		  // empty max len IA + string termination '\0'
-		  char ia_str[IA_STR_LEN_MAX + 1] = "";
+			/*
+				IID is 1..10 chars, both bounds are already guaranteed:
+				- the '.' scan above is limited to IID_STR_LEN_MAX + 1 chars, so the '.' can never sit beyond char 10
+				- a len of 0 (an empty IID, e.g. 'knx://ia..1101') is rejected by the parser below
+			*/
+			const size_t ep_iid_len = ep_ia_dot_pos - ep_iid_start_pos;
 
-			// IA can be of 0..4 chars (valid) or > 4 (attack/error)
-			char* ep_ia_start_pos = ep_ia_dot_pos + 1; 
-			char* ep_ia_end_pos = ep_request + ep_len - 1;
-      size_t ep_ia_len = ep_ia_end_pos - ep_ia_dot_pos;
-		  
-		  // copy IA size 0..4 , but don't copy > 4 chars
-      strncpy(ia_str, ep_ia_start_pos, ep_ia_len > IA_STR_LEN_MAX ? IA_STR_LEN_MAX : ep_ia_len);
+			// IA can be of 1..4 chars; 0 or > 4 is invalid, both are filtered by the parser below
+			const char* ep_ia_start_pos = ep_ia_dot_pos + 1;
+			const size_t ep_ia_part_len = ep_request + ep_len - ep_ia_start_pos;
 
-			errno = 0; 
-      // string is hex formatted
-      const uint16_t ia = (uint16_t)strtoul(ia_str, NULL, 16);
+			uint16_t ia = 0;
 
-			// test IA first since many devices will have the same IID 
-			// converted ia = 0 is accepted, but usually the device will not have 0 assigned
-      if (errno == 0 && ia == device->ia)
-      {
-        // empty max len IID + string termination '\0'
-        char iid_str[IID_STR_LEN_MAX + 1] = "";
-
-				// IID can be of 1..10 chars (valid) or > 10 (attack/error)
-				size_t ep_iid_len = ep_ia_dot_pos - ep_iid_start_pos;
-
-        // copy IID size 0..10 , but don't copy > 10 chars
-        strncpy(iid_str, ep_iid_start_pos, ep_iid_len > IID_STR_LEN_MAX ? IID_STR_LEN_MAX : ep_iid_len);
-
-				errno = 0; 
-        // string is hex formatted, on conversion error = 0 device will not have IID = 0 -> ignores request
-        const uint64_t iid = strtoull(iid_str, NULL, 16);
+			/* 
+				 IA first - many devices will have the same IID
+				 - converted ia = 0 is accepted, but usually the device will not have 0 assigned
+				 - len 0, > 4 or not a hex coded number will be filtered by call below
+			*/
+			if (oc_parse_uint16_from_base16_string(ep_ia_start_pos, (int)ep_ia_part_len, &ia) && ia == device->ia)
+			{
+				uint64_t iid = 0;
 
 				// converted iid = 0 is accepted, but usually the device will not have 0 assigned
-        if (errno == 0 && iid == device->iid)
-        {
-          response_length = frame_sn(device->serialnumber, device->iid, device->ia);
-          oc_prepare_linkformat_response(request, OC_STATUS_OK, response_length);
-          return;
-        }
-      }
-    }
+				if (oc_parse_uint64_from_base16_string(ep_iid_start_pos, (int)ep_iid_len, &iid) && iid == device->iid)
+				{
+					response_length = frame_sn(device->serialnumber, device->iid, device->ia);
+					oc_prepare_linkformat_response(request, OC_STATUS_OK, response_length);
+					return;
+				}
+			}
+		}
 
-		if (request->origin && request->origin->flags & MULTICAST)
-    {
-      // multicast request w/ query parameter and NO hit
-      oc_ignore_request(request);
-    }
-    else
-    {
-      // unicast request w/ query parameter and NO hit
-      oc_prepare_no_format_response_no_payload(request, OC_STATUS_NOT_FOUND);
-    }
+		oc_discovery_prepare_no_match_response(request);
     return;
 	}
 
 	// handle serial number
-	if (ep_request && ep_len > 9 && strncmp(ep_request, "knx://sn.", 9) == 0)
+	if (ep_request && ep_len >= EP_STR_LEN_DOT_SN && strncmp(ep_request, "knx://sn.", EP_STR_LEN_DOT_SN) == 0)
 	{
-
-		#define EP_STR_LEN_DOT_SN  (9)  // knx://sn.
-		#define SN_STR_LEN_MAX    (12)  // max SN length
-
-		// SN pos is fixed after first '.', '*' pos may follow somewhere after this (distance = max sn + 1)
-		char* ep_serialnumber_start_pos = ep_request + EP_STR_LEN_DOT_SN;
-		char* ep_wildcard_pos = oc_strnchr(ep_serialnumber_start_pos, '*', SN_STR_LEN_MAX + 1);
-
-		/*
-     (a) sn.*        fits always (to get all KNX devices in an IP network, note other system uses also well-known EP)
-     (b) sn.00fa...  fits to the sn entirely (useful on mc)
-     (c) sn.00fa*    fits to the sn part (clause 2.6.1.3.4)
-    */
-
-		// a ('*' is next char after '.') / b / c
-    const bool only_wildcard = ep_wildcard_pos == ep_serialnumber_start_pos + 1;
-    bool full_sn = false;
-    bool part_sn = false;
-
-		if (!only_wildcard)
-    { // do not check anything else if only wildcard = true, result is already clear
-
-      if (ep_wildcard_pos)
-      { // partial compare somewhere in sn string
-
-        // empty max len SN + string termination '\0'
-        char sn_substr[SN_STR_LEN_MAX + 1] = "";
-
-        // SN can be of 1..12 chars (valid) or > 12 (attack/error)
-        size_t ep_sn_len = ep_wildcard_pos - ep_serialnumber_start_pos;
-
-        // copy SN part size 0..12 , but don't copy > 12 chars
-        strncpy(sn_substr, ep_serialnumber_start_pos, ep_sn_len > SN_STR_LEN_MAX ? SN_STR_LEN_MAX : ep_sn_len);
-        part_sn = strstr(device->serialnumber, sn_substr) != NULL;
-      }
-      else
-      { // full compare (device has a string, ep_request has a stream without /0 
-        full_sn = strncmp(device->serialnumber, ep_serialnumber_start_pos, strlen(device->serialnumber)) == 0;
-      }
-    }
-
-		if (only_wildcard || full_sn || part_sn)
+		if (oc_discovery_sn_matches(ep_request, ep_len, device->serialnumber))
 		{
-			response_length = frame_sn(device->serialnumber, device->iid, device->ia);
+      OC_INF("oc_well_known_core_discovery_handler SN HANDLING: SN match");
+		  response_length = frame_sn(device->serialnumber, device->iid, device->ia);
 			oc_prepare_linkformat_response(request, OC_STATUS_OK, response_length);
 		}
 		else
 		{
-      if (request->origin && request->origin->flags & MULTICAST)
-      {
-        // multicast request w/ query parameter and NO hit
-        oc_ignore_request(request);
-      }
-      else
-      {
-        // unicast request w/ query parameter and NO hit
-        oc_prepare_no_format_response_no_payload(request, OC_STATUS_NOT_FOUND);
-      }
+      OC_INF("oc_well_known_core_discovery_handler SN HANDLING: SN no match");
+			oc_discovery_prepare_no_match_response(request);
 		}
 		return;
 	}
@@ -738,10 +683,10 @@ void oc_well_known_core_discovery_handler(oc_request_t* request, oc_interface_ma
 
   // core
   current_page_is_full = oc_process_core_resources(request, &response_length, &query_parameter_key_value_pair_matches,
-                                                    &skipped, first_entry, first_entry + query_ps);
+                                                    &skipped, first_entry, first_entry + query_ps, query_parameter_present);
 
   // add application resources only if query parameters are present
-	if (rt_len > 0 || if_len > 0)
+	if (query_parameter_present)
   {
     OC_DBG("oc_well_known_core_discovery_handler rt='%.*s' if='%.*s' ", rt_len, rt_request, if_len, if_request); // first (len) value defines precision for %.
 
@@ -758,25 +703,37 @@ void oc_well_known_core_discovery_handler(oc_request_t* request, oc_interface_ma
 	{ // unicast: page not full, things can still be added
 
 		// add FBs in case of well-known discovery request contains matching query parameters:
-		// - not present at all
-		// - rt=*, rt=*fb* -> urn:knx:fb.321
-		// - if=*, if=*ll* -> urn:knx:id.ll
+    // - not present at all -> /.well-known/core discovery request without query parameter
+		// - present with rt=* or rt=*fb* -> urn:knx:fb.321
+		// - present with if=* or if=*ll* -> urn:knx:id.ll
 		if (oc_check_if_functional_blocks_need_to_add(request))
 		{
 			OC_INF("oc_well_known_core_discovery_handler add functional block resources ...");
 
-			// note that this function is reusing the number of counted FBs 
-		  oc_add_functional_blocks_from_application_to_response(request, false, &response_length, &query_parameter_key_value_pair_matches, &skipped, first_entry, first_entry + query_ps);
+			// the 'if' follows the same rule as the core resources above - only framed on a query parameter request
+		  oc_add_functional_blocks_from_application_to_response(request, false, query_parameter_present, &response_length, &query_parameter_key_value_pair_matches, &skipped, first_entry, first_entry + query_ps);
 		}
 	}
 
+	/* 
+	   Decide the next-page hint from whether resources remain beyond this page.
+
+	   - query_parameter_key_value_pair_matches is capped at query_ps by the core/
+	     application/FB steps (each stops placing entries once query_ps is reached),
+	     so "page is full" alone cannot distinguish a full-but-last page from a full
+	     page with more data behind it 
+	   - compare against the known total instead
+	*/
+	const bool more_request_needed = total > first_entry + query_ps;
+	
 	if (query_parameter_key_value_pair_matches > 0 && response_length > 0)
 	{
 		// unicast or multicast request
 		// matches/response_length >0/>0
 		// m>0;l>0 : -- > at least one query parameter KV pair match was found for this device AND added to the response
 
-		// add only a page hint if at least one response entry is in
+		// add a page hint only when the page filled up, hence matching resources
+		// are left over for the next page
 		if (more_request_needed)
 		{
 			// no page # was in the request (query_p =0) = next page 1 else #+1
@@ -793,16 +750,7 @@ void oc_well_known_core_discovery_handler(oc_request_t* request, oc_interface_ma
 		// m=0;l>0 : -- > n/a (no query parameter KEY/VALUE pair but a hit ....)
 		// m=0;l=0 : -- > NO query parameter KEY/VALUE pair was found AND (hence this) no hit for this device
 
-		if (request->origin && request->origin->flags & MULTICAST)
-		{ // multicast request
-      OC_DBG("oc_well_known_core_discovery_handler multicast request, no match -> ignore it");
-      oc_ignore_request(request);
-		}
-		else
-		{ // unicast request
-      OC_DBG("oc_well_known_core_discovery_handler unicast request, no match -> send unicast response with length = 0");
-      oc_prepare_no_format_response_no_payload(request, OC_STATUS_NOT_FOUND);
-		}
+		oc_discovery_prepare_no_match_response(request);
 	}
 }
 
@@ -832,7 +780,7 @@ void oc_well_known_core_discovery_handler(oc_request_t* request, oc_interface_ma
 static oc_resource_data_t core_resource_well_known_core_data;
 const oc_resource_t core_resource_well_known_core =																					 		// the actual resource definition
 {
-	(oc_resource_t*) NULL,																		 																		// ptr to next resource -> well-known is the last resource
+	NULL,																		 																		                  // ptr to next resource -> well-known is the last resource
 	{ NULL, sizeof("/.well-known/core"), "/.well-known/core" },							 		// Endpoint URI
 	{ NULL, 0, NULL },																														// resource types, see comment above
 	{ NULL, 0, NULL },																						 								// datapoint type, see comment above - if none => 3 x NULL
@@ -842,8 +790,8 @@ const oc_resource_t core_resource_well_known_core =																					 		// th
 	{ NULL, NULL, OC_ACL_NONE, OC_IF_NONE },											 		// put callback, if not defined use if.none, to return 4.05 instead of 4.01
 	{ NULL, NULL, OC_ACL_NONE, OC_IF_NONE },											 		// post callback, if not defined use if.none, to return 4.05 instead of 4.01
 	{ NULL, NULL, OC_ACL_NONE, OC_IF_NONE },											 		// delete callback, if not defined use if.none, to return 4.05 instead of 4.01
-	{{NULL}, NULL},																										 		// property get callback
-	{{NULL}, NULL},																										 		// property set callback
+	{{NULL}, NULL},																										 	// property get callback
+	{{NULL}, NULL},																										 	// property set callback
 	0,																																												 		// observe period
 	0,																																												 		// FB instance
 	true,																																											 		// is static precompiled resource

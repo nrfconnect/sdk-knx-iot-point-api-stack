@@ -2,7 +2,7 @@
  * Copyright (c) 2017 Intel Corporation
  * Copyright (c) 2022 Cascoda Ltd.
  * Copyright (c) 2023-2026 KNX Association
- *  
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -15,9 +15,6 @@
 #include <string.h>
 
 #define OC_SCHEME_COAP "coap://"
-#define OC_SCHEME_COAPS "coaps://"
-#define OC_SCHEME_COAP_TCP "coap+tcp://"
-#define OC_SCHEME_COAPS_TCP "coaps+tcp://"
 
 #define OC_IPV6_ADDRSTRLEN (46)
 #define OC_IPV6_ADDRLEN (16)
@@ -81,7 +78,7 @@ static void oc_ipv6_endpoint_to_string(oc_endpoint_t* endpoint, oc_string_t* end
       }
       else if ((addr_idx % 2 == 0 || (addr_idx > 0 && addr[addr_idx - 1]) == 0) && addr[addr_idx] <= 0x0f)
       {
-        snprintf(&ip[str_idx++], 2, "%x", addr[addr_idx]);
+        ip[str_idx++] = "0123456789abcdef"[addr[addr_idx] & 0x0f];
       }
       else
       {
@@ -125,28 +122,7 @@ static void oc_ipv6_endpoint_to_string(oc_endpoint_t* endpoint, oc_string_t* end
     (void)snprintf(&ip[str_idx], 2 + 5 + 1, "]:%u", endpoint->addr.ipv6.port);
   }
 
-  #ifdef OC_TCP
-  if (endpoint->flags & TCP)
-  {
-    if (endpoint->flags & SECURED)
-    {
-      oc_concat_strings(endpoint_str, OC_SCHEME_COAPS_TCP, ip);
-    }
-    else
-    {
-      oc_concat_strings(endpoint_str, OC_SCHEME_COAP_TCP, ip);
-    }
-  }
-  else
-  #endif
-  if (endpoint->flags & SECURED)
-  {
-    oc_concat_strings(endpoint_str, OC_SCHEME_COAPS, ip);
-  }
-  else
-  {
-    oc_concat_strings(endpoint_str, OC_SCHEME_COAP, ip);
-  }
+  oc_concat_strings(endpoint_str, OC_SCHEME_COAP, ip);
 }
 
 int oc_endpoint_to_string(oc_endpoint_t* endpoint, oc_string_t* endpoint_str)
@@ -242,8 +218,8 @@ int oc_ipv6_endpoint_is_link_local(oc_endpoint_t* endpoint)
  * RFC 6724 Section 3.2 scope of a 16-byte IPv6 address.
  *
  * Loopback (::1) and link-local (fe80::/10) return 2.
- * Deprecated site-local (fec0::/10) returns 5.
- * Everything wider (ULA fc00::/7 and global) returns 14.
+ * Deprecated site-local (fec0::/10) and ULA (fc00::/7, RFC 4193) return 5.
+ * Everything wider (global) returns 14.
  */
 int oc_ipv6_address_scope(const uint8_t* address)
 {
@@ -264,6 +240,17 @@ int oc_ipv6_address_scope(const uint8_t* address)
   if (address[0] == 0xfe && (address[1] & 0xc0) == 0xc0)
   {
     // fec0::/10 = deprecated site local
+    return 5;
+  }
+
+  if ((address[0] & 0xfe) == 0xfc)
+  {
+    // fc00::/7 = Unique Local Address (RFC 4193), site-local scope per
+    // RFC 6724 policy table (row for fc00::/7 -> scope 5). Without this,
+    // a device's own ULA source address reports the same scope (14) as a
+    // global destination, so RFC 6724 Rule 2 never selects a narrower
+    // (e.g. link-local) source for narrower-scope destinations reached
+    // via a ULA-addressed peer.
     return 5;
   }
 
@@ -337,8 +324,8 @@ int oc_endpoint_compare(const oc_endpoint_t* ep1, const oc_endpoint_t* ep2)
   {
     return -1;
   }
-  // compare only same types (unicast/multicast and accepted don't care in comparison, means treated as the same)
-  if ((ep1->flags & ~(MULTICAST | ACCEPTED)) != (ep2->flags & ~(MULTICAST | ACCEPTED)))
+  // compare only same types (unicast/multicast don't care in comparison, means treated as the same)
+  if ((ep1->flags & ~MULTICAST) != (ep2->flags & ~MULTICAST))
   {
     return -1;
   }
@@ -419,6 +406,8 @@ void oc_endpoint_print(oc_endpoint_t* ep)
   oc_endpoint_to_string(ep, &ip_str);
   OC_DBG("IP address (ep) to: %s", oc_string_checked(ip_str));
   oc_free_string(&ip_str);
-  
+
+  #else
+  (void)ep;
   #endif
 }

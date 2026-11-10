@@ -1,41 +1,15 @@
 /*
  * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2024-2026 KNX Association
- *
- * SPDX-License-Identifier: Apache-2.0
- * 
- * Copyright (c) 2013, Institute for Pervasive Computing, ETH Zurich
+ * Copyright (c) 2013 Institute for Pervasive Computing, ETH Zurich
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the Institute nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
+ * SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
  *
  * This file is part of the Contiki operating system.
  */
 
-#ifndef OBSERVE_H
-#define OBSERVE_H
+#pragma once
 
 #include "coap.h"
 #include "oc_ri.h"
@@ -66,9 +40,7 @@ typedef struct coap_observer_t
 
 	// --- 2-byte aligned: uint16_t ---
 	uint16_t last_mid;
-	#ifdef OC_BLOCK_WISE
 	uint16_t block2_size;
-	#endif 
 
 	// --- 1-byte: uint8_t, bool ---
 	uint8_t token_len;
@@ -85,11 +57,7 @@ typedef struct coap_observer_t
   
 	
 
-#ifdef OC_BLOCK_WISE
 int coap_observe_handler(void* request, void* response, const oc_resource_t* resource, uint16_t block2_size, oc_endpoint_t* endpoint);
-#else
-int coap_observe_handler(void* request, void* response, const oc_resource_t* resource, oc_endpoint_t* endpoint);
-#endif
 
 int coap_remove_observers_on_dos_change(bool reset);
 
@@ -104,14 +72,15 @@ int coap_remove_observers_on_dos_change(bool reset);
  *
 
   @note  
-   - notifies /k observers on self-triggered outbound application s-mode POST 'w' request 
-   - does not notify /k observers for inbound POST s-mode 'w/r' requests 
-     - mc: 
-       - 'w' other linked (n) receivers gets this mc 'w' request as well, 
-             if linked (n) receivers would issue an own notification cycle -> one 'w' request 
-             would end up in (n) extra s-mode 'w' notifications (provided all (n) receivers are observed) 
-       - 'r' is not a CoV at receiver side 
-     - uc: 
+   - notifies /k observers on self-triggered outbound application s-mode POST 'w' request (mc/uc) - 't' flag must be set (clause 2.6.9.3)
+   - does not notify /k observers for inbound POST s-mode 'w/r/a' requests (mc/uc) 
+     - 'w/a' 
+      - w + a flag must be set (usually on if.p/if.i/if.g.s), t-flag is not set 
+      - other linked (n) receivers gets this mc 'w/a' request as well, 
+        if linked (n) receivers would issue an own notification cycle -> one 'w' request 
+        would end up in (n) extra s-mode 'w/a' notifications (provided all (n) receivers are observed) 
+     - 'r'   
+       - is not a CoV at receiver side (r/t-flag are usually set)
    - does not notify /k observers for inbound 'none' s-mode requests
 */
 void coap_notify_k_observers(const uint8_t* payload, size_t payload_len);
@@ -143,5 +112,3 @@ uint32_t get_observe_counter(void);
 #ifdef __cplusplus
 }
 #endif
-
-#endif 

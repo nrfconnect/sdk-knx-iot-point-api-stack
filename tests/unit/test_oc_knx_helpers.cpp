@@ -4,6 +4,7 @@
  * Covers:
  *   collect_and_rank_status   — accumulate worst CoAP status
  *   add_next_page_indicator   — frame ";rt=p.next" pagination link
+ *   oc_parse_*_from_base*_string  - bounded parsing of (not NUL terminated) values
  */
 
 #include <gtest/gtest.h>
@@ -17,10 +18,6 @@ extern "C" {
 #include "messaging/coap/oc_coap.h"
 #include "messaging/coap/constants.h"
 
-/* file-local helpers in oc_knx_helpers.c (no public header declaration) */
-int oc_frame_query_l(char *url, bool ps_exists, int ps, bool total_exists,
-                     int total);
-int oc_frame_integer(int value);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -303,3 +300,164 @@ TEST_F(QueryLProcessed, LPsWithExtraQueryReturnsBadRequest)
   EXPECT_TRUE(query_l_was_processed(&req, 5, 22));
   EXPECT_EQ(rb.code, oc_status_code(OC_STATUS_BAD_REQUEST));
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * oc_parse_uint16_from_base10_string / oc_parse_uint16_from_base16_string /
+ * oc_parse_sint32_from_base10_string / oc_parse_uint64_from_base16_string - the
+ * values are deliberately passed WITHOUT a
+ * string terminator (via a length that is shorter than the literal) to prove
+ * that the parsers never read beyond value_len.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+TEST(ParseUint16, ValidValues)
+{
+  int v = -1;
+  EXPECT_TRUE(oc_parse_uint16_from_base10_string("0", 1, &v));
+  EXPECT_EQ(v, 0);
+  EXPECT_TRUE(oc_parse_uint16_from_base10_string("65535", 5, &v));
+  EXPECT_EQ(v, 65535);
+  EXPECT_TRUE(oc_parse_uint16_from_base10_string("00001", 5, &v));
+  EXPECT_EQ(v, 1);
+  /* leading zeros are accepted as long as the total width fits */
+  EXPECT_TRUE(oc_parse_uint16_from_base10_string("00000", 5, &v));
+  EXPECT_EQ(v, 0);
+  EXPECT_TRUE(oc_parse_uint16_from_base10_string("65535", 5, &v));
+  EXPECT_EQ(v, 65535);
+}
+
+TEST(ParseUint16, RejectsInvalidValues)
+{
+  int v = -1;
+  EXPECT_FALSE(oc_parse_uint16_from_base10_string(NULL, 1, &v));
+  EXPECT_FALSE(oc_parse_uint16_from_base10_string("1", 0, &v));
+  EXPECT_FALSE(oc_parse_uint16_from_base10_string("1", -1, &v));
+  EXPECT_FALSE(oc_parse_uint16_from_base10_string("abc", 3, &v));
+  EXPECT_FALSE(oc_parse_uint16_from_base10_string("2abc", 4, &v));
+  EXPECT_FALSE(oc_parse_uint16_from_base10_string("-1", 2, &v));
+  EXPECT_FALSE(oc_parse_uint16_from_base10_string("+1", 2, &v));
+  EXPECT_FALSE(oc_parse_uint16_from_base10_string("65536", 5, &v));
+  /* 6 chars > MAX_QUERY_NUM_LEN (5), a zero padded max width value is rejected */
+  EXPECT_FALSE(oc_parse_uint16_from_base10_string("065535", 6, &v));
+  EXPECT_FALSE(oc_parse_uint16_from_base10_string("000001", 6, &v));
+  EXPECT_FALSE(oc_parse_uint16_from_base10_string("0000001", 7, &v));
+}
+
+TEST(ParseUint16, DoesNotReadBeyondValueLen)
+{
+  int v = -1;
+  /* only the leading "12" is part of the value, the "xx" must not be seen */
+  EXPECT_TRUE(oc_parse_uint16_from_base10_string("12xx", 2, &v));
+  EXPECT_EQ(v, 12);
+}
+
+TEST(ParseSint32, ValidValues)
+{
+  int v = -1;
+  EXPECT_TRUE(oc_parse_sint32_from_base10_string("0", 1, &v));
+  EXPECT_EQ(v, 0);
+  EXPECT_TRUE(oc_parse_sint32_from_base10_string("2147483647", 10, &v));
+  EXPECT_EQ(v, 2147483647);
+  /* leading zeros are accepted as long as the total width fits */
+  EXPECT_TRUE(oc_parse_sint32_from_base10_string("0000000001", 10, &v));
+  EXPECT_EQ(v, 1);
+}
+
+TEST(ParseSint32, RejectsInvalidValues)
+{
+  int v = -1;
+  EXPECT_FALSE(oc_parse_sint32_from_base10_string("2147483648", 10, &v));
+  EXPECT_FALSE(oc_parse_sint32_from_base10_string("-1", 2, &v));
+  EXPECT_FALSE(oc_parse_sint32_from_base10_string("12a", 3, &v));
+  EXPECT_FALSE(oc_parse_sint32_from_base10_string("", 0, &v));
+  /* 11 chars > MAX_INT_NUM_LEN (10), a zero padded max width value is rejected */
+  EXPECT_FALSE(oc_parse_sint32_from_base10_string("02147483647", 11, &v));
+  EXPECT_FALSE(oc_parse_sint32_from_base10_string("00000000001", 11, &v));
+  EXPECT_FALSE(oc_parse_sint32_from_base10_string("000000000001", 12, &v));
+}
+
+TEST(ParseUint16Base16, ValidHexValues)
+{
+  uint16_t v = 1;
+  EXPECT_TRUE(oc_parse_uint16_from_base16_string("0", 1, &v));
+  EXPECT_EQ(v, 0u);
+  EXPECT_TRUE(oc_parse_uint16_from_base16_string("ffff", 4, &v));
+  EXPECT_EQ(v, 0xffffu);
+  EXPECT_TRUE(oc_parse_uint16_from_base16_string("FFFF", 4, &v));
+  EXPECT_EQ(v, 0xffffu);
+  /* a typical KNX IA, leading zeros are accepted */
+  EXPECT_TRUE(oc_parse_uint16_from_base16_string("0a1b", 4, &v));
+  EXPECT_EQ(v, 0x0a1bu);
+}
+
+TEST(ParseUint16Base16, RejectsInvalidValues)
+{
+  uint16_t v = 0;
+  EXPECT_FALSE(oc_parse_uint16_from_base16_string(NULL, 4, &v));
+  EXPECT_FALSE(oc_parse_uint16_from_base16_string("ffff", 4, NULL));
+  EXPECT_FALSE(oc_parse_uint16_from_base16_string("ffff", 0, &v));
+  EXPECT_FALSE(oc_parse_uint16_from_base16_string("ffff", -1, &v));
+  /* trailing garbage */
+  EXPECT_FALSE(oc_parse_uint16_from_base16_string("1a2z", 4, &v));
+  /* a leading sign, strtoull() would negate this modulo 2^64 without an error */
+  EXPECT_FALSE(oc_parse_uint16_from_base16_string("-1", 2, &v));
+  EXPECT_FALSE(oc_parse_uint16_from_base16_string("+1", 2, &v));
+  /* 5 chars > MAX_UINT16_HEX_LEN (4), so a value > UINT16_MAX cannot even be expressed */
+  EXPECT_FALSE(oc_parse_uint16_from_base16_string("10000", 5, &v));
+  EXPECT_FALSE(oc_parse_uint16_from_base16_string("00001", 5, &v));
+  /* 'g' is not a hex digit */
+  EXPECT_FALSE(oc_parse_uint16_from_base16_string("g", 1, &v));
+}
+
+TEST(ParseUint16Base16, DoesNotReadBeyondValueLen)
+{
+  uint16_t v = 0;
+  /* only "1101" is part of the value, the trailing junk must not be seen */
+  EXPECT_TRUE(oc_parse_uint16_from_base16_string("1101ffff", 4, &v));
+  EXPECT_EQ(v, 0x1101u);
+}
+
+TEST(ParseUint64, ValidHexValues)
+{
+  uint64_t v = 1;
+  EXPECT_TRUE(oc_parse_uint64_from_base16_string("0", 1, &v));
+  EXPECT_EQ(v, 0u);
+  EXPECT_TRUE(oc_parse_uint64_from_base16_string("ffff", 4, &v));
+  EXPECT_EQ(v, 0xffffu);
+  EXPECT_TRUE(oc_parse_uint64_from_base16_string("FFFF", 4, &v));
+  EXPECT_EQ(v, 0xffffu);
+  /* a typical KNX IID */
+  EXPECT_TRUE(oc_parse_uint64_from_base16_string("1199887766", 10, &v));
+  EXPECT_EQ(v, 0x1199887766ull);
+  /* leading zeros are accepted */
+  EXPECT_TRUE(oc_parse_uint64_from_base16_string("0001101", 7, &v));
+  EXPECT_EQ(v, 0x1101u);
+  /* the full 64 bit range */
+  EXPECT_TRUE(oc_parse_uint64_from_base16_string("ffffffffffffffff", 16, &v));
+  EXPECT_EQ(v, UINT64_MAX);
+}
+
+TEST(ParseUint64, RejectsInvalidValues)
+{
+  uint64_t v = 0;
+  EXPECT_FALSE(oc_parse_uint64_from_base16_string(NULL, 4, &v));
+  EXPECT_FALSE(oc_parse_uint64_from_base16_string("ffff", 4, NULL));
+  EXPECT_FALSE(oc_parse_uint64_from_base16_string("ffff", 0, &v));
+  /* trailing garbage, silently accepted by the previous strtoull(.., NULL, 16) */
+  EXPECT_FALSE(oc_parse_uint64_from_base16_string("1a2zz", 5, &v));
+  /* a leading sign, strtoull() would negate this modulo 2^64 without an error */
+  EXPECT_FALSE(oc_parse_uint64_from_base16_string("-1", 2, &v));
+  EXPECT_FALSE(oc_parse_uint64_from_base16_string("+1", 2, &v));
+  /* 17 chars > MAX_UINT64_HEX_LEN (16) */
+  EXPECT_FALSE(oc_parse_uint64_from_base16_string("00000000000000001", 17, &v));
+  /* 'g' is not a hex digit */
+  EXPECT_FALSE(oc_parse_uint64_from_base16_string("g", 1, &v));
+}
+
+TEST(ParseUint64, DoesNotReadBeyondValueLen)
+{
+  uint64_t v = 0;
+  /* only "1101" is part of the value, the trailing junk must not be seen */
+  EXPECT_TRUE(oc_parse_uint64_from_base16_string("1101ffff", 4, &v));
+  EXPECT_EQ(v, 0x1101u);
+}
+

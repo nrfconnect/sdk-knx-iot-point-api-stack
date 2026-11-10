@@ -1,39 +1,13 @@
-/* 
+/*
  * Copyright (c) 2016, 2020 Intel Corporation
  * Copyright (c) 2024-2026 KNX Association
- *            
- * SPDX-License-Identifier: Apache-2.0
- *
- * Copyright (c) 2013, Institute for Pervasive Computing, ETH Zurich
+ * Copyright (c) 2013 Institute for Pervasive Computing, ETH Zurich
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the Institute nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
+ * SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
  */
 
-#ifndef COAP_H
-#define COAP_H
+#pragma once
 
 #include "constants.h"
 #include <stddef.h> // for size_t
@@ -92,18 +66,14 @@ enum {
  */
 #define IS_OPTION(packet, opt) ((packet)->options[(opt) / OPTION_MAP_SIZE] & (1 << ((opt) % OPTION_MAP_SIZE)))
 
-/** enum value for coap transport type  */
-typedef enum 
-{
-  COAP_TRANSPORT_UDP, COAP_TRANSPORT_TCP
-} coap_transport_type_t;
-
 /** parsed message struct — fields ordered by descending alignment to minimize padding */
 typedef struct coap_packet_t
 {
   // --- 8-byte aligned: pointers and size_t ---
   uint8_t*    buffer;                     // host the serialized (to be sent out) CoAP packet byte stream with header/type/token/...
-  uint8_t*    payload;                    // hosts the coap application payload byte stream (usually in CBOR or LINK format)
+  // read-only view of the payload bytes, the owner of the buffer they live in writes them
+  // (the OSCORE engine for its in-place AEAD in the message buffer it owns)
+  const uint8_t* payload;                 // hosts the coap application payload byte stream (usually in CBOR or LINK format)
   const char* proxy_uri;
   const char* proxy_scheme;
   const char* uri_host;
@@ -121,7 +91,6 @@ typedef struct coap_packet_t
   size_t echo_len;
 
   // --- 4-byte aligned: uint32_t and enums ---
-  coap_transport_type_t transport_type;   // UDP or TCP
   coap_message_type_t   type;             // CON, NON, ACK, ...
   uint32_t max_age;                       // defines the maximum time in seconds that a response can be cached before it is considered "not fresh"
   uint32_t observe;                       /* RFC 7641: CoAP Observe option value (0..2^24-1)
@@ -168,17 +137,6 @@ typedef struct coap_packet_t
   uint8_t kid[OSCORE_SENDER_ID_LEN];      // 'kid' in message, 'Sender ID' in OSCORE, osc:id in OSCORE Profile
   uint8_t kid_len;
   uint8_t echo[COAP_ECHO_LEN];            // echo challenge random data (is part of inner options, RFC 9175)
-
-  #ifdef OC_TCP
-  // --- TCP: ordered by alignment ---
-  const char* alt_addr;
-  size_t      alt_addr_len;
-  uint32_t    max_msg_size;
-  uint32_t    hold_off;
-  uint16_t    bad_csm_opt;
-  uint8_t     blockwise_transfer;
-  uint8_t     custody;
-  #endif
 } coap_packet_t;
 
 /** option format serialization */
@@ -239,7 +197,7 @@ typedef struct coap_packet_t
     {                                                                                 \
       block |= 0x8;                                                                   \
     }                                                                                 \
-    /* RFC 7959, SZX 0...6 = 16...1024 bytes */                                                                                  \
+    /* RFC 7959, SZX 0...6 = 16...1024 bytes */                                       \
     block |= 0xF & coap_log_2(coap_pkt->field##_size / 16);                           \
     option_length += coap_serialize_int_option(number, current_number, option, block);\
     if (option)                                                                       \
@@ -298,7 +256,6 @@ void print_coap_service(uint8_t code, char* text);
 
 /*
  @brief  forwards a CoAP message to lower (OSCORE) layers,
- *       defined as extra message wrapper that allows for TCP = enabled extra code -> one code place,
  *       after finally sending the (plain/encrypted) message the message will be "released" - if not tracked
  */
 void coap_send_message(oc_message_t* message);
@@ -343,6 +300,18 @@ coap_status_t coap_oscore_parse_options(void* packet, uint8_t* data,
 
 /**
  *
+ * @brief reads the next CoAP option header (RFC 7252 clause 3.1) at *current
+ *
+ * @note  'option_number' is the running option number, the decoded delta is added to it on return,
+ *        'option_length' returns the length of the option value,
+ *        'current' is updated to the first byte of the option value on return,
+ *        returns false if the option header or the option value is not completely inside the received message
+ *
+ */
+bool coap_next_option(uint8_t** current, const uint8_t* end, unsigned int* option_number, size_t* option_length);
+
+/**
+ *
  * @brief parses *data and copy from it coap header/token/mid/options to *packet
  *
  * @note  does not copy OSCORE option security content
@@ -361,8 +330,8 @@ int coap_set_token(void* packet, const uint8_t* token, size_t token_len);
 int coap_get_header_content_format(void* packet, oc_content_format_t* format);
 int coap_set_header_content_format(void* packet, oc_content_format_t format);
 
-int coap_get_header_accept(void* packet, unsigned int* accept);
-int coap_set_header_accept(void* packet, unsigned int accept);
+int coap_get_header_accept(void* packet, oc_content_format_t* accept);
+int coap_set_header_accept(void* packet, oc_content_format_t accept);
 
 int coap_get_header_max_age(void* packet, uint32_t* age);
 int coap_set_header_max_age(void* packet, uint32_t age);
@@ -418,6 +387,19 @@ int coap_set_header_echo(void* packet, const uint8_t* echo, size_t len);
 uint32_t coap_get_payload(void* packet, const uint8_t** payload);
 uint32_t coap_set_payload(void* packet, const uint8_t* payload, size_t length);
 
+/*
+  Floor an arbitrary byte count down to a valid RFC 7959 block size.
+
+  RFC 7959 Section 2.2 encodes the block size as the 3 bit exponent SZX, the wire value is 2^(SZX + 4),
+  so only 16, 32, 64, 128, 256, 512 and 1024 can be represented. Any other value would be silently
+  truncated down by the serializer, leaving sender and peer disagreeing on the block boundaries.
+
+  Values above 1024 are capped at 1024 (SZX 6), values below 16 are raised to 16 (SZX 0).
+
+  Returns the largest valid block size that does not exceed 'size'.
+*/
+uint16_t coap_floor_block_size(uint32_t size);
+
 size_t coap_set_option_header(unsigned int delta, size_t length, uint8_t* buffer);
 
 /**
@@ -428,17 +410,6 @@ size_t coap_set_option_header(unsigned int delta, size_t length, uint8_t* buffer
  */
 int coap_receive(oc_message_t* incoming_message);
 
-#ifdef OC_TCP
-// TCP
-void coap_tcp_init_message(void* packet, uint8_t code);
-size_t coap_tcp_get_packet_size(const uint8_t* data);
-coap_status_t coap_tcp_parse_message(void* packet, uint8_t* data, uint32_t data_len);
-void coap_tcp_parse_message_length(const uint8_t* data, size_t* message_length,
-        uint8_t* num_extended_length_bytes);
-#endif 
-
 #ifdef __cplusplus
 }
 #endif
-
-#endif 

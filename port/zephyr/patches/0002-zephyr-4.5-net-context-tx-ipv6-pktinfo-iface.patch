@@ -1,0 +1,88 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander Burker <burker@ucs.at>
+Date: Thu, 25 Jun 2026 12:00:00 +0200
+Subject: [PATCH] net: context: honour IPV6_PKTINFO interface on send
+
+Zephyr takes the source address of a UDP datagram from the IPV6_PKTINFO
+ancillary data of a send call (get_msg_src_addr_hint()), but ignores its
+outgoing interface index (ipi6_ifindex), so an application cannot pin the
+egress interface of the datagram.
+
+Add a helper that returns the IPV6_PKTINFO carried by a send call and select
+the egress interface from its ipi6_ifindex in context_sendto(), ahead of the
+destination-based selection and only when the interface was not already chosen
+by the multicast or link-local logic. As the interface is set on the context
+before the packet is allocated, the source address hint is then checked against
+that interface.
+
+The change is inert when no IPV6_PKTINFO send cmsg is present or its
+ipi6_ifindex is 0. This mirrors the IPV6_PKTINFO send behaviour of Linux and BSD
+sockets and lets the KNX-IoT Wi-Fi port reply, on multi-interface boards (e.g.
+Ethernet plus Wi-Fi), on the interface a request arrived on.
+---
+ subsys/net/ip/net_context.c | 42 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 42 insertions(+)
+
+diff --git a/subsys/net/ip/net_context.c b/subsys/net/ip/net_context.c
+index fb7080cc92..a619726bec 100644
+--- a/subsys/net/ip/net_context.c
++++ b/subsys/net/ip/net_context.c
+@@ -2430,6 +2430,32 @@ static bool get_msg_src_addr_hint(const struct net_msghdr *msg, net_sa_family_t
+ 	return false;
+ }
+ 
++/* Return the IPV6_PKTINFO ancillary data supplied by the application on a send
++ * call, or NULL when none is present. Zephyr already takes the source address
++ * from it (get_msg_src_addr_hint()); this is for the outgoing interface index
++ * (ipi6_ifindex), which context_sendto() uses to pick the egress interface, as
++ * Linux and BSD sockets do.
++ */
++static const struct net_in6_pktinfo *get_tx_pktinfo6(const struct net_msghdr *msg)
++{
++	struct net_cmsghdr *cmsg;
++
++	if (msg == NULL || msg->msg_control == NULL || msg->msg_controllen == 0) {
++		return NULL;
++	}
++
++	for (cmsg = NET_CMSG_FIRSTHDR(msg); cmsg != NULL;
++	     cmsg = NET_CMSG_NXTHDR(msg, cmsg)) {
++		if (cmsg->cmsg_len == NET_CMSG_LEN(sizeof(struct net_in6_pktinfo)) &&
++		    cmsg->cmsg_level == NET_IPPROTO_IPV6 &&
++		    cmsg->cmsg_type == ZSOCK_IPV6_PKTINFO) {
++			return (struct net_in6_pktinfo *)NET_CMSG_DATA(cmsg);
++		}
++	}
++
++	return NULL;
++}
++
+ static int context_setup_udp_packet(struct net_context *context,
+ 				    net_sa_family_t family,
+ 				    struct net_pkt *pkt,
+@@ -3017,6 +3043,22 @@ static int context_sendto(struct net_context *context,
+ 			}
+ 		}
+ 
++		/* An explicit outgoing interface supplied through IPV6_PKTINFO takes
++		 * precedence over the destination-based interface selection below. This
++		 * is required on multi-interface boards (e.g. Ethernet plus Wi-Fi) so a
++		 * reply leaves on the interface the request arrived on.
++		 */
++		if (iface == NULL && msghdr != NULL) {
++			const struct net_in6_pktinfo *pktinfo = get_tx_pktinfo6(msghdr);
++
++			if (pktinfo != NULL && pktinfo->ipi6_ifindex > 0) {
++				iface = net_if_get_by_index(pktinfo->ipi6_ifindex);
++				if (iface != NULL) {
++					net_context_set_iface(context, iface);
++				}
++			}
++		}
++
+ 		/* If application has not yet set the destination address
+ 		 * i.e., by not calling connect(), then set the interface
+ 		 * here so that the packet gets sent to the correct network
+-- 
+2.51.0.windows.1
+

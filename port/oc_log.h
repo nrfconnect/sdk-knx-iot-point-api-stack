@@ -1,38 +1,40 @@
-/* 
+/*
  * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2022 Cascoda Ltd
  * Copyright (c) 2024-2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
  *
- *  @brief platform abstraction of logging
- *  @file
- *
- *  Generic logging functions:
- *  - OC_INF
- *    prints information as Info level
- *  - OC_WRN
- *    prints information as Warning level
- *  - OC_ERR
- *    prints information as Error level
- *  - OC_DBG
- *    prints information as Debug level
- *  - OC_LOGipaddr
- *    prints the endpoint information to stdout
- *  - OC_LOGbytes
- *    prints the bytes to stdout
- *
- *  Compile flags:
- *  - OC_DEBUG
- *    enables output of logging functions
- *  - OC_NO_LOG_BYTES
- *    disables output of OC_LOGbytes logging function
- *    if OC_DEBUG is enabled.
- *  - KNX_LOG_TO_FILE
- *    logs the OC_INF, OC_WRN, OC_ERR, and OC_DBG statements to file
+ * @brief platform abstraction of logging
+ * @file
+ * Generic logging functions:
+ * - OC_INF
+ * prints information as Info level
+ * - OC_WRN
+ * prints information as Warning level
+ * - OC_ERR
+ * prints information as Error level
+ * - OC_DBG
+ * prints information as Debug level
+ * - OC_LOGipaddr
+ * prints the endpoint information to stdout
+ * - OC_LOGbytes
+ * prints the bytes to stdout
+ * Compile flags:
+ * - OC_DEBUG
+ * enables output of logging functions
+ * - OC_NO_LOG_BYTES
+ * disables output of OC_LOGbytes logging function
+ * if OC_DEBUG is enabled.
+ * - KNX_LOG_TO_FILE
+ * logs the OC_INF, OC_WRN, OC_ERR, and OC_DBG statements to file
+ * - KNX_LOG_ESP_IDF_NATIVE
+ * routes the log statements through the ESP-IDF log component (ESP_LOGx, see
+ * log_esp-idf.h) instead of the stack's own OC_LOG format. Set by the ESP-IDF
+ * component from the platform-neutral stack Kconfig option KNXIOT_LOG_PLATFORM_NATIVE.
+ * Zephyr always logs natively (log_zephyr.h).
  */
-#ifndef OC_LOG_H
-#define OC_LOG_H
+#pragma once
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -44,12 +46,22 @@
 
 #ifdef __ZEPHYR__
 #include "log_zephyr.h"
+#elif defined(KNX_LOG_ESP_IDF_NATIVE)
+#include "log_esp-idf.h"
 #endif
 
+/* KNX_SOURCE_FILE_BASENAME
+ * The base name of the current C source file (__FILE__ without its directory part).
+ *
+ * Used by OC_LOG for the file:line prefix. A name of our own, __FILENAME__ is defined by
+ * the ESP-IDF assert.h as well and names starting with two underscores are reserved.
+ */
 #ifdef _WIN32
-  #define __FILENAME__ (strrchr(__FILE__, '\\') ? strrchr(__FILE__, '\\') + 1 : __FILE__)
+  #define KNX_SOURCE_FILE_BASENAME \
+    (strrchr(__FILE__, '\\') ? strrchr(__FILE__, '\\') + 1 : __FILE__)
 #else
-  #define __FILENAME__ (strrchr(__FILE__, '/')  ? strrchr(__FILE__, '/')  + 1 : __FILE__)
+  #define KNX_SOURCE_FILE_BASENAME \
+    (strrchr(__FILE__, '/')  ? strrchr(__FILE__, '/')  + 1 : __FILE__)
 #endif
 
 #ifdef __cplusplus
@@ -62,12 +74,6 @@ extern "C" {
 #define PRINTipaddr(endpoint)                   \
   do {                                                                         \
     const char *scheme = "coap";                                               \
-    if ((endpoint).flags & SECURED)                                            \
-      scheme = "coaps";                                                        \
-    if ((endpoint).flags & TCP)                                                \
-      scheme = "coap+tcp";                                                     \
-    if ((endpoint).flags & TCP && (endpoint).flags & SECURED)                  \
-      scheme = "coaps+tcp";                                                    \
     if ((endpoint).flags & IPV4) {                                             \
       PRINTF("%s://%d.%d.%d.%d:%d", scheme, ((endpoint).addr.ipv4.address)[0], \
             ((endpoint).addr.ipv4.address)[1],                                 \
@@ -95,14 +101,8 @@ extern "C" {
 
 #define PRINTipaddr_flags(endpoint)             \
   do {                                                                         \
-    if ((endpoint).flags & SECURED) {                                          \
-      PRINTF("Secured ");                                                      \
-    };                                                                         \
     if ((endpoint).flags & MULTICAST) {                                        \
       PRINTF("MULTICAST ");                                                    \
-    };                                                                         \
-    if ((endpoint).flags & TCP) {                                              \
-      PRINTF("TCP ");                                                          \
     };                                                                         \
     if ((endpoint).flags & IPV4) {                                             \
       PRINTF("IPV4 ");                                                         \
@@ -113,9 +113,6 @@ extern "C" {
     if ((endpoint).flags & OSCORE) {                                           \
       PRINTF("OSCORE ");                                                       \
     };                                                                         \
-    if ((endpoint).flags & ACCEPTED) {                                         \
-      PRINTF("ACCEPTED ");                                                     \
-    };                                                                         \
     if ((endpoint).flags & OSCORE_DECRYPTED) {                                 \
       PRINTF("OSCORE_DECRYPTED ");                                             \
     };                                                                         \
@@ -124,12 +121,6 @@ extern "C" {
 #define SNPRINTFipaddr(str, size, endpoint)     \
   do {                                                                         \
     const char *scheme = "coap";                                               \
-    if ((endpoint).flags & SECURED)                                            \
-      scheme = "coaps";                                                        \
-    if ((endpoint).flags & TCP)                                                \
-      scheme = "coap+tcp";                                                     \
-    if ((endpoint).flags & TCP && (endpoint).flags & SECURED)                  \
-      scheme = "coaps+tcp";                                                    \
     memset(str, 0, size);                                                      \
     if ((endpoint).flags & IPV4) {                                             \
       SNPRINTF(str, size, "%s://%d.%d.%d.%d:%d", scheme,                       \
@@ -183,6 +174,13 @@ extern "C" {
   (data)[8], (data)[9], (data)[10],(data)[11],  \
   (data)[12]
 
+/* KNX_LOG_OFF
+ * A log call whose output is off: Never evaluated, its arguments still count as used and
+ * are format checked. Zephyr (Z_LOG2) and FreeRTOS (ESP_LOG_LEVEL_LOCAL) do the same.
+ * A side effect in a log call happens with the output on only, never rely on one.
+ */
+#define KNX_LOG_OFF(call) do { if (0) { call; } } while (0)
+
 // Note: it is recommended to use a console for the output that allows a 'no word wrap'
 
 #ifdef OC_PRINT
@@ -190,6 +188,10 @@ extern "C" {
     // logging via Zephyr logging subsystem (thread-safe ring buffer)
     #define PRINT(...)  LOG_INF(__VA_ARGS__)
     #define PRINTF(...) LOG_INF(__VA_ARGS__)
+  #elif defined(KNX_LOG_ESP_IDF_NATIVE)
+    // logging via the ESP-IDF log component (thread-safe, one line per call, tag KNX_LOG_TAG)
+    #define PRINT(...)  ESP_LOGI(KNX_LOG_TAG, __VA_ARGS__)
+    #define PRINTF(...) ESP_LOGI(KNX_LOG_TAG, __VA_ARGS__)
   #elif defined(KNX_LOG_TO_FILE)
     // print to file
     void oc_file_print(char* format, ...);
@@ -203,26 +205,35 @@ extern "C" {
     #define PRINTF(...) printf(__VA_ARGS__)
   #endif
 #else
-    // logging to void
-    #define PRINT(...)
-    #define PRINTF(...)
+    // logging off
+    #define PRINT(...)  KNX_LOG_OFF(printf(__VA_ARGS__))
+    #define PRINTF(...) KNX_LOG_OFF(printf(__VA_ARGS__))
 #endif
 
 /* OC_LOG
  * Prepends timestamp, file:line and function name, then the message.
  *
- * Only used on non-Zephyr platforms. On Zephyr, OC_ERR/WRN/INF/DBG map directly
- * to LOG_ERR/WRN/INF/DBG and Zephyr adds its own standard metadata.
+ * Only used when the platform does not log natively. On Zephyr, OC_ERR/WRN/INF/DBG map
+ * directly to LOG_ERR/WRN/INF/DBG and Zephyr adds its own standard metadata. On ESP-IDF
+ * with KNX_LOG_ESP_IDF_NATIVE they map directly to ESP_LOGE/W/I/D (log_esp-idf.h) and the
+ * ESP-IDF log component adds its own standard metadata.
+ *
+ * The file and function names are shortened to a fixed width with snprintf and a
+ * precision, so the shortened copies are always terminated: 15 characters plus "..."
+ * for the file (printed as %-20.18s), 24 plus "..." for the function (%-30.27s).
+ * The buffers are sized for exactly that: Characters, the three dots, the terminator.
  */ // TODO 17 Do we want a switch for this in the config?
-#ifndef __ZEPHYR__
+#if !defined(__ZEPHYR__) && !defined(KNX_LOG_ESP_IDF_NATIVE)
+#ifdef OC_PRINT
 #define OC_LOG(level, ...)                                      \
   do {                                                          \
   \
-  char fileShort[20] = "...................";                   \
-  strncpy(fileShort, __FILENAME__, 15);                         \
+  char fileShort[15 + 3 + 1];                                   \
+  snprintf(fileShort, sizeof(fileShort), "%.15s...",            \
+           KNX_SOURCE_FILE_BASENAME);                           \
   \
-  char funcShort[30] = ".............................";         \
-  strncpy(funcShort, __func__, 24);                             \
+  char funcShort[24 + 3 + 1];                                   \
+  snprintf(funcShort, sizeof(funcShort), "%.24s...", __func__); \
   PRINTF("\n"                                                   \
          "%-14" PRIu64 ": "                                     \
          "%-4s: "                                               \
@@ -231,12 +242,16 @@ extern "C" {
          "%-30.27s> ",                                          \
          oc_clock_time(),                                       \
          level,                                                 \
-         strlen(__FILENAME__) > 18 ? fileShort : __FILENAME__,  \
+         strlen(KNX_SOURCE_FILE_BASENAME) > 18                  \
+           ? fileShort : KNX_SOURCE_FILE_BASENAME,              \
          __LINE__,                                              \
          strlen(__func__) > 27 ? funcShort : __func__);         \
   \
   PRINTF(__VA_ARGS__);                                          \
   } while (0)
+#else
+#define OC_LOG(level, ...) KNX_LOG_OFF(printf(__VA_ARGS__))
+#endif
 
 /* OC_ERR / OC_WRN / OC_INF
  * Platform-specific log macros for error, warning and info messages.
@@ -265,8 +280,9 @@ void knx_log_bytes_hex(const char *label, const uint8_t *bytes, size_t length);
   #define OC_LOGbytes(bytes, length) \
     knx_log_bytes_hex(#bytes "\t: ", (const uint8_t *)(bytes), (size_t)((length) > 0 ? (length) : 0))
 #else
-  #define OC_DBG(...)
-  #define OC_LOGbytes(bytes, length)
+  #define OC_DBG(...) KNX_LOG_OFF(printf(__VA_ARGS__))
+  #define OC_LOGbytes(bytes, length) \
+    KNX_LOG_OFF(knx_log_bytes_hex(#bytes "\t: ", (const uint8_t *)(bytes), (size_t)((length) > 0 ? (length) : 0)))
 #endif
 
 /* OC_DBG_OSCORE / OC_DBG_SPAKE */
@@ -276,9 +292,10 @@ void knx_log_bytes_hex(const char *label, const uint8_t *bytes, size_t length);
   #define OC_LOGbytes_OSCORE(bytes, length) \
     knx_log_bytes_hex("OSCORE: " #bytes "\t: ", (const uint8_t *)(bytes), (size_t)((length) > 0 ? (length) : 0))
 #else
-  #define OC_DBG_OSCORE(...)
-  #define OC_DBG_SPAKE(...)
-  #define OC_LOGbytes_OSCORE(bytes, length)
+  #define OC_DBG_OSCORE(...) KNX_LOG_OFF(printf(__VA_ARGS__))
+  #define OC_DBG_SPAKE(...)  KNX_LOG_OFF(printf(__VA_ARGS__))
+  #define OC_LOGbytes_OSCORE(bytes, length) \
+    KNX_LOG_OFF(knx_log_bytes_hex("OSCORE: " #bytes "\t: ", (const uint8_t *)(bytes), (size_t)((length) > 0 ? (length) : 0)))
 #endif
 
 #endif
@@ -286,5 +303,3 @@ void knx_log_bytes_hex(const char *label, const uint8_t *bytes, size_t length);
 #ifdef __cplusplus
 }
 #endif
-
-#endif 

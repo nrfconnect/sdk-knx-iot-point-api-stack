@@ -1,19 +1,9 @@
 /*
-// Copyright (c) 2021 Cascoda Ltd
-// Copyright (c) 2024-2025 KNX Association
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
+ * Copyright (c) 2021 Cascoda Ltd
+ * Copyright (c) 2024-2025 KNX Association
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 /**
   @brief knx /f resource implementation
   @file
@@ -25,8 +15,7 @@
   as`<functionalblocknumber>_instance`
 
 */
-#ifndef OC_KNX_FB_INTERNAL_H
-#define OC_KNX_FB_INTERNAL_H
+#pragma once
 
 #include <stddef.h>
 
@@ -42,6 +31,9 @@ extern "C" {
  *
  * @param request the request
  * @param short_urn_form if the urn:knx needs to be added as part of response or not (/well-known vs /f)
+ * @param include_if if false the 'if' attribute is left out of the link entirely. Independent of
+ *                 short_urn_form, which only selects the URN form of an 'if' that IS emitted.
+ *                 False on /.well-known/core, where the response is kept small, true on /f.
  * @param response_length the current response length
  * @param matches number of matches (so far)
  * @param skipped number of entries already skipped (in case they fo not fit to the page number)
@@ -51,7 +43,7 @@ extern "C" {
  * @return false (no FB was added)
  *
  */
-bool oc_add_functional_blocks_from_application_to_response(oc_request_t *request, bool short_urn_form,
+bool oc_add_functional_blocks_from_application_to_response(oc_request_t *request, bool short_urn_form, bool include_if,
                                         size_t *response_length, int *matches,
                                         int *skipped, int first_entry,
                                         int last_entry);
@@ -74,18 +66,6 @@ int oc_count_functional_blocks_from_application(void);
  */
 bool oc_check_if_functional_blocks_need_to_add(oc_request_t *request);
 
-/**
- * @brief get FB number from a datapoint (its dpt)
- *
- * @param dpt the dpt string
- *
- * @return on error -1, else functional block number 
-
- */
-int get_fb_number_from_dp(const char* dpt);
-
 #ifdef __cplusplus
 }
 #endif
-
-#endif 

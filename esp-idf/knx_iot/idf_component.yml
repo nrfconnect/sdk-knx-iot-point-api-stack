@@ -1,0 +1,13 @@
+## KNX-IoT Point API Stack - ESP-IDF component manifest.
+## tinycbor and the mDNS header are fetched via FetchContent in CMakeLists.txt,
+## and the ESP-IDF built-in components are declared via REQUIRES / PRIV_REQUIRES,
+## so no managed-component dependencies are listed here for now.
+
+version: "0.1.0"
+description: "KNX-IoT Point API Stack (FreeRTOS / ESP-IDF port)"
+targets:
+  - esp32c5
+  - esp32c6
+  - esp32s3
+dependencies:
+  idf: ">=6.1"

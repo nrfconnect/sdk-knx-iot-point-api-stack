@@ -1,28 +1,18 @@
 /*
- Copyright (c) 2022 Cascoda Ltd.
- Copyright 2026 NXP
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-*/
+ * Copyright (c) 2022 Cascoda Ltd.
+ * Copyright (c) 2026 NXP
+ * Copyright (c) 2026 KNX Association
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <stddef.h>
-#include <stdlib.h>
 #include "oc_buffer.h"
 #include "oc_endpoint.h"
-#include "oc_network_monitor.h"
 #include "port/oc_connectivity.h"
 #include "port/oc_log.h"
 #include "port/oc_network_interface.h"
+#include "port/zephyr/connectivity_thread.h"
 #include "util/oc_list.h"
 
 #include <zephyr/kernel.h>
@@ -31,6 +21,7 @@
 #include <openthread/message.h>
 #include <openthread.h>
 #include <openthread/udp.h>
+#include <openthread/ip6.h>
 
 /* OpenThread API version 465 (openthread#10965) split OT_NETIF_THREAD into
  * OT_NETIF_THREAD_HOST and OT_NETIF_THREAD_INTERNAL. On older versions the
@@ -48,7 +39,25 @@ static inline bool otIp6IsLinkLocalUnicast(const otIp6Address *aAddress)
 }
 #endif
 
+/* OpenThread's external multicast pool holds the 3 all-CoAP-nodes addresses
+ * and one address per GPT group id (see zephyr/Kconfig). Kconfig caps it at 32.
+ * A message, not #warning: the stack is built with -Werror, and a smaller pool
+ * may be a deliberate RAM trade-off.
+ */
+#ifdef CONFIG_KNXIOT_GPT_MAX_ENTRIES
+#define KNX_THREAD_MCAST_ADDRS_NEEDED (CONFIG_KNXIOT_GPT_MAX_ENTRIES + 3)
+#else
+#define KNX_THREAD_MCAST_ADDRS_NEEDED 3
+#endif
+#ifdef CONFIG_OPENTHREAD_IP6_MAX_EXT_MCAST_ADDRS
+#if CONFIG_OPENTHREAD_IP6_MAX_EXT_MCAST_ADDRS < KNX_THREAD_MCAST_ADDRS_NEEDED && CONFIG_OPENTHREAD_IP6_MAX_EXT_MCAST_ADDRS < 32
+#pragma message("CONFIG_OPENTHREAD_IP6_MAX_EXT_MCAST_ADDRS is smaller than KNXIOT_GPT_MAX_ENTRIES + 3; group multicast subscriptions may fail")
+#endif
+#endif
+
 #define COAP_PORT_UNSECURED (5683)
+
+OC_LIST(oc_network_interface_cb_list);
 
 static void HandleUdpReceive(void *aContext, otMessage *aMessage, const otMessageInfo *aMessageInfo);
 
@@ -57,6 +66,16 @@ K_MUTEX_DEFINE(network_mutex);
 static otInstance *sInstance = NULL;
 static otUdpSocket mSocket;
 static oc_endpoint_t g_endpoint;
+
+/* All CoAP nodes (ff0x::fd), site-, realm- and link-local, see 3-10-5 2.6.4.2.
+ * Widest scope first: if the multicast pool runs out, only link-local is lost,
+ * and ETS discovery through the border router needs site-local.
+ */
+static const otIp6Address ALL_COAP_NODES[] = {
+    { .mFields.m8 = { 0xff, 0x05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xfd } },
+    { .mFields.m8 = { 0xff, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xfd } },
+    { .mFields.m8 = { 0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xfd } },
+};
 
 static uint16_t g_unicast_port = COAP_PORT_UNSECURED; // Set via oc_connectivity_set_port() before oc_connectivity_init().
 
@@ -68,7 +87,7 @@ static void HandleUdpReceive(void *aContext, otMessage *aMessage, const otMessag
 
     if (!message)
     {
-        OC_ERR("Failed to allocate OC message\r\n");
+        OC_ERR("Failed to allocate OC message");
         return;
     }
 
@@ -90,9 +109,28 @@ static void HandleUdpReceive(void *aContext, otMessage *aMessage, const otMessag
     oc_network_event(message);
 }
 
-int oc_connectivity_set_port(uint16_t port) {
+int oc_connectivity_set_port(uint16_t port)
+{
     g_unicast_port = port;
     return 0;
+}
+
+uint16_t oc_connectivity_thread_get_port(void)
+{
+    /* After a successful bind OpenThread stores the effective port in the
+     * socket's local address; that is the value to advertise, also when the
+     * configured port was 0 and an ephemeral one was assigned. */
+    uint16_t port = g_unicast_port;
+
+    openthread_mutex_lock();
+    if ((sInstance != NULL) && otUdpIsOpen(sInstance, &mSocket) && (mSocket.mSockName.mPort != 0))
+    {
+        port = mSocket.mSockName.mPort;
+    }
+
+    openthread_mutex_unlock();
+
+    return port;
 }
 
 int oc_connectivity_init(void)
@@ -102,45 +140,67 @@ int oc_connectivity_init(void)
     otNetifIdentifier netif = OT_NETIF_THREAD_INTERNAL;
     int ret = -1; // Set default return to fail
 
-	sInstance = openthread_get_default_instance();
+    sInstance = openthread_get_default_instance();
 
-	if (sInstance == NULL)
-	{
-		OC_ERR("Failed to get OpenThread instance\r\n");
-		goto exit;
-	}
+    if (sInstance == NULL)
+    {
+        OC_ERR("Failed to get OpenThread instance");
+        goto exit;
+    }
 
-	sockaddr.mPort = g_unicast_port;
+    sockaddr.mPort = g_unicast_port;
 
-	openthread_mutex_lock();
+    openthread_mutex_lock();
 
-	if (!otUdpIsOpen(sInstance, &mSocket))
-	{
-		error = otUdpOpen(sInstance, &mSocket, HandleUdpReceive, NULL);
+    if (!otUdpIsOpen(sInstance, &mSocket))
+    {
+        error = otUdpOpen(sInstance, &mSocket, HandleUdpReceive, NULL);
 
-		if (error == OT_ERROR_NONE)
-		{
-			error = otUdpBind(sInstance, &mSocket, &sockaddr, netif);
-			if (error != OT_ERROR_NONE)
-			{
-				OC_ERR("otUdpBind failed with %u\r\n", error);
-			}
-			else
-			{
-				ret = 0;
-			}
-		}
-		else
-		{
-			OC_ERR("otUdpOpen failed with %u\r\n", error);
-		}
-	}
-	else
-	{
-		OC_ERR("Socket already open!\r\n");
-	}
+        if (error == OT_ERROR_NONE)
+        {
+            error = otUdpBind(sInstance, &mSocket, &sockaddr, netif);
+            if (error != OT_ERROR_NONE)
+            {
+                OC_ERR("otUdpBind failed with %u", error);
+            }
+            else
+            {
+                ret = 0;
+            }
+        }
+        else
+        {
+            OC_ERR("otUdpOpen failed with %u", error);
+        }
+    }
+    else
+    {
+        OC_ERR("Socket already open!");
+    }
 
-	openthread_mutex_unlock();
+    /* Subscribe to the all-CoAP-nodes multicast addresses so the device
+     * is discoverable without manual 'ot ipmaddr add ff0x::fd'.
+     * Safe to call before Thread network is joined. OT stores it locally
+     * and advertises it once the device attaches to the mesh. Idempotent:
+     * re-subscribing returns OT_ERROR_ALREADY.
+     */
+    if (sInstance != NULL)
+    {
+        for (size_t i = 0; i < ARRAY_SIZE(ALL_COAP_NODES); i++)
+        {
+            otError merr = otIp6SubscribeMulticastAddress(sInstance, &ALL_COAP_NODES[i]);
+            if (merr == OT_ERROR_NONE || merr == OT_ERROR_ALREADY)
+            {
+                OC_INF("Subscribed to all-CoAP-nodes multicast (ff%02x::fd)", ALL_COAP_NODES[i].mFields.m8[1]);
+            }
+            else
+            {
+                OC_ERR("Multicast subscribe to ff%02x::fd failed with %u", ALL_COAP_NODES[i].mFields.m8[1], merr);
+            }
+        }
+    }
+
+    openthread_mutex_unlock();
 
 exit:
     return ret;
@@ -151,27 +211,27 @@ int oc_send_buffer(oc_message_t *message)
     otError           error   = OT_ERROR_NONE;
     otMessage        *otMessage = NULL;
     otMessageInfo     messageInfo;
-    otMessageSettings messageSettings = {true, OT_MESSAGE_PRIORITY_NORMAL};
+    otMessageSettings messageSettings = {.mLinkSecurityEnabled = true, .mPriority = OT_MESSAGE_PRIORITY_NORMAL};
     int ret = -1;
     bool locked = false;
 
-	if (message == NULL)
-	{
-		OC_ERR("No messages to send\r\n");
-		goto exit;
-	}
+    if (message == NULL)
+    {
+        OC_ERR("No messages to send");
+        goto exit;
+    }
 
 #ifdef OC_DEBUG
     OC_INF("Outgoing message of size %d bytes to ", message->length);
     PRINTipaddr(message->endpoint);
-#endif /* OC_DEBUG */
+#endif
 
     openthread_mutex_lock();
     locked = true;
 
-    if(!otUdpIsOpen(sInstance, &mSocket))
+    if (!otUdpIsOpen(sInstance, &mSocket))
     {
-        OC_ERR("UDP Socket not opened\r\n");
+        OC_ERR("UDP Socket not opened");
         goto exit;
     }
 
@@ -186,7 +246,7 @@ int oc_send_buffer(oc_message_t *message)
 
     if (otMessage == NULL)
     {
-        OC_ERR("Failed to allocate UDP message\r\n");
+        OC_ERR("Failed to allocate UDP message");
         goto exit;
     }
 
@@ -194,7 +254,7 @@ int oc_send_buffer(oc_message_t *message)
 
     if (error != OT_ERROR_NONE)
     {
-        OC_ERR("Failed to append message\r\n");
+        OC_ERR("Failed to append message");
         goto exit;
     }
 
@@ -202,13 +262,13 @@ int oc_send_buffer(oc_message_t *message)
 
     if (error != OT_ERROR_NONE)
     {
-        OC_ERR("otUdpSend failed with %u\r\n", error);
+        OC_ERR("otUdpSend failed with %u", error);
         goto exit;
     }
 
     otMessage = NULL;
 
-    OC_INF("Sent UDP message\r\n");
+    OC_INF("Sent UDP message");
     ret = 0; // Message sent successful
 exit:
     if (otMessage != NULL)
@@ -224,14 +284,13 @@ exit:
     return ret;
 }
 
-void
-oc_send_discovery_request(oc_message_t *message)
+void oc_send_discovery_request(oc_message_t *message)
 {
-    OC_INF("Sending discovery request\r\n");
+    OC_INF("Sending discovery request");
     oc_send_buffer(message);
 }
 
-/* Caller should hold the OpenThread mutex*/
+/* Caller should hold the OpenThread mutex. */
 static oc_endpoint_t *find_unicast_endpoint(void)
 {
     const otNetifAddress *addr;
@@ -293,6 +352,7 @@ static oc_endpoint_t *find_unicast_endpoint(void)
                 net_if_get_by_iface(ot_context->iface);
         }
 #endif
+
         return &g_endpoint;
     }
 
@@ -308,46 +368,53 @@ oc_endpoint_t *oc_connectivity_get_endpoints(void)
     return endpoint;
 }
 
-void
-oc_connectivity_shutdown()
+void oc_connectivity_shutdown(void)
 {
     openthread_mutex_lock();
     otUdpClose(sInstance, &mSocket);
     openthread_mutex_unlock();
 }
 
-void
-oc_network_event_handler_mutex_init(void)
+void oc_network_event_handler_mutex_init(void)
 {
     /* network_mutex already initialized by K_MUTEX_DEFINE */
 }
 
-void
-oc_network_event_handler_mutex_lock(void)
+void oc_network_event_handler_mutex_lock(void)
 {
     k_mutex_lock(&network_mutex, K_FOREVER);
 }
 
-void
-oc_network_event_handler_mutex_unlock(void)
+void oc_network_event_handler_mutex_unlock(void)
 {
     k_mutex_unlock(&network_mutex);
 }
 
-void
-oc_network_event_handler_mutex_destroy(void)
+void oc_network_event_handler_mutex_destroy(void)
 {
     /* Zephyr mutexes don't require explicit destruction */
 }
 
-void
-oc_connectivity_subscribe_mcast_ipv6(oc_endpoint_t *address)
+/* Group objects can share a group id, so the same address is (un)subscribed
+ * more than once: OT_ERROR_ALREADY and OT_ERROR_NOT_FOUND are not failures.
+ * OT_ERROR_NO_BUFS means CONFIG_OPENTHREAD_IP6_MAX_EXT_MCAST_ADDRS is too small.
+ */
+void oc_connectivity_subscribe_mcast_ipv6(oc_endpoint_t *address)
 {
     if (sInstance != NULL)
     {
+        const otIp6Address *maddr = (const otIp6Address *) address->addr.ipv6.address;
+
         openthread_mutex_lock();
-        otIp6SubscribeMulticastAddress(sInstance, (const otIp6Address *) address->addr.ipv6.address);
+        otError error = otIp6SubscribeMulticastAddress(sInstance, maddr);
         openthread_mutex_unlock();
+
+        if (error != OT_ERROR_NONE && error != OT_ERROR_ALREADY)
+        {
+            char str[OT_IP6_ADDRESS_STRING_SIZE];
+            otIp6AddressToString(maddr, str, sizeof(str));
+            OC_ERR("Multicast subscribe to %s failed with %u", str, error);
+        }
     }
 }
 
@@ -355,9 +422,18 @@ void oc_connectivity_unsubscribe_mcast_ipv6(oc_endpoint_t *address)
 {
     if (sInstance != NULL)
     {
+        const otIp6Address *maddr = (const otIp6Address *) address->addr.ipv6.address;
+
         openthread_mutex_lock();
-        otIp6UnsubscribeMulticastAddress(sInstance, (const otIp6Address *) address->addr.ipv6.address);
+        otError error = otIp6UnsubscribeMulticastAddress(sInstance, maddr);
         openthread_mutex_unlock();
+
+        if (error != OT_ERROR_NONE && error != OT_ERROR_NOT_FOUND)
+        {
+            char str[OT_IP6_ADDRESS_STRING_SIZE];
+            otIp6AddressToString(maddr, str, sizeof(str));
+            OC_ERR("Multicast unsubscribe from %s failed with %u", str, error);
+        }
     }
 }
 
@@ -366,69 +442,15 @@ int oc_network_refresh_endpoints(void)
     return 0;
 }
 
-/* ── Network interface event monitor ─────────────────────────────────────── */
-/* api/oc_network_events.c dispatches interface events through
- * handle_network_interface_event_callback() for every port, so this backend
- * provides the same registry as the Linux, Windows and Wi-Fi ports. This port
- * does not raise the events itself; it only forwards those posted through
- * oc_network_interface_event().
- */
-
-OC_LIST(oc_network_interface_cb_list);
-
-int oc_add_network_interface_event_callback(interface_event_handler_t cb)
-{
-    if (!cb)
-    {
-        return -1;
-    }
-
-    oc_network_interface_cb_t *cb_item = calloc(1, sizeof(oc_network_interface_cb_t));
-
-    if (!cb_item)
-    {
-        OC_ERR("Failed to allocate network interface callback item!");
-        return -1;
-    }
-
-    cb_item->handler = cb;
-    oc_list_add(oc_network_interface_cb_list, cb_item);
-
-    return 0;
-}
-
-int oc_remove_network_interface_event_callback(interface_event_handler_t cb)
-{
-    if (!cb)
-    {
-        return -1;
-    }
-
-    oc_network_interface_cb_t *cb_item = oc_list_head(oc_network_interface_cb_list);
-
-    while (cb_item != NULL && cb_item->handler != cb)
-    {
-        cb_item = cb_item->next;
-    }
-
-    if (cb_item == NULL)
-    {
-        return -1;
-    }
-
-    oc_list_remove(oc_network_interface_cb_list, cb_item);
-    free(cb_item);
-
-    return 0;
-}
-
 void handle_network_interface_event_callback(oc_interface_event_t event)
 {
-    oc_network_interface_cb_t *cb_item = oc_list_head(oc_network_interface_cb_list);
-
-    while (cb_item != NULL)
+    if (oc_list_length(oc_network_interface_cb_list) > 0)
     {
-        cb_item->handler(event);
-        cb_item = cb_item->next;
+        oc_network_interface_cb_t *cb_item =
+            oc_list_head(oc_network_interface_cb_list);
+        while (cb_item) {
+            cb_item->handler(event);
+            cb_item = cb_item->next;
+        }
     }
 }

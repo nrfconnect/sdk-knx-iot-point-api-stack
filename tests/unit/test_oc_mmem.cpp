@@ -55,6 +55,37 @@ TEST_F(OcMmemTest, AllocInt_ReturnsNonNull)
   oc_mmem_free(&m, INT_POOL);
 }
 
+/* ── oc_mmem_alloc / FLOAT_POOL ────────────────────────────────────────────── */
+
+TEST_F(OcMmemTest, AllocFloat_ReturnsNonNull)
+{
+  struct oc_mmem m = {};
+  size_t bytes = oc_mmem_alloc(&m, 4, FLOAT_POOL);
+  /* Regression: FLOAT_POOL used to fall through into DOUBLE_POOL (missing
+   * break), so this also ran the DOUBLE_POOL allocation, overwrote m.ptr/
+   * m.size with it (leaking the float allocation), and double-counted the
+   * returned byte count. */
+  EXPECT_EQ(bytes, 4u * sizeof(float));
+  ASSERT_NE(m.ptr, nullptr);
+  EXPECT_EQ(m.size, 4u);
+  oc_mmem_free(&m, FLOAT_POOL);
+}
+
+TEST_F(OcMmemTest, AllocFloat_MemoryIsWritable)
+{
+  struct oc_mmem m = {};
+  oc_mmem_alloc(&m, 2, FLOAT_POOL);
+  ASSERT_NE(m.ptr, nullptr);
+
+  auto *p = static_cast<float *>(m.ptr);
+  p[0] = 1.5f;
+  p[1] = -2.5f;
+  EXPECT_FLOAT_EQ(p[0], 1.5f);
+  EXPECT_FLOAT_EQ(p[1], -2.5f);
+
+  oc_mmem_free(&m, FLOAT_POOL);
+}
+
 /* ── oc_mmem_alloc / DOUBLE_POOL ───────────────────────────────────────────── */
 
 TEST_F(OcMmemTest, AllocDouble_ReturnsNonNull)

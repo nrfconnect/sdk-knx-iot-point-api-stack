@@ -56,6 +56,24 @@ OC_PROCESS_THREAD(test_proc, ev, data)
   OC_PROCESS_END();
 }
 
+/* A second process, used to test multi-process list linkage (exit from the
+   middle/head of the list, EXITED broadcast to siblings). */
+static int g_proc2_exited_count;
+
+OC_PROCESS(test_proc2, "second unit test process");
+OC_PROCESS_THREAD(test_proc2, ev, data)
+{
+  OC_PROCESS_BEGIN();
+  while (1) {
+    if (ev == OC_PROCESS_EVENT_EXITED) {
+      g_proc2_exited_count++;
+    }
+    (void)data;
+    OC_PROCESS_YIELD();
+  }
+  OC_PROCESS_END();
+}
+
 class OcProcess : public ::testing::Test {
 protected:
   void SetUp() override
@@ -66,12 +84,16 @@ protected:
     g_other_count = 0;
     g_last_ev = 0;
     g_last_data = nullptr;
+    g_proc2_exited_count = 0;
     oc_process_init();
     /* Reset the process struct's scheduler state so each test starts the
        protothread from the top. */
     test_proc.state = 0; /* OC_PROCESS_STATE_NONE */
     test_proc.needspoll = 0;
     test_proc.next = nullptr;
+    test_proc2.state = 0;
+    test_proc2.needspoll = 0;
+    test_proc2.next = nullptr;
   }
 
   void TearDown() override
@@ -202,3 +224,53 @@ TEST_F(OcProcess, BroadcastEventReachesRunningProcess)
   oc_process_run();
   EXPECT_EQ(g_msg_count, 1);
 }
+
+TEST_F(OcProcess, ExitOnNeverStartedProcessIsNoOp)
+{
+  /* test_proc was never started, so it is not on the process list;
+     exit_process() must bail out via its "not found" branch. */
+  EXPECT_FALSE(oc_process_is_running(&test_proc));
+  oc_process_exit(&test_proc);
+  EXPECT_FALSE(oc_process_is_running(&test_proc));
+}
+
+TEST_F(OcProcess, ExitNotifiesSiblingAndUnlinksFromListMiddle)
+{
+  /* test_proc2 is started first (becomes list tail), test_proc second
+     (becomes list head), so exiting test_proc removes the head while
+     test_proc2 remains — and receives OC_PROCESS_EVENT_EXITED. */
+  oc_process_start(&test_proc2, nullptr);
+  oc_process_start(&test_proc, nullptr);
+
+  oc_process_exit(&test_proc);
+
+  EXPECT_FALSE(oc_process_is_running(&test_proc));
+  EXPECT_TRUE(oc_process_is_running(&test_proc2));
+  EXPECT_EQ(g_proc2_exited_count, 1);
+}
+
+TEST_F(OcProcess, PostBeyondCapacityGrowsQueueAndPreservesOrder)
+{
+  oc_process_start(&test_proc, nullptr);
+
+  /* Comfortably exceeds the initial ring capacity (10) and any prior growth
+     from earlier tests in this binary, forcing oc_process_post()'s realloc
+     + wraparound-copy growth path at least once. */
+  static constexpr int kCount = 64;
+  static int markers[kCount];
+  for (int i = 0; i < kCount; i++) {
+    markers[i] = i;
+    ASSERT_EQ(oc_process_post(&test_proc, OC_PROCESS_EVENT_MSG, &markers[i]),
+              OC_PROCESS_ERR_OK);
+  }
+  ASSERT_EQ(oc_process_nevents(), kCount);
+
+  /* Drain in order; growth must not reorder or drop events. */
+  for (int i = 0; i < kCount; i++) {
+    oc_process_run();
+    EXPECT_EQ(*static_cast<int *>(g_last_data), i);
+  }
+  EXPECT_EQ(g_msg_count, kCount);
+  EXPECT_EQ(oc_process_nevents(), 0);
+}
+

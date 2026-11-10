@@ -1,7 +1,7 @@
-/* 
+/*
  * Copyright (c) 2016 Intel Corporation
  * Copyright (c) 2024-2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -19,49 +19,56 @@
 
 #define STORE_PATH_SIZE 64
 
+/* The store path is kept with a trailing separator, the file name is appended right after
+ * it. Both are copied with strcpy after the length check against STORE_PATH_SIZE: strcpy
+ * copies the terminating '\0' itself, so no terminator is written by hand. strncpy with the
+ * string length as count would copy the string without its terminator and needed an extra
+ * line setting the last byte to '\0'.
+ */
 static char store_path[STORE_PATH_SIZE];
 static size_t store_path_len;
 static bool path_set = false;
 
 int oc_storage_config(const char* store)
 {
-    if (!store || !*store) 
+    if (!store || !*store)
     {
         return -EINVAL;
     }
 
     store_path_len = strlen(store);
-    if (store_path_len >= STORE_PATH_SIZE) 
+    if (store_path_len >= STORE_PATH_SIZE)
     {
         return -ENOENT;
     }
 
-    strncpy(store_path, store, store_path_len);
+    strcpy(store_path, store);
 
-    // checks if store_path ends with / or \, if not, appends a / 
-    if (store_path[store_path_len - 1] != '/' && store_path[store_path_len - 1] != '\\') 
+    // checks if store_path ends with / or \, if not, appends a /
+    if (store_path[store_path_len - 1] != '/' && store_path[store_path_len - 1] != '\\')
     {
         ++store_path_len;
-        if (store_path_len >= STORE_PATH_SIZE) 
+        if (store_path_len >= STORE_PATH_SIZE)
         {
             return -ENOENT;
         }
 
         store_path[store_path_len - 1] = '/';
+        store_path[store_path_len] = '\0';
     }
 
     path_set = true;
-    char temp_dir[STORE_PATH_SIZE]; 
+    char temp_dir[STORE_PATH_SIZE];
     strcpy(temp_dir, store);
 
     // remove leading "./" from store path
-    if (store_path_len > 2 && store[0] == '.' && store[1] == '/') 
+    if (store_path_len > 2 && store[0] == '.' && store[1] == '/')
     {
         strcpy(temp_dir, &store[2]);
     }
 
     const size_t dir_len = strlen(temp_dir);
-    if (temp_dir[dir_len - 1] == '/') 
+    if (temp_dir[dir_len - 1] == '/')
     { // remove trailing "/"
         temp_dir[dir_len - 1] = '\0';
     }
@@ -85,11 +92,10 @@ long oc_storage_read(const char* store, uint8_t* buf, size_t size)
         return -ENOENT;
     }
 
-    strncpy(store_path + store_path_len, store, store_len);
-    store_path[store_path_len + store_len] = '\0';
+    strcpy(store_path + store_path_len, store);
 
     FILE* fp = fopen(store_path, "rb");
-    if (!fp) 
+    if (!fp)
     {
         OC_ERR("Error on open file: %s", store_path);
         return -EINVAL;
@@ -105,18 +111,17 @@ long oc_storage_write(const char* store, uint8_t* buf, size_t size)
 {
     const size_t store_len = strlen(store);
 
-    if (!path_set || store_len + store_path_len >= STORE_PATH_SIZE) 
+    if (!path_set || store_len + store_path_len >= STORE_PATH_SIZE)
     {
         return -ENOENT;
     }
 
-    strncpy(store_path + store_path_len, store, store_len);
-    store_path[store_path_len + store_len] = '\0';
+    strcpy(store_path + store_path_len, store);
 
     FILE* fp = fopen(store_path, "wb");
-    if (!fp) 
+    if (!fp)
     {
-        OC_ERR("Error on open file: %s", store_path);	
+        OC_ERR("Error on open file: %s", store_path);
         return -EINVAL;
     }
 
@@ -137,10 +142,7 @@ int oc_storage_erase(const char* store)
         return -ENOENT;
     }
 
-    store_path[store_path_len] = '/';
-    strncpy(store_path + store_path_len + 1, store, store_len);
-    store_path[1 + store_path_len + store_len] = '\0';
+    strcpy(store_path + store_path_len, store);
 
     return remove(store_path);
 }
-

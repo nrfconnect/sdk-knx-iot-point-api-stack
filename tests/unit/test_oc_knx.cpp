@@ -5,6 +5,9 @@
  * Tests pure functions that need no stack initialization.
  *
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * This file was created with the assistance of AI tools.
+ * Copyright 2026 KNXA (to the extent protectable under applicable law)
  */
 
 #include <gtest/gtest.h>
@@ -19,13 +22,13 @@ extern "C" {
 #include "oc_rep.h"
 #include "messaging/coap/oc_coap.h"
 #include "util/oc_mmem.h"
+#include "api/oc_knx_dev.h" /* KNX_STORAGE_KEY_FINGERPRINT */
+#include "port/oc_storage.h"
 
 /* static handlers are reachable via these non-static const resource literals */
 extern const oc_resource_t core_resource_knx;
 extern const oc_resource_t core_resource_a_lsm;
 extern const oc_resource_t core_resource_knx_fingerprint;
-extern const oc_resource_t core_resource_knx_ldevid;
-extern const oc_resource_t core_resource_knx_idevid;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -310,45 +313,84 @@ TEST_F(KnxHandlers, FingerprintGetOkWhenRuntime)
   EXPECT_EQ(response_buffer.code, oc_status_code(OC_STATUS_OK));
 }
 
-/* --- /.well-known/knx/ldevid GET (raw cert bytes) --- */
+/* ═══════════════════════════════════════════════════════════════════════════
+ * oc_knx_load_fingerprint / oc_knx_increase_fingerprint - 4-byte storage
+ * ═══════════════════════════════════════════════════════════════════════════ */
 
-TEST_F(KnxHandlers, LdevidGetReturnsRawBytes)
+class KnxFingerprintStorage : public ::testing::Test {
+protected:
+  void SetUp() override
+  {
+    /*
+      one directory per test, since ctest runs every TEST_F as its own process and `ctest -j` would otherwise race on
+      a shared file
+    */
+    const ::testing::TestInfo *info = ::testing::UnitTest::GetInstance()->current_test_info();
+    char dir[64];
+    (void)snprintf(dir, sizeof(dir), "fgp_%s", info->name());
+    oc_storage_config(dir);
+    (void)oc_storage_erase(KNX_STORAGE_KEY_FINGERPRINT);
+  }
+
+  void TearDown() override { (void)oc_storage_erase(KNX_STORAGE_KEY_FINGERPRINT); }
+
+  /*
+    the fingerprint itself is static, the stored record shows its value and size; the buffer is larger than the
+    record, so the read length is the stored size
+  */
+  static long read_stored(uint64_t *value)
+  {
+    *value = 0;
+    return oc_storage_read(KNX_STORAGE_KEY_FINGERPRINT, (uint8_t *)value, sizeof(*value));
+  }
+};
+
+TEST_F(KnxFingerprintStorage, AbsentKeyIncreaseStoresFourBytes)
 {
-  const char *cert = "LDEVIDBYTES";
-  oc_knx_set_ldevid((char *)cert, (int)strlen(cert));
-  request.accept = APPLICATION_PKCS7_CMC_REQUEST;
-  core_resource_knx_ldevid.get_handler.cb(&request, OC_IF_NONE, nullptr);
-  EXPECT_EQ(response_buffer.code, oc_status_code(OC_STATUS_OK));
-  EXPECT_EQ(response_buffer.content_format, APPLICATION_PKCS7_CMC_RESPONSE);
-  ASSERT_EQ(response_buffer.response_length, strlen(cert));
-  EXPECT_EQ(0, memcmp(buf, cert, strlen(cert)));
+  oc_knx_load_fingerprint();
+  oc_knx_increase_fingerprint();
+
+  uint64_t stored;
+  EXPECT_EQ(read_stored(&stored), 4);
+  EXPECT_EQ(stored, 1u);
 }
 
-TEST_F(KnxHandlers, LdevidGetWrongAcceptIsBadRequest)
+TEST_F(KnxFingerprintStorage, LoadContinuesFromStoredValue)
 {
-  request.accept = APPLICATION_CBOR;
-  core_resource_knx_ldevid.get_handler.cb(&request, OC_IF_NONE, nullptr);
-  EXPECT_EQ(response_buffer.code, oc_status_code(OC_STATUS_BAD_REQUEST));
+  uint32_t value = 41;
+  ASSERT_EQ(oc_storage_write(KNX_STORAGE_KEY_FINGERPRINT, (uint8_t *)&value, sizeof(value)), 4);
+
+  oc_knx_load_fingerprint();
+  oc_knx_increase_fingerprint();
+
+  uint64_t stored;
+  ASSERT_EQ(read_stored(&stored), 4);
+  EXPECT_EQ(stored, 42u);
 }
 
-/* --- /.well-known/knx/idevid GET (raw cert bytes) --- */
-
-TEST_F(KnxHandlers, IdevidGetReturnsRawBytes)
+TEST_F(KnxFingerprintStorage, OldEightByteRecordKeepsLowHalf)
 {
-  const char *cert = "IDEVID0123";
-  oc_knx_set_idevid(cert, (int)strlen(cert));
-  request.accept = APPLICATION_PKCS7_CMC_REQUEST;
-  core_resource_knx_idevid.get_handler.cb(&request, OC_IF_NONE, nullptr);
-  EXPECT_EQ(response_buffer.code, oc_status_code(OC_STATUS_OK));
-  EXPECT_EQ(response_buffer.content_format, APPLICATION_PKCS7_CMC_RESPONSE);
-  ASSERT_EQ(response_buffer.response_length, strlen(cert));
-  EXPECT_EQ(0, memcmp(buf, cert, strlen(cert)));
+  /* a record of a firmware with a 64-bit fingerprint, the file storage reads its low 4 bytes (little endian) */
+  uint64_t old_value = 0x0000000100000005ULL;
+  ASSERT_EQ(oc_storage_write(KNX_STORAGE_KEY_FINGERPRINT, (uint8_t *)&old_value, sizeof(old_value)), 8);
+
+  oc_knx_load_fingerprint();
+  oc_knx_increase_fingerprint();
+
+  uint64_t stored;
+  EXPECT_EQ(read_stored(&stored), 4) << "the next increase replaces the 8-byte record by a 4-byte one";
+  EXPECT_EQ(stored, 6u);
 }
 
-TEST_F(KnxHandlers, IdevidGetWrongAcceptIsBadRequest)
+TEST_F(KnxFingerprintStorage, IncreaseWrapsAtFourBytes)
 {
-  request.accept = APPLICATION_CBOR;
-  core_resource_knx_idevid.get_handler.cb(&request, OC_IF_NONE, nullptr);
-  EXPECT_EQ(response_buffer.code, oc_status_code(OC_STATUS_BAD_REQUEST));
-}
+  uint32_t value = UINT32_MAX;
+  ASSERT_EQ(oc_storage_write(KNX_STORAGE_KEY_FINGERPRINT, (uint8_t *)&value, sizeof(value)), 4);
 
+  oc_knx_load_fingerprint();
+  oc_knx_increase_fingerprint();
+
+  uint64_t stored;
+  ASSERT_EQ(read_stored(&stored), 4);
+  EXPECT_EQ(stored, 0u);
+}

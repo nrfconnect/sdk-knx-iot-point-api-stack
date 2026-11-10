@@ -18,6 +18,9 @@
 extern "C" {
 #include "security/oc_oscore_context.h"
 #include "messaging/coap/oscore_constants.h"
+#include "messaging/coap/transactions.h"
+#include "port/oc_network_events_mutex.h"
+#include "oc_buffer.h"
 #include "oc_helpers.h"
 #include "psa/crypto.h"
 }
@@ -134,6 +137,7 @@ protected:
   uint32_t ga_[1];
 
   void SetUp() override {
+    oc_network_event_handler_mutex_init();
     oc_oscore_free_all_contexts();
     memset(&at_, 0, sizeof(at_));
 
@@ -160,10 +164,12 @@ protected:
   }
 
   void TearDown() override {
+    coap_free_all_transactions();
     oc_oscore_free_all_contexts();
     oc_free_string(&at_.osc_ms);
     oc_free_string(&at_.osc_id);
     oc_free_string(&at_.osc_salt);
+    oc_network_event_handler_mutex_destroy();
   }
 };
 
@@ -194,6 +200,185 @@ TEST_F(OscoreContextTest, AddContextReturnsNonNull)
   EXPECT_EQ(ctx->sender_id[0], 0x01);
   EXPECT_EQ(ctx->recipient_id_len, 1);
   EXPECT_EQ(ctx->recipient_id[0], 0x02);
+}
+
+/* -- 32-bit sender sequence number ---------------------------------------- */
+
+TEST_F(OscoreContextTest, SsnIsStoredAs32Bit)
+{
+  EXPECT_EQ(sizeof(((oc_oscore_context_t *)0)->ssn), 4u);
+  EXPECT_EQ(sizeof(((oc_oscore_context_params_t *)0)->ssn), 4u);
+}
+
+TEST_F(OscoreContextTest, SsnTakenFromParamsWithoutPadding)
+{
+  oc_oscore_context_params_t params = {};
+  uint8_t sid[] = {0x01};
+  params.sender_id = sid;
+  params.sender_id_size = 1;
+  params.auth_at = &at_;
+  params.ssn = OSCORE_SSN_MAX;
+  params.read_ssn_from_storage = false;
+
+  oc_oscore_context_t *ctx = oc_oscore_add_context(&params);
+  ASSERT_NE(ctx, nullptr);
+  EXPECT_EQ(ctx->ssn, OSCORE_SSN_MAX);
+}
+
+TEST_F(OscoreContextTest, StartupPaddingAddedWhenReadFromStorage)
+{
+  oc_oscore_context_params_t params = {};
+  uint8_t sid[] = {0x01};
+  params.sender_id = sid;
+  params.sender_id_size = 1;
+  params.auth_at = &at_;  // not part of the AT table, so the write back to storage is skipped
+  params.ssn = 1000u;
+  params.read_ssn_from_storage = true;
+
+  oc_oscore_context_t *ctx = oc_oscore_add_context(&params);
+  ASSERT_NE(ctx, nullptr);
+  EXPECT_EQ(ctx->ssn, 1000u + OSCORE_SSN_WRITE_FREQ_K + OSCORE_SSN_PAD_F);
+}
+
+TEST_F(OscoreContextTest, StartupPaddingSaturatesAtSsnMax)
+{
+  oc_oscore_context_params_t params = {};
+  uint8_t sid[] = {0x01};
+  params.sender_id = sid;
+  params.sender_id_size = 1;
+  params.auth_at = &at_;
+  params.ssn = OSCORE_SSN_MAX - 9u;
+  params.read_ssn_from_storage = true;
+
+  oc_oscore_context_t *ctx = oc_oscore_add_context(&params);
+  ASSERT_NE(ctx, nullptr);
+  // (2^32 - 10) + K + F would wrap, it saturates instead (exhausted context)
+  EXPECT_EQ(ctx->ssn, OSCORE_SSN_MAX);
+}
+
+TEST_F(OscoreContextTest, StartupPaddingJustFitsBelowSsnMax)
+{
+  oc_oscore_context_params_t params = {};
+  uint8_t sid[] = {0x01};
+  params.sender_id = sid;
+  params.sender_id_size = 1;
+  params.auth_at = &at_;
+  params.ssn = OSCORE_SSN_MAX - (OSCORE_SSN_WRITE_FREQ_K + OSCORE_SSN_PAD_F);
+  params.read_ssn_from_storage = true;
+
+  oc_oscore_context_t *ctx = oc_oscore_add_context(&params);
+  ASSERT_NE(ctx, nullptr);
+  EXPECT_EQ(ctx->ssn, OSCORE_SSN_MAX);
+}
+
+TEST_F(OscoreContextTest, CheckAndIncrementSsnIncrementsByOne)
+{
+  oc_oscore_context_params_t params = {};
+  uint8_t sid[] = {0x01};
+  params.sender_id = sid;
+  params.sender_id_size = 1;
+  params.auth_at = &at_;
+  params.ssn = 100u;
+  params.read_ssn_from_storage = false;
+
+  oc_oscore_context_t *ctx = oc_oscore_add_context(&params);
+  ASSERT_NE(ctx, nullptr);
+
+  EXPECT_TRUE(check_and_increment_ssn_in_context(ctx, true));
+  EXPECT_EQ(ctx->ssn, 101u);
+}
+
+TEST_F(OscoreContextTest, CheckAndIncrementSsnCheckOnlyKeepsSsn)
+{
+  oc_oscore_context_params_t params = {};
+  uint8_t sid[] = {0x01};
+  params.sender_id = sid;
+  params.sender_id_size = 1;
+  params.auth_at = &at_;
+  params.ssn = 100u;
+  params.read_ssn_from_storage = false;
+
+  oc_oscore_context_t *ctx = oc_oscore_add_context(&params);
+  ASSERT_NE(ctx, nullptr);
+
+  // CON retransmission: SSN is used again, not incremented
+  EXPECT_TRUE(check_and_increment_ssn_in_context(ctx, false));
+  EXPECT_EQ(ctx->ssn, 100u);
+}
+
+TEST_F(OscoreContextTest, CheckAndIncrementSsnAcrossStorageCadence)
+{
+  oc_oscore_context_params_t params = {};
+  uint8_t sid[] = {0x01};
+  params.sender_id = sid;
+  params.sender_id_size = 1;
+  params.auth_at = &at_;
+  params.ssn = OSCORE_SSN_WRITE_FREQ_K - 1u;
+  params.read_ssn_from_storage = false;
+
+  oc_oscore_context_t *ctx = oc_oscore_add_context(&params);
+  ASSERT_NE(ctx, nullptr);
+
+  // reaches the value K, where the SSN is saved to storage, and keeps counting
+  EXPECT_TRUE(check_and_increment_ssn_in_context(ctx, true));
+  EXPECT_EQ(ctx->ssn, (uint32_t)OSCORE_SSN_WRITE_FREQ_K);
+  EXPECT_TRUE(check_and_increment_ssn_in_context(ctx, true));
+  EXPECT_EQ(ctx->ssn, OSCORE_SSN_WRITE_FREQ_K + 1u);
+}
+
+TEST_F(OscoreContextTest, CheckAndIncrementSsnLastSsnThenExhausted)
+{
+  oc_oscore_context_params_t params = {};
+  uint8_t sid[] = {0x01};
+  params.sender_id = sid;
+  params.sender_id_size = 1;
+  params.auth_at = &at_;
+  params.ssn = OSCORE_SSN_MAX - 1u;
+  params.read_ssn_from_storage = false;
+
+  oc_oscore_context_t *ctx = oc_oscore_add_context(&params);
+  ASSERT_NE(ctx, nullptr);
+
+  // OSCORE_SSN_MAX - 1 is the last SSN that goes on the wire, after it the context is exhausted
+  EXPECT_TRUE(check_and_increment_ssn_in_context(ctx, true));
+  EXPECT_EQ(ctx->ssn, OSCORE_SSN_MAX);
+
+  EXPECT_FALSE(check_and_increment_ssn_in_context(ctx, true));
+  EXPECT_EQ(ctx->ssn, OSCORE_SSN_MAX);
+}
+
+TEST_F(OscoreContextTest, CheckAndIncrementSsnExhaustedRefusesAlsoCheckOnly)
+{
+  oc_oscore_context_params_t params = {};
+  uint8_t sid[] = {0x01};
+  params.sender_id = sid;
+  params.sender_id_size = 1;
+  params.auth_at = &at_;
+  params.ssn = OSCORE_SSN_MAX;
+  params.read_ssn_from_storage = false;
+
+  oc_oscore_context_t *ctx = oc_oscore_add_context(&params);
+  ASSERT_NE(ctx, nullptr);
+
+  // CON retransmission with the never-sent value is refused as well, the SSN does not wrap to 0
+  EXPECT_FALSE(check_and_increment_ssn_in_context(ctx, false));
+  EXPECT_FALSE(check_and_increment_ssn_in_context(ctx, true));
+  EXPECT_EQ(ctx->ssn, OSCORE_SSN_MAX);
+}
+
+TEST_F(OscoreContextTest, StartupPaddingSaturatedContextIsExhausted)
+{
+  oc_oscore_context_params_t params = {};
+  uint8_t sid[] = {0x01};
+  params.sender_id = sid;
+  params.sender_id_size = 1;
+  params.auth_at = &at_;
+  params.ssn = OSCORE_SSN_MAX - 9u;
+  params.read_ssn_from_storage = true;
+
+  oc_oscore_context_t *ctx = oc_oscore_add_context(&params);
+  ASSERT_NE(ctx, nullptr);
+  EXPECT_FALSE(check_and_increment_ssn_in_context(ctx, true));
 }
 
 TEST_F(OscoreContextTest, FindByKidAndKidContext)
@@ -499,4 +684,162 @@ TEST_F(OscoreContextTest, FreeContextsAtIdRemovesMatchingAuthAt)
   oc_oscore_free_contexts_at_id(&at_);
   EXPECT_EQ(oc_oscore_find_context_by_kid_and_kid_context(rid, 1, NULL, 0),
             nullptr);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * oc_oscore_add_recipient_context / oc_oscore_add_sender_context
+ *
+ * Both derive their ID from the access token's osc_id instead of taking it
+ * from the caller.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+TEST_F(OscoreContextTest, AddRecipientContextTakesRecipientIdFromAccessToken)
+{
+  oc_oscore_context_params_t params = {};
+  params.auth_at = &at_;
+  params.read_ssn_from_storage = false;
+
+  oc_oscore_context_t *ctx = oc_oscore_add_recipient_context(&params);
+  ASSERT_NE(ctx, nullptr);
+
+  const size_t id_len = oc_byte_string_len(at_.osc_id);
+  EXPECT_EQ((size_t)ctx->recipient_id_len, id_len);
+  EXPECT_EQ(memcmp(ctx->recipient_id, oc_string(at_.osc_id), id_len), 0);
+  /* a recipient context carries no sender ID */
+  EXPECT_EQ(ctx->sender_id_len, 0);
+
+  EXPECT_EQ(oc_oscore_find_context_by_kid_and_kid_context(
+              (uint8_t *)oc_string(at_.osc_id), (uint8_t)id_len, NULL, 0),
+            ctx);
+}
+
+TEST_F(OscoreContextTest, AddSenderContextTakesSenderIdFromAccessToken)
+{
+  oc_oscore_context_params_t params = {};
+  params.auth_at = &at_;
+  params.read_ssn_from_storage = false;
+
+  oc_oscore_context_t *ctx = oc_oscore_add_sender_context(&params);
+  ASSERT_NE(ctx, nullptr);
+
+  const size_t id_len = oc_byte_string_len(at_.osc_id);
+  EXPECT_EQ((size_t)ctx->sender_id_len, id_len);
+  EXPECT_EQ(memcmp(ctx->sender_id, oc_string(at_.osc_id), id_len), 0);
+  /* a sender context carries no recipient ID */
+  EXPECT_EQ(ctx->recipient_id_len, 0);
+
+  /* only sender contexts are reachable by the access token's group address */
+  EXPECT_EQ(oc_oscore_find_context_by_group_address(0x1234), ctx);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * oc_oscore_find_context_by_token_mid — correlate an inbound response with the
+ * access token of our own earlier request, via the still-open CoAP transaction.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+class OscoreContextByToken : public OscoreContextTest {
+protected:
+  oc_oscore_context_t *ctx_ = nullptr;
+  coap_transaction_t *transaction_ = nullptr;
+
+  static const uint16_t kMid = 0x4711;
+
+  void SetUp() override
+  {
+    OscoreContextTest::SetUp();
+
+    static const uint8_t rid[] = {0x02};
+    oc_oscore_context_params_t params = {};
+    params.recipient_id = rid;
+    params.recipient_id_size = sizeof(rid);
+    params.auth_at = &at_;
+    params.read_ssn_from_storage = false;
+    ctx_ = oc_oscore_add_context(&params);
+    ASSERT_NE(ctx_, nullptr);
+
+    oc_endpoint_t ep;
+    memset(&ep, 0, sizeof(ep));
+    ep.flags = IPV6;
+    ep.addr.ipv6.port = 5683;
+    ep.addr.ipv6.address[15] = 1;
+
+    static uint8_t token[] = {0x11, 0x22, 0x33};
+    transaction_ = coap_new_transaction(kMid, token, sizeof(token), &ep);
+    ASSERT_NE(transaction_, nullptr);
+
+    /* what the OSCORE layer records when our own request was protected */
+    transaction_->message->endpoint.auth_at_of_inbound_msg = &at_;
+    transaction_->message->endpoint.piv[0] = 0x07;
+    transaction_->message->endpoint.piv_len = 1;
+  }
+
+  static coap_packet_t make_packet(const uint8_t *token, uint8_t token_len,
+                                   uint16_t mid)
+  {
+    coap_packet_t pkt;
+    memset(&pkt, 0, sizeof(pkt));
+    if (token && token_len > 0) {
+      memcpy(pkt.token, token, token_len);
+    }
+    pkt.token_len = token_len;
+    pkt.mid = mid;
+    return pkt;
+  }
+};
+
+TEST_F(OscoreContextByToken, FoundByTokenReturnsContextAndRequestPiv)
+{
+  const uint8_t token[] = {0x11, 0x22, 0x33};
+  coap_packet_t pkt = make_packet(token, sizeof(token), 0);
+
+  uint8_t *piv = nullptr;
+  uint8_t piv_len = 0;
+  EXPECT_EQ(oc_oscore_find_context_by_token_mid(&pkt, &piv, &piv_len), ctx_);
+
+  /* the response is verified against the PIV of our own request */
+  ASSERT_NE(piv, nullptr);
+  EXPECT_EQ(piv_len, 1);
+  EXPECT_EQ(piv[0], 0x07);
+}
+
+TEST_F(OscoreContextByToken, UnknownTokenFallsBackToMid)
+{
+  /* no token match -> the MID lookup resolves the transaction */
+  coap_packet_t pkt = make_packet(nullptr, 0, kMid);
+
+  uint8_t *piv = nullptr;
+  uint8_t piv_len = 0;
+  EXPECT_EQ(oc_oscore_find_context_by_token_mid(&pkt, &piv, &piv_len), ctx_);
+  EXPECT_EQ(piv_len, 1);
+}
+
+TEST_F(OscoreContextByToken, NullOutParametersAreOptional)
+{
+  const uint8_t token[] = {0x11, 0x22, 0x33};
+  coap_packet_t pkt = make_packet(token, sizeof(token), 0);
+
+  EXPECT_EQ(oc_oscore_find_context_by_token_mid(&pkt, NULL, NULL), ctx_);
+}
+
+TEST_F(OscoreContextByToken, NoMatchingTransactionReturnsNull)
+{
+  const uint8_t other[] = {0xEE, 0xEF};
+  coap_packet_t pkt = make_packet(other, sizeof(other), 0xBEEF);
+
+  uint8_t *piv = nullptr;
+  uint8_t piv_len = 0;
+  EXPECT_EQ(oc_oscore_find_context_by_token_mid(&pkt, &piv, &piv_len), nullptr);
+}
+
+TEST_F(OscoreContextByToken, TransactionWithoutAccessTokenReturnsNull)
+{
+  /* a transaction from a plain (non-OSCORE) request carries no access token */
+  transaction_->message->endpoint.auth_at_of_inbound_msg = NULL;
+
+  const uint8_t token[] = {0x11, 0x22, 0x33};
+  coap_packet_t pkt = make_packet(token, sizeof(token), 0);
+
+  uint8_t *piv = nullptr;
+  uint8_t piv_len = 0;
+  EXPECT_EQ(oc_oscore_find_context_by_token_mid(&pkt, &piv, &piv_len), nullptr);
 }

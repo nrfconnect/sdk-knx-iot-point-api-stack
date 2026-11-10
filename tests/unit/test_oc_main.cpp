@@ -4,22 +4,18 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Unit tests for api/oc_main.c
- *
  * Scope note
  * ----------
  * The MTU / block-size / max-app-data accessors of this file are already
  * covered by test_oc_buffer_settings.cpp. This file completes the coverage of
  * the remaining device-independent surface:
- *   - the seven application callback set/get pairs (swu, factory presets, reset,
- *     restart, hostname, programming mode, lsm change), and
- *   - oc_main_initialized before bootstrap, and
- *   - _oc_signal_event_loop with no app callbacks registered (NULL-guard path).
- *
+ * - the six application callback set/get pairs (swu, factory presets, reset,
+ * restart, programming mode, lsm change), and
+ * - oc_main_initialized before bootstrap, and
+ * - _oc_signal_event_loop with no app callbacks registered (NULL-guard path).
  * oc_main_init / oc_main_poll / oc_main_shutdown / oc_shutdown_device (static)
  * bootstrap and tear down the whole stack (RI, SPAKE2+, connectivity, mDNS,
- * group multicasts) and are INTEGRATION-level. oc_set_drop_commands /
- * oc_drop_command dereference the drop_commands buffer that is only allocated by
- * oc_main_init, so they are INTEGRATION too. These are documented in
+ * group multicasts) and are INTEGRATION-level. These are documented in
  * tests/COVERAGE_LEDGER.md.
  */
 
@@ -49,7 +45,7 @@ TEST(MainCallbacks, SwuSetThenGet)
   int sentinel = 0;
   auto cb = as_cb<oc_swu_cb_t>();
   oc_set_swu_cb(cb, &sentinel);
-  oc_swu_t *got = oc_get_swu_cb();
+  const oc_swu_t* got = oc_get_swu_cb();
   ASSERT_NE(nullptr, got);
   EXPECT_EQ(cb, got->cb);
   EXPECT_EQ(&sentinel, got->data);
@@ -82,18 +78,7 @@ TEST(MainCallbacks, RestartSetThenGet)
   int sentinel = 0;
   auto cb = as_cb<oc_restart_cb_t>();
   oc_set_restart_cb(cb, &sentinel);
-  oc_restart_t *got = oc_get_restart_cb();
-  ASSERT_NE(nullptr, got);
-  EXPECT_EQ(cb, got->cb);
-  EXPECT_EQ(&sentinel, got->data);
-}
-
-TEST(MainCallbacks, HostnameSetThenGet)
-{
-  int sentinel = 0;
-  auto cb = as_cb<oc_hostname_cb_t>();
-  oc_set_hostname_cb(cb, &sentinel);
-  oc_hostname_t *got = oc_get_hostname_cb();
+  const oc_restart_t* got = oc_get_restart_cb();
   ASSERT_NE(nullptr, got);
   EXPECT_EQ(cb, got->cb);
   EXPECT_EQ(&sentinel, got->data);

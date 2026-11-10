@@ -1,35 +1,10 @@
-/* 
+/*
  * Copyright (c) 2016 Intel Corporation
- * Copyright (c) 2024-2025 KNX Association
- *            
- * SPDX-License-Identifier: Apache-2.0
- *
- * Copyright (c) 2013, Institute for Pervasive Computing, ETH Zurich
+ * Copyright (c) 2026 KNX Association
+ * Copyright (c) 2013 Institute for Pervasive Computing, ETH Zurich
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the Institute nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
+ * SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
  */
 
 #include "transactions.h"
@@ -43,16 +18,10 @@
 #include <string.h>
 #include "port/oc_random.h"
 
-#ifdef OC_BLOCK_WISE
 #include "oc_blockwise.h"
-#endif
 
 #ifdef OC_CLIENT
 #include "oc_client_state.h"
-#endif
-
-#ifdef KNX_TCP_TLS
-#include "security/oc_tls.h"
 #endif
 
 // coap + smode transactions
@@ -78,9 +47,11 @@ coap_transaction_t* coap_new_transaction(uint16_t mid, const uint8_t* token, uin
 
       // t is cleared with '0' so set only non-zero values
       t->mid = mid;
-      // memcpy can handle '0' bytes, so no extra check
       t->token_len = token_len;
-      memcpy(t->token, token, token_len);
+      if (token_len > 0)
+      {
+        memcpy(t->token, token, token_len);
+      }
 
       // save client address
       memcpy(&t->message->endpoint, endpoint, sizeof(oc_endpoint_t));
@@ -145,12 +116,16 @@ void coap_send_transaction(coap_transaction_t *t)
 
   if (t == NULL) { OC_ERR("transaction == NULL"); }
   if (t->message == NULL) { OC_ERR("message in transaction == NULL");}
-  if (t->message->data == NULL) { OC_ERR("data in message in transaction == NULL");}
+  if (t->message->data == NULL && !(t->message->endpoint.flags & S_MODE_NON_REQUEST)) { OC_ERR("data in message in transaction == NULL");}
 
   #endif
 
-  // need to use raw data since pure stack responses are not init with any set of s-mode flags (as for an app. outbound s-mode msg)
-  const uint8_t type = (COAP_HEADER_TYPE_MASK & t->message->data[0]) >> COAP_HEADER_TYPE_POSITION;
+  /*
+    - a unicast s-mode NON transaction holds NO data after its first send (header only message) --> it is/was always NON
+    - any other transaction holds data -in header --> CON (uc s-mode CON, CoAP CON), NON (first send of uc s-mode NON, mc s-mode NON, CoAP NON) 
+      or ACK/RST (empty messages)
+  */
+  const uint8_t type = t->message->data ? (COAP_HEADER_TYPE_MASK & t->message->data[0]) >> COAP_HEADER_TYPE_POSITION : COAP_TYPE_NON;
   
   // confirmable s-mode or confirmable non s-mode messages ... 
   const bool con_type = type == COAP_TYPE_CON;
@@ -162,13 +137,8 @@ void coap_send_transaction(coap_transaction_t *t)
   const bool smode_non_uc = smode_non && !multicast;
   const bool smode_con_uc = smode_con && !multicast;
 
-  #ifdef OC_TCP
-  if (!(t->message->endpoint.flags & TCP) && con_type) 
+  if (con_type)
   {
-  #else 
-  if (con_type) 
-  {
-  #endif
 
     if (t->retransmit_counter < COAP_MAX_RETRANSMIT) 
     {
@@ -226,17 +196,8 @@ void coap_send_transaction(coap_transaction_t *t)
       }
       #endif
 
-      #ifdef OC_BLOCK_WISE
       oc_blockwise_scrub_buffers(false);
-      #endif
-      #ifdef KNX_TCP_TLS
-      if (t->message->endpoint.flags & SECURED) {
-        oc_tls_close_connection(&t->message->endpoint);
-      } else
-      #endif 
-      {
-        coap_clear_transaction(t);
-      }
+      coap_clear_transaction(t);
     }
   }
   else if (smode_non_uc)
@@ -246,6 +207,7 @@ void coap_send_transaction(coap_transaction_t *t)
        - keep transaction alive (~5s) only to wait for the outstanding 2.04 response and drive 
          the missing_response_count -> UNRESOLVED state machine 
        - the payload IS NOT retained in the OSCORE echo ring 
+       - the payload IS NOT retained in the transaction 
     */
     if (t->retransmit_counter < 1)
     { // keep transaction + init timeout
@@ -259,14 +221,34 @@ void coap_send_transaction(coap_transaction_t *t)
       oc_etimer_restart(&t->retransmit_timer);
       OC_PROCESS_CONTEXT_END(transaction_handler_process);
 
-      /*
-       send message, keep transaction -> increase ref_count to 2
-       - send message decrements to 1
-       - keep transaction until timed out + clear transaction 
-      */
       OC_DBG("sending NON s-mode message transaction (len: %zu , mid %u)", t->message->length, t->mid);
-      oc_message_add_ref(t->message); 
-      coap_send_message(t->message);
+
+      /*
+        a NON message is never resent, so the PDU is handed over to the sender (its ref is taken over) and the
+        transaction keeps only a header message (endpoint, no payload data)
+        - the endpoint still serves the lookups, the 2.04 handling and the missing response counting
+        - a 4.01 echo response regenerates the re-request payload from the echo ring anchor (written on the initial send)
+
+        if the header message cannot be allocated, fall back to keeping the full message 
+        in transaction -> increase ref_count to 2
+       - send message decrements to 1
+       - keep transaction until timed out + clear transaction
+      */
+      oc_message_t* header_only = (oc_message_t*)calloc(1, sizeof(oc_message_t));
+      if (header_only)
+      {
+        memcpy(&header_only->endpoint, &t->message->endpoint, sizeof(oc_endpoint_t));
+        header_only->ref_count = 1;
+
+        oc_message_t* pdu = t->message;  // full msg copy
+        t->message = header_only;        // header only copy
+        coap_send_message(pdu);   // send full msg, keep header only in transaction     
+      }
+      else
+      {
+        oc_message_add_ref(t->message);
+        coap_send_message(t->message);
+      }
     }
     else
     { // delete transaction (after timeout)
@@ -291,6 +273,7 @@ void coap_send_transaction(coap_transaction_t *t)
       }
       #endif
 
+      // here normal messages and messages with header only are cleared
       coap_clear_transaction(t);
     }
   }
@@ -346,13 +329,28 @@ coap_transaction_t * coap_get_transaction_by_mid(uint16_t mid)
   return NULL;
 }
 
-coap_transaction_t * coap_get_transaction_by_token(const coap_packet_t* pkt)
+coap_transaction_t * coap_get_transaction_by_token(const coap_packet_t* pkt, bool skip_s_mode_non)
 {
+  // a tokenless match would compare equal on a zero length memcmp
+  if (pkt->token_len == 0)
+  {
+    return NULL;
+  }
+
   for (coap_transaction_t* t = (coap_transaction_t*)oc_list_head(transactions_list); t; t = t->next)
   {
-    // skip NON-confirmable s-mode transactions (unicast, they still use an artificial transaction to catch a missing 2.04 response)
-    if (t->message->endpoint.flags & S_MODE_NON_REQUEST) continue; 
-    if (t->token_len == pkt->token_len && memcmp(t->token, pkt->token, pkt->token_len) == 0) 
+    /*
+      optionally skip NON-confirmable s-mode transactions (unicast, they still use an artificial transaction to catch a missing 2.04 response)
+
+      skip_s_mode_non | t is s-mode NON | result
+      ----------------+-----------------+-----------
+      false           | any             | considered
+      true            | no              | considered
+      true            | yes             | skipped
+    */
+    if (!(skip_s_mode_non && (t->message->endpoint.flags & S_MODE_NON_REQUEST))
+        && t->token_len == pkt->token_len
+        && memcmp(t->token, pkt->token, pkt->token_len) == 0)
     {
       OC_DBG("found coap transaction for token %p and flags %i", (void *)t, t->message->endpoint.flags);
       return t;
@@ -371,7 +369,8 @@ transaction_t* get_any_transaction_by_token_or_mid(uint16_t mid, const uint8_t* 
       OC_DBG("found coap transaction for mid, flags %i", t->message->endpoint.flags);
       return t;
     }
-    if (t->token_len == token_len && memcmp(t->token, token, token_len) == 0)
+    // a tokenless match would compare equal on a zero length memcmp, tokenless packets match by mid only
+    if (token_len > 0 && t->token_len == token_len && memcmp(t->token, token, token_len) == 0)
     {
       OC_DBG("found coap transaction for token, flags %i", t->message->endpoint.flags);
       return t;
@@ -433,12 +432,60 @@ void coap_free_all_transactions(void)
   coap_transaction_t* t = (coap_transaction_t*)oc_list_head(transactions_list);
   while (t) 
   {
-    // get next 
+    coap_transaction_t* next = t->next; // get next 
+    coap_clear_transaction(t);          // clear current 
+    t = next;                           // restore next 
+  }
+}
+
+void coap_free_s_mode_transactions(void)
+{
+  coap_transaction_t* t = (coap_transaction_t*)oc_list_head(transactions_list);
+
+  while (t)
+  {
+    // save next
     coap_transaction_t* next = t->next;
-    // clear current 
-    coap_clear_transaction(t);
-    // restore next 
-    t = next;
+
+    if (t->message->endpoint.flags & (S_MODE_NON_REQUEST | S_MODE_CON_REQUEST))
+    {
+      const int before = oc_list_length(transactions_list);
+
+      #ifdef OC_CLIENT
+      // remove the client callback tied to this transaction
+      oc_ri_free_client_cbs_by_mid(t->mid);
+      #endif 
+
+      const int after = oc_list_length(transactions_list);
+
+      if (before - after > 0) 
+      {
+        /*
+         * sending out/clearing transaction may/will remove the own transaction 't' and/or possibly other transaction as well,
+         * in this case the beforehand saved 'next' pointer may be invalid,
+         * hence check it and reset the list pointer for safety reasons
+         *
+         * before 3 , after 3 = 0 - continue the list (nothing removed, next = ok)
+         * before 3 , after 2 = 1 - restart the list ('t' or another removed, next = maybe corrupted)
+         * before 3 , after 1 = 2 - restart the list ('t' or other's removed, next = maybe corrupted)
+         *
+         */
+        t = (coap_transaction_t *)oc_list_head(transactions_list);
+      }
+      else
+      {
+        // clear found transaction
+        coap_clear_transaction(t);
+
+        // restore next
+        t = next;
+      }
+    }
+    else
+    {
+      // restore next
+      t = next;
+    }
   }
 }
 

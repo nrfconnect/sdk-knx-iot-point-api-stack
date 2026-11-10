@@ -4,33 +4,27 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * TODO FIXME MBEDTLS41: Review and verify crypto hardware statements.
- *
  * References:
  * [Zephyr - Random Number Generation](https://docs.zephyrproject.org/latest/services/crypto/random/index.html)
  * [Zephyr - Random Function APIs](https://docs.zephyrproject.org/latest/doxygen/html/group__random__api.html)
  * [Mbed TLS - Random data generation](https://github.com/Mbed-TLS/mbedtls-docs/blob/main/kb/how-to/add-a-random-generator.md)
- *
  * sys_csrand_get() routes to the hardware entropy source automatically based
  * on the configured entropy driver.  Kconfig requirements per platform:
- *
- *   All platforms:
- *     CONFIG_ENTROPY_HAS_DRIVER=y  (selected automatically by the driver below)
- *
- *   Espressif ESP32-S3 / C5 / C6:
- *     CONFIG_ENTROPY_ESP32_RNG=y   (default y when DT_HAS_ESPRESSIF_ESP32_TRNG_ENABLED)
- *     Note: with Wi-Fi and Bluetooth both disabled, the ESP32 TRNG quality
- *     degrades — Zephyr's own Kconfig describes it as pseudo-entropy in that
- *     case.  Enable at least one radio for full hardware entropy.
- *
- *   Nordic nRF series:
- *     CONFIG_ENTROPY_NRF5_RNG=y             (default y when DT_HAS_NORDIC_NRF_RNG_ENABLED)
- *     CONFIG_ENTROPY_NRF5_BIAS_CORRECTION=y (recommended: ensures uniform distribution)
- *
- *   Other platforms:
- *     Zephyr selects the appropriate entropy driver automatically based on the
- *     board devicetree.  If no hardware entropy source is available,
- *     sys_csrand_get() falls back to a software CSPRNG seeded at boot.
- *     See drivers/entropy/Kconfig for the full list of supported drivers.
+ * All platforms:
+ * CONFIG_ENTROPY_HAS_DRIVER=y  (selected automatically by the driver below)
+ * Espressif ESP32-S3 / C5 / C6:
+ * CONFIG_ENTROPY_ESP32_RNG=y   (default y when DT_HAS_ESPRESSIF_ESP32_TRNG_ENABLED)
+ * Note: with Wi-Fi and Bluetooth both disabled, the ESP32 TRNG quality
+ * degrades — Zephyr's own Kconfig describes it as pseudo-entropy in that
+ * case.  Enable at least one radio for full hardware entropy.
+ * Nordic nRF series:
+ * CONFIG_ENTROPY_NRF5_RNG=y             (default y when DT_HAS_NORDIC_NRF_RNG_ENABLED)
+ * CONFIG_ENTROPY_NRF5_BIAS_CORRECTION=y (recommended: ensures uniform distribution)
+ * Other platforms:
+ * Zephyr selects the appropriate entropy driver automatically based on the
+ * board devicetree.  If no hardware entropy source is available,
+ * sys_csrand_get() falls back to a software CSPRNG seeded at boot.
+ * See drivers/entropy/Kconfig for the full list of supported drivers.
  */
 
 #include <zephyr/random/random.h>

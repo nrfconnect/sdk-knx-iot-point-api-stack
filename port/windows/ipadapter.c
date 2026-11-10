@@ -1,11 +1,14 @@
-/* 
+/*
  * Copyright (c) 2017 Lynx Technology
  * Copyright (c) 2018 Intel Corporation
  * Copyright (c) 2019 Kistler Instrumente AG
  * Copyright (c) 2023 Cascoda Ltd.
  * Copyright (c) 2024-2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * This file was created with the assistance of AI tools.
+ * Copyright 2026 KNXA (to the extent protectable under applicable law)
  */
 
 #include <inttypes.h>
@@ -25,9 +28,6 @@
 #include <malloc.h>
 #include <stdlib.h>
 
-#ifdef OC_TCP
-#include "tcpadapter.h"
-#endif
 #undef interface
 #include "ipadapter.h"
 #include "ipcontext.h"
@@ -61,60 +61,8 @@ static LPFN_WSASENDMSG PWSASendMsg;
 
 OC_LIST(ip_contexts);
 
-OC_LIST(ip_interface_list);
-
 OC_LIST(oc_network_interface_cb_list);
 static HANDLE oc_network_interface_cb_mutex;
-
-static ifaddr_t * find_ip_interface(ifaddr_t *if_list, DWORD target_index) {
-  ifaddr_t *if_item = if_list;
-  while (if_item != NULL && if_item->if_index != target_index) {
-    if_item = if_item->next;
-  }
-
-  return if_item;
-}
-
-static bool add_ip_interface(DWORD target_index) {
-  if (find_ip_interface(oc_list_head(ip_interface_list), target_index)) {
-    return false;
-  }
-
-  ifaddr_t *new_if = calloc(1, sizeof(ifaddr_t));
-  if (!new_if) {
-    OC_ERR("interface item alloc failed");
-    return false;
-  }
-
-  new_if->if_index = target_index;
-  oc_list_add(ip_interface_list, new_if);
-  OC_DBG("New interface added: %d", new_if->if_index);
-
-  return true;
-}
-
-static bool remove_ip_interface(DWORD target_index) {
-  ifaddr_t *if_item = find_ip_interface(oc_list_head(ip_interface_list), target_index);
-  if (!if_item) {
-    return false;
-  }
-
-  oc_list_remove(ip_interface_list, if_item);
-  free(if_item);
-  OC_DBG("Removed from ip interface list: %d", target_index);
-
-  return true;
-}
-
-static void remove_all_ip_interface(void) {
-  ifaddr_t *if_item = oc_list_head(ip_interface_list), *next;
-  while (if_item != NULL) {
-    next = if_item->next;
-    oc_list_remove(ip_interface_list, if_item);
-    free(if_item);
-    if_item = next;
-  }
-}
 
 static void remove_all_network_interface_cbs(void) {
   oc_network_interface_cb_t *cb_item = oc_list_head(oc_network_interface_cb_list), *next;
@@ -129,9 +77,6 @@ static void remove_all_network_interface_cbs(void) {
 void oc_network_event_handler_mutex_init(void) {
   mutex = mutex_new();
   oc_network_interface_cb_mutex = mutex_new();
-#ifdef OC_TCP
-  oc_tcp_adapter_mutex_init();
-#endif
 }
 
 void oc_network_event_handler_mutex_lock(void) {
@@ -142,23 +87,12 @@ void oc_network_event_handler_mutex_unlock(void) {
   mutex_unlock(mutex);
 }
 
-#ifdef OC_SESSION_EVENTS
-static void remove_all_session_event_cbs(void);
-#endif
-
 void oc_network_event_handler_mutex_destroy(void) {
-#ifdef OC_TCP
-  oc_tcp_adapter_mutex_destroy();
-#endif
   ifchange_initialized = false;
   mutex_free(mutex);
   closesocket(ifchange_sock);
   mutex_free(oc_network_interface_cb_mutex);
-  remove_all_ip_interface();
   remove_all_network_interface_cbs();
-#ifdef OC_SESSION_EVENTS
-  remove_all_session_event_cbs();
-#endif
   WSACleanup();
 }
 
@@ -341,18 +275,10 @@ static void free_endpoints_list(ip_context_t *dev) {
 }
 
 static void get_interface_addresses(ifaddr_t *ifaddr_list, ip_context_t *dev,
-        unsigned char family, uint16_t port, bool secure, bool tcp) {
+        unsigned char family, uint16_t port) {
   ifaddr_t *ifaddr;
 
   oc_endpoint_t ep = { 0 };
-
-  if (secure) {
-    ep.flags = SECURED;
-  }
-
-  if (tcp) {
-    ep.flags |= TCP;
-  }
 
   for (ifaddr = ifaddr_list; ifaddr != NULL; ifaddr = ifaddr->next) {
     // Filter by interface if filter is set
@@ -376,7 +302,7 @@ static void get_interface_addresses(ifaddr_t *ifaddr_list, ip_context_t *dev,
       memcpy(new_ep, &ep, sizeof(oc_endpoint_t));
       oc_list_add(dev->eps, new_ep);
 #ifdef OC_DEBUG
-      OC_DBG("Adding address for interface %d ", ifaddr->if_index);
+      OC_DBG("Adding address for interface %lu ", ifaddr->if_index);
       PRINTipaddr(ep);
 #endif
       continue;
@@ -393,16 +319,7 @@ static void refresh_endpoints_list(ip_context_t *dev, ifaddr_t *ifaddr_list) {
     ifaddr_supplied = true;
   }
 
-  get_interface_addresses(ifaddr_list, dev, AF_INET6, dev->port, false, false);
-#ifdef KNX_UDP_DTLS
-  get_interface_addresses(ifaddr_list, dev, AF_INET6, dev->dtls_port, true, false);
-#endif
-#ifdef OC_TCP
-  get_interface_addresses(ifaddr_list, dev, AF_INET6, dev->tcp.port, false, true);
-#ifdef KNX_TCP_TLS
-  get_interface_addresses(ifaddr_list, dev, AF_INET6, dev->tcp.tls_port, true, true);
-#endif
-#endif /* OC_TCP */
+  get_interface_addresses(ifaddr_list, dev, AF_INET6, dev->port);
   if (!ifaddr_supplied) {
     free_network_addresses(ifaddr_list);
   }
@@ -420,7 +337,7 @@ int oc_connectivity_get_new_port(void) {
 
   /* Open a fresh socket */
   dev->server_sock = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
-  if (dev->server_sock == SOCKET_ERROR) {
+  if (dev->server_sock == INVALID_SOCKET) {
     OC_ERR("creating new server socket %d", WSAGetLastError());
     return -1;
   }
@@ -481,44 +398,27 @@ int oc_connectivity_get_new_port(void) {
 
 int oc_network_refresh_endpoints(void) {
   int ret = 0;
-  ifaddr_t *ifaddr_list = get_network_addresses();
-  if (!ifaddr_list) {
+  ip_context_t *dev = get_ip_context_for_device();
+  if (dev == NULL) {
+    OC_ERR("IP context is NULL");
     return -1;
   }
 
-  ip_context_t *dev = get_ip_context_for_device();
-  if (dev != NULL) {
+  // NULL is also the answer when no usable IPv6 address is left, the state below is then "down"
+  ifaddr_t *ifaddr_list = get_network_addresses();
+
+  // The state comes from the rebuilt endpoint list (usable IPv6 addresses of the filtered
+  // interfaces), the shared code decides on "up" and "down" (see knx_network_report_state()).
+  bool up = false;
+  oc_network_event_handler_mutex_lock();
+  refresh_endpoints_list(dev, ifaddr_list);
+  const uint32_t addresses_hash = knx_network_addresses_hash(oc_list_head(dev->eps), &up);
+  oc_network_event_handler_mutex_unlock();
+
+  // The "all CoAP nodes" groups are set up again only when the state changed,
+  // update_mcast_socket() drops and adds them, which sends MLD leaves and joins.
+  if (knx_network_report_state(up, addresses_hash) && ifaddr_list != NULL) {
     ret += update_mcast_socket(dev->mcast_sock, AF_INET6, ifaddr_list);
-    oc_network_event_handler_mutex_lock();
-    refresh_endpoints_list(dev, ifaddr_list);
-    oc_network_event_handler_mutex_unlock();
-  } else {
-    OC_ERR("IP context is NULL");
-  }
-
-  bool if_up = false;
-  bool if_down = false;
-  for (ifaddr_t *ifaddr = ifaddr_list; ifaddr != NULL; ifaddr = ifaddr->next) {
-    if (add_ip_interface(ifaddr->if_index)) {
-      if_up = true;
-    }
-  }
-
-  for (ifaddr_t *ifaddr = oc_list_head(ip_interface_list); ifaddr != NULL;) {
-    if (!find_ip_interface(ifaddr_list, ifaddr->if_index)) {
-      ifaddr_t *next = ifaddr->next;
-      remove_ip_interface(ifaddr->if_index);
-      ifaddr = next;
-      if_down = true;
-    } else {
-      ifaddr = ifaddr->next;
-    }
-  }
-  if (if_up) {
-    oc_network_interface_event(NETWORK_INTERFACE_UP);
-  }
-  if (if_down) {
-    oc_network_interface_event(NETWORK_INTERFACE_DOWN);
   }
 
   free_network_addresses(ifaddr_list);
@@ -576,9 +476,13 @@ static int recv_msg(SOCKET sock, uint8_t *recv_buf, int recv_buf_size,
   Msg.dwBufferCount = 1;
 
   union {
+#ifdef _MSC_VER
 #pragma warning(suppress : 4116)
+#endif
     char in[WSA_CMSG_SPACE(sizeof(struct in_pktinfo))];
+#ifdef _MSC_VER
 #pragma warning(suppress : 4116)
+#endif
     char in6[WSA_CMSG_SPACE(sizeof(struct in6_pktinfo))];
   } control_buf;
   Msg.Control.buf = (char *)&control_buf;
@@ -609,7 +513,9 @@ static int recv_msg(SOCKET sock, uint8_t *recv_buf, int recv_buf_size,
 
     LPWSACMSGHDR MsgHdr = NULL;
     do {
+#ifdef _MSC_VER
 #pragma warning(suppress : 4116)
+#endif
       MsgHdr = WSA_CMSG_NXTHDR(&Msg, MsgHdr);
       if (!MsgHdr) {
         break;
@@ -657,7 +563,7 @@ static int recv_msg(SOCKET sock, uint8_t *recv_buf, int recv_buf_size,
   return -1;
 }
 
-static void * network_event_thread(void *data) {
+static DWORD WINAPI network_event_thread(LPVOID data) {
   ip_context_t *dev = data;
 
 #define OC_WSAEVENTSELECT(socket, event_handle, event_type)                    \
@@ -674,11 +580,6 @@ static void * network_event_thread(void *data) {
   OC_WSAEVENTSELECT(dev->server_sock, server6_event, FD_READ);
   dev->event_server_handle = server6_event;
 
-#ifdef KNX_UDP_DTLS
-  WSAEVENT secure6_event = WSACreateEvent();
-  OC_WSAEVENTSELECT(dev->secure_sock, secure6_event, FD_READ);
-#endif
-
 #undef OC_WSAEVENTSELECT
 
   DWORD events_list_size = 0;
@@ -693,11 +594,6 @@ static void * network_event_thread(void *data) {
   DWORD SERVER6 = events_list_size;
   events_list[events_list_size] = server6_event;
   events_list_size++;
-#if defined(KNX_UDP_DTLS)
-  DWORD SECURE6 = events_list_size;
-  events_list[events_list_size] = secure6_event;
-  events_list_size++;
-#endif
 
   DWORD i, index;
 
@@ -732,9 +628,12 @@ static void * network_event_thread(void *data) {
           break;
         }
 
+        // destination address of a datagram (IPV6_PKTINFO), only used to decide on the MULTICAST flag
+        oc_ipv6_addr_t mcast_dest = { 0 };
+
         if (i == SERVER6) {
           int count = recv_msg(dev->server_sock, message->data, OC_PDU_SIZE,
-                               &message->endpoint, false, &message->mcast_dest);
+                               &message->endpoint, false, &mcast_dest);
           if (count < 0) {
             oc_message_unref(message);
             continue;
@@ -746,7 +645,7 @@ static void * network_event_thread(void *data) {
 
         if (i == MCAST6) {
           int count = recv_msg(dev->mcast_sock, message->data, OC_PDU_SIZE,
-                               &message->endpoint, true, &message->mcast_dest);
+                               &message->endpoint, true, &mcast_dest);
           if (count < 0) {
             oc_message_unref(message);
             continue;
@@ -756,7 +655,7 @@ static void * network_event_thread(void *data) {
           // multicast destination.  The mcast_sock may also receive unicast
           // traffic (e.g. from ::1 loopback); tagging those as MULTICAST
           // causes the OSCORE engine to choose the wrong encryption path.
-          if (IN6_IS_ADDR_MULTICAST((struct in6_addr *)message->mcast_dest.address)) {
+          if (IN6_IS_ADDR_MULTICAST((struct in6_addr *)mcast_dest.address)) {
             message->endpoint.flags = IPV6 | MULTICAST;
           } else {
             message->endpoint.flags = IPV6;
@@ -764,21 +663,6 @@ static void * network_event_thread(void *data) {
           goto common;
         }
 
-#ifdef KNX_UDP_DTLS
-        if (i == SECURE6) 
-        {
-          int count = recv_msg(dev->secure_sock, message->data, OC_PDU_SIZE, &message->endpoint, false, &message->mcast_dest);
-          if (count < 0) 
-          {
-            oc_message_unref(message);
-            continue;
-          }
-          message->length = count;
-          message->endpoint.flags = IPV6 | SECURED;
-          message->encrypted = 1;
-          goto common;
-        }
-#endif
       common:
 #ifdef OC_DEBUG
         OC_DBG("incoming message, %" PRIu64 " bytes, from ", message->length);
@@ -793,11 +677,11 @@ static void * network_event_thread(void *data) {
     WSACloseEvent(events_list[i]);
   }
 
-  return NULL;
+  return 0;
 
 network_event_thread_error:
   oc_abort("err in network event thread");
-  return NULL;
+  return 0;
 }
 
 oc_endpoint_t * oc_connectivity_get_endpoints() {
@@ -854,24 +738,6 @@ static bool check_if_address_unset(uint8_t *address, int size) {
     return false;
   }
   return true;
-}
-
-static void set_source_address_for_interface(ADDRESS_FAMILY family, uint8_t *address,
-        int address_size, int interface_index) {
-  if (!check_if_address_unset(address, address_size)) {
-    return;
-  }
-  ifaddr_t *ifaddr_list = get_network_addresses(), *addr;
-  for (addr = ifaddr_list; addr != NULL; addr = addr->next) {
-    if (addr->addr.ss_family == family &&
-        (int)addr->if_index == interface_index) {
-      if (family == AF_INET6) {
-        struct sockaddr_in6 *a = (struct sockaddr_in6 *)&addr->addr;
-        memcpy(address, a->sin6_addr.u.Byte, 16);
-      }
-    }
-  }
-  free_network_addresses(ifaddr_list);
 }
 
 static bool is_ula(const struct in6_addr *addr) {
@@ -957,9 +823,13 @@ static int send_msg(SOCKET sock, struct sockaddr_storage *receiver, oc_message_t
   LPWSACMSGHDR MsgHdr = NULL;
 
   union {
+#ifdef _MSC_VER
 #pragma warning(suppress : 4116)
+#endif
     char in[WSA_CMSG_SPACE(sizeof(struct in_pktinfo))];
+#ifdef _MSC_VER
 #pragma warning(suppress : 4116)
+#endif
     char in6[WSA_CMSG_SPACE(sizeof(struct in6_pktinfo))];
   } control_buf;
 
@@ -972,12 +842,18 @@ static int send_msg(SOCKET sock, struct sockaddr_storage *receiver, oc_message_t
 
     // Use pktinfo for both multicast and unicast to ensure consistent
     // source address selection across all send paths.
+#ifdef _MSC_VER
 #pragma warning(suppress : 4116)
+#endif
     Msg.Control.len = WSA_CMSG_SPACE(sizeof(struct in6_pktinfo));
 
+#ifdef _MSC_VER
 #pragma warning(suppress : 4116)
+#endif
     MsgHdr = WSA_CMSG_FIRSTHDR(&Msg);
+#ifdef _MSC_VER
 #pragma warning(suppress : 4116)
+#endif
     memset(MsgHdr, 0, WSA_CMSG_SPACE(sizeof(struct in6_pktinfo)));
 
     MsgHdr->cmsg_level = IPPROTO_IPV6;
@@ -1044,34 +920,13 @@ int oc_send_buffer(oc_message_t *message) {
     OC_ERR("NO IP context for device");
     return -1;
   }
-#ifdef OC_TCP
-  if (message->endpoint.flags & TCP) {
-    return oc_tcp_send_buffer(dev, message, &receiver);
-  }
-#endif 
-
-  #if 1
-  /* 
-   Note, OSCORE always uses server_sock (not secure_sock) to maintain consistent source port.
-   The secure_sock is only for DTLS which is not used with OSCORE. IPv6 uses server_sock for both OSCORE and unsecured messages.
+  /*
+   Note, OSCORE always uses server_sock to maintain a consistent source port.
+   IPv6 uses server_sock for both OSCORE and unsecured messages.
   */
   send_sock = dev->server_sock;
-  #else
-  if (message->endpoint.flags & SECURED) {
-    // IPv6 and SECURE
-    send_sock = dev->secure_sock;
-  } else {
-    // IPv6
-    send_sock = dev->server_sock;
-  }
-  #endif
 
-  
-#ifdef KNX_UDP_DTLS
-  OC_INF("send_sock=%d server_sock=%d secure_sock=%d flags=0x%x", (int)send_sock, (int)dev->server_sock, (int)dev->secure_sock, message->endpoint.flags);
-#else
-  OC_INF("send_sock=%d server_sock=%d secure_sock=%d flags=0x%x", (int)send_sock, (int)dev->server_sock, -1, message->endpoint.flags);
-#endif
+  OC_INF("send_sock=%d server_sock=%d flags=0x%x", (int)send_sock, (int)dev->server_sock, message->endpoint.flags);
 
   // For multicast destinations not coming from oc_send_discovery_request
   // (e.g. OSCORE multicast from oc_buffer.c), configure the outgoing interface.
@@ -1235,64 +1090,6 @@ void handle_network_interface_event_callback(oc_interface_event_t event) {
   mutex_unlock(oc_network_interface_cb_mutex);
 }
 
-#ifdef OC_SESSION_EVENTS
-OC_LIST(oc_session_event_cb_list);
-
-static void remove_all_session_event_cbs(void) {
-  oc_session_event_cb_t *cb_item = oc_list_head(oc_session_event_cb_list),
-                        *next;
-  while (cb_item != NULL) {
-    next = cb_item->next;
-    oc_list_remove(oc_session_event_cb_list, cb_item);
-    free(cb_item);
-    cb_item = next;
-  }
-}
-
-int oc_add_session_event_callback(session_event_handler_t cb) {
-  if (!cb)
-    return -1;
-
-  oc_session_event_cb_t *cb_item = calloc(1, sizeof(oc_session_event_cb_t));
-  if (!cb_item) {
-    OC_ERR("session event callback item alloc failed");
-    return -1;
-  }
-
-  cb_item->handler = cb;
-  oc_list_add(oc_session_event_cb_list, cb_item);
-  return 0;
-}
-
-int oc_remove_session_event_callback(session_event_handler_t cb) {
-  if (!cb)
-    return -1;
-
-  oc_session_event_cb_t *cb_item = oc_list_head(oc_session_event_cb_list);
-  while (cb_item != NULL && cb_item->handler != cb) {
-    cb_item = cb_item->next;
-  }
-  if (!cb_item) {
-    return -1;
-  }
-  oc_list_remove(oc_session_event_cb_list, cb_item);
-
-  free(cb_item);
-  return 0;
-}
-
-void handle_session_event_callback(const oc_endpoint_t *endpoint,
-        oc_session_state_t state) {
-  if (oc_list_length(oc_session_event_cb_list) > 0) {
-    oc_session_event_cb_t *cb_item = oc_list_head(oc_session_event_cb_list);
-    while (cb_item) {
-      cb_item->handler(endpoint, state);
-      cb_item = cb_item->next;
-    }
-  }
-}
-#endif /* OC_SESSION_EVENTS */
-
 static uint16_t g_multicast_port = COAP_PORT_UNSECURED;
 static uint16_t g_unicast_port = 0; // on '0' -> let OS assign ephemeral port - value is set by oc_connectivity_set_port()
 
@@ -1300,13 +1097,7 @@ static void network_interface_event_handler(oc_interface_event_t event)
 {
   if (event == NETWORK_INTERFACE_UP) {
     oc_register_group_multicasts();
-    oc_device_info_t *device = oc_core_get_device_info();
-    if (device) {
-      knx_dns_sd_update_service(device->serialnumber,
-                                device->iid,
-                                device->ia,
-                                device->pm);
-    }
+    knx_dns_sd_update_service(oc_core_get_device_info());
   } else if (event == NETWORK_INTERFACE_DOWN) {
     /* Send the DNS-SD goodbye while the interface is still up, before
      * leaving the multicast groups. */
@@ -1349,29 +1140,13 @@ int oc_connectivity_init(void) {
   
   
 
-#ifdef KNX_UDP_DTLS
-  memset(&dev->secure, 0, sizeof(dev->secure));
-  struct sockaddr_in6 *sm = (struct sockaddr_in6 *)&dev->secure;
-  sm->sin6_family = AF_INET6;
-  sm->sin6_port = 0;
-  sm->sin6_addr = in6addr_any;
-#endif
-
   dev->server_sock = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
   dev->mcast_sock = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
 
-  if (dev->server_sock == SOCKET_ERROR || dev->mcast_sock == SOCKET_ERROR) {
+  if (dev->server_sock == INVALID_SOCKET || dev->mcast_sock == INVALID_SOCKET) {
     OC_ERR("creating server sockets");
     return -1;
   }
-
-#ifdef KNX_UDP_DTLS
-  dev->secure_sock = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
-  if (dev->secure_sock == SOCKET_ERROR) {
-    OC_ERR("creating secure socket");
-    return -1;
-  }
-#endif
 
   int on = 1;
   if (setsockopt(dev->server_sock, IPPROTO_IPV6, IPV6_PKTINFO, (char *)&on,
@@ -1425,44 +1200,8 @@ int oc_connectivity_init(void) {
     return -1;
   }
 
-#ifdef KNX_UDP_DTLS
-  if (setsockopt(dev->secure_sock, IPPROTO_IPV6, IPV6_PKTINFO, (char *)&on,
-                 sizeof(on)) == -1) {
-    OC_ERR("setting recvpktinfo option %d", WSAGetLastError());
-    return -1;
-  }
-  if (setsockopt(dev->secure_sock, SOL_SOCKET, SO_REUSEADDR, (char *)&on,
-                 sizeof(on)) == SOCKET_ERROR) {
-    OC_ERR("setting reuseaddr option %d", WSAGetLastError());
-    return -1;
-  }
-  if (bind(dev->secure_sock, (struct sockaddr *)&dev->secure,
-           sizeof(dev->secure)) == SOCKET_ERROR) {
-    OC_ERR("binding IPv6 secure socket %d", WSAGetLastError());
-    return -1;
-  }
-
-  socklen = sizeof(dev->secure);
-  if (getsockname(dev->secure_sock, (struct sockaddr *)&dev->secure,
-                  &socklen) == SOCKET_ERROR) {
-    OC_ERR("obtaining secure socket information %d", WSAGetLastError());
-    return -1;
-  }
-
-  dev->dtls_port = ntohs(sm->sin6_port);
-#endif /* KNX_UDP_DTLS */
-
   OC_INF("### IP port info ###");
   OC_INF("IPv6 port: %u", dev->port);
-#ifdef KNX_UDP_DTLS
-  OC_INF("IPv6 secure port: %u", dev->dtls_port);
-#endif
-
-#ifdef OC_TCP
-  if (oc_tcp_connectivity_init(dev) != 0) {
-    OC_ERR("Could not initialize TCP adapter");
-  }
-#endif
 
   if (!ifchange_initialized) {
     ifchange_sock =
@@ -1505,9 +1244,19 @@ int oc_connectivity_init(void) {
     ifchange_initialized = TRUE;
   }
 
+  // The network state the port starts with, remembered without an event before the network
+  // thread starts, the stack start registers the groups and DNS-SD itself.
+  {
+    bool up = false;
+    oc_network_event_handler_mutex_lock();
+    refresh_endpoints_list(dev, NULL);
+    const uint32_t addresses_hash = knx_network_addresses_hash(oc_list_head(dev->eps), &up);
+    oc_network_event_handler_mutex_unlock();
+    knx_network_set_initial_state(up, addresses_hash);
+  }
+
   dev->event_thread_handle =
-    CreateThread(0, 0, (LPTHREAD_START_ROUTINE)network_event_thread, dev, 0,
-            &dev->event_thread);
+    CreateThread(0, 0, network_event_thread, dev, 0, &dev->event_thread);
   if (dev->event_thread_handle == NULL) {
     OC_ERR("creating network polling thread");
     return -1;
@@ -1532,31 +1281,12 @@ void oc_connectivity_shutdown() {
   closesocket(dev->server_sock);
   closesocket(dev->mcast_sock);
 
-#ifdef KNX_UDP_DTLS
-  closesocket(dev->secure_sock);
-#endif
-
-#ifdef OC_TCP
-  oc_tcp_connectivity_shutdown(dev);
-#endif
-
   free_endpoints_list(dev);
   oc_list_remove(ip_contexts, dev);
   free(dev);
 
   OC_DBG("oc_connectivity_shutdown");
 }
-
-#ifdef OC_TCP
-void oc_connectivity_end_session(oc_endpoint_t *endpoint) {
-  if (endpoint->flags & TCP) {
-    ip_context_t *dev = get_ip_context_for_device();
-    if (dev) {
-      oc_tcp_end_session(endpoint);
-    }
-  }
-}
-#endif
 
 #ifdef OC_DNS_LOOKUP
 int oc_dns_lookup(const char *domain, oc_string_t *addr, enum transport_flags flags) {
@@ -1568,7 +1298,7 @@ int oc_dns_lookup(const char *domain, oc_string_t *addr, enum transport_flags fl
   struct addrinfo hints, *result = NULL;
   memset(&hints, 0, sizeof(hints));
   hints.ai_family = (flags & IPV6) ? AF_INET6 : AF_INET;
-  hints.ai_socktype = (flags & TCP) ? SOCK_STREAM : SOCK_DGRAM;
+  hints.ai_socktype = SOCK_DGRAM;
   int ret = getaddrinfo(domain, NULL, &hints, &result);
 
   if (ret == 0) {

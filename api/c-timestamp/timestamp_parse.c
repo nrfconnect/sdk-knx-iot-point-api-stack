@@ -3,6 +3,8 @@
  * <https://github.com/chansen/c-timestamp>
  * All rights reserved.
  *
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  *
@@ -148,7 +150,7 @@ timestamp_parse(const char *str, size_t len, timestamp_t *tsp)
      *  01234
      * ±00:00
      */
-    if (cur + 5 < end || !(ch == '+' || ch == '-') || cur[2] != ':')
+    if (cur + 5 > end || !(ch == '+' || ch == '-') || cur[2] != ':')
       return 1;
 
     if (parse_2d(cur, 0, &hour) || hour > 23 || parse_2d(cur, 3, &min) ||

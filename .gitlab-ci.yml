@@ -1,189 +1,498 @@
+# Branch pipelines only. The jobs below carry no rules and therefore exist only
+# in branch and tag pipelines, but the memcheck jobs' catch-all `when: manual`
+# rule also matched merge request pipelines, which then contained nothing but
+# those two jobs and failed validation with "needs 'build-gcc' ... does not
+# exist". A merge request shows the branch pipeline of its source branch.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - when: always
+
 stages:
   - build
   - test
+  - device-test
 
 variables:
   GIT_STRATEGY: clone
-  GIT_DEPTH: 0
+  # Shallow clone: no job here uses git history (no describe/blame/log), so a
+  # full clone (GIT_DEPTH: 0) only pays for history no job reads. Revisit if a
+  # future step needs to diff/describe against an older commit.
+  GIT_DEPTH: 1
   GIT_SUBMODULE_STRATEGY: none
 
-before_script:
-  - git config --global protocol.file.allow always
-#  - git submodule sync --recursive
-#  - git submodule update --init --recursive
-# ----------------------------------------------------------
-# Linux Native Build
-# ----------------------------------------------------------
-linux-build:
-  stage: build
+default:
   image: itgesellschaft/knxiot-knx-ci:latest
+  before_script:
+    - git config --global protocol.file.allow always
+
+# ==========================================================
+# Job naming: <tier>-<toolchain or variant>
+#   build-*            compile only
+#   unit-*             GoogleTest suite (tests/unit)
+#   fuzz-*             libFuzzer harnesses (tests/fuzz)
+#   runtime-*          hand-written device tier (tests/runtime), needs a DUT
+#   conformance-*      the conformance-test template played against the DUT by the
+#                      test tool (submodule tests/iot-test-tool, a pinned commit of
+#                      knx-iot-point-api-test-tool; its own tests run in its pipeline)
+#   *-memcheck         the DUT built with ASan+UBSan; pass = no sanitizer report,
+#                      the pytest tally is informational (a slower DUT may fail
+#                      timing-sensitive steps; the first local run matched gcc)
+# ==========================================================
+
+# ----------------------------------------------------------
+# Shared script fragments (pulled in with !reference)
+# ----------------------------------------------------------
+.python-deps:
+  script:
+    # the test tool: its transport/ serves the runtime tier, its runner the
+    # conformance jobs (GIT_SUBMODULE_STRATEGY stays none: no other
+    # submodule is fetched). The clone's origin carries no credentials, so
+    # the submodule is fetched with the job token; for a private tool
+    # project the stack must be on its job token allowlist (tool project:
+    # Settings > CI/CD > Job token permissions).
+    - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/".insteadOf "https://${CI_SERVER_HOST}/"
+    - git submodule update --init tests/iot-test-tool
+    - curl -sSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+    - python3 /tmp/get-pip.py --break-system-packages --quiet
+    - python3 -m pip install --break-system-packages --quiet -r tests/common/requirements.txt -r tests/iot-test-tool/requirements.txt
+
+# KNX's files for the conformance tests (template, comment scheme, key map),
+# fetched from update.knx.org as EITT does into a cache the jobs share
+# (the tool's interpreter/knx_files.py); asked at most once a day per cache.
+.knx-files:
+  variables:
+    KNX_TOOL_CACHE: $CI_PROJECT_DIR/.knx-cache
+  cache:
+    key: knx-files
+    paths:
+      - .knx-cache/
+  script:
+    - (cd tests/iot-test-tool && python3 -m interpreter.knx_files update > /dev/null) || echo "update.knx.org not reachable, using the cache"
+    - (cd tests/iot-test-tool && python3 -m interpreter.knx_files show)
+
+# Device network: the DUT lives in its OWN network namespace, the test tool
+# stays in the root one, and a veth pair is the only link between them. This is
+# the same setup as tests/common/tools/run-in-docker.ps1 and it matters twice:
+#  * With both veth ends in one namespace the DUT learns the tool's address from
+#    the SOURCE address of our discovery reply, the kernel picks a local address
+#    for that, and the DUT then sends unicast s-mode telegrams to itself
+#    (5.4.1.4 / 5.4.1.15). Distinct prefixes and host routes do not fix that;
+#    only real namespace separation does.
+#  * A veth pair comes up link-local only (fe80::/10). KNX_MULTICAST_SCOPE is 5
+#    (site-local) on both sides and oc_init_read_next() refuses to send any
+#    device-originated s-mode message until the network scope is >= site-local,
+#    so each end also gets a unique local address (fd00::/8, RFC 4193).
+# The multicast route on both ends is needed because mdns_listen_sock6 sends
+# with sin6_scope_id=0 and the kernel has no default IPv6 multicast route here.
+.device-network:
+  script:
+    - apt-get update -qq && apt-get install -y -qq iproute2 > /dev/null 2>&1
+    - ip netns add dut
+    - ip link add veth-dut type veth peer name veth-test
+    - ip link set veth-dut netns dut
+    - ip link set veth-test up
+    - ip netns exec dut ip link set lo up
+    - ip netns exec dut ip link set veth-dut up
+    - ip netns exec dut sysctl -w net.ipv6.conf.veth-dut.disable_ipv6=0
+    - sysctl -w net.ipv6.conf.veth-test.disable_ipv6=0
+    - sleep 3
+    - ip netns exec dut ip -6 route add ff00::/8 dev veth-dut || true
+    - ip -6 route add ff00::/8 dev veth-test || true
+    - ip netns exec dut ip -6 addr add ${DUT_ADDR}/64 dev veth-dut nodad || true
+    - ip -6 addr add ${TOOL_ADDR}/64 dev veth-test nodad || true
+    - sleep 1
+    - echo "DUT ${DUT_ADDR} (netns dut, veth-dut) <-> tool ${TOOL_ADDR} (veth-test)"
+
+# Common settings of every job that drives a device. The runner needs the
+# `runtimetests` tag (privileged: creates a network namespace and a veth pair).
+# The environment mirrors run-in-docker.ps1 so CI and local Docker runs are
+# comparable one to one.
+# `needs` lets these jobs start as soon as build-gcc has passed instead of
+# waiting for the whole test stage (the fuzz job alone runs ~12 min); they
+# build their own DUT and need no artifacts from anyone. The stage is kept
+# for the pipeline view only.
+.device-test:
+  stage: device-test
+  tags:
+    - runtimetests
+  needs:
+    - job: build-gcc
+      artifacts: false
+  dependencies: []
+  variables:
+    DUT_ADDR: "fd11:9988:7766::1"
+    TOOL_ADDR: "fd11:9988:7766::2"
+    RUNTIME_TEST_SERVER_PREFIX: "ip netns exec dut"
+    DUT_IFACE: veth-dut
+    DEVICE_HOST: "fd11:9988:7766::1"
+    DEVICE_IFACE: veth-test
+    COAP_TIMEOUT: "5"
+    SERVER_STARTUP_TIMEOUT: "30"
+    RUNTIME_TEST_QUIET: "1"
+    RUNTIME_TEST_TIME_SCALE: "0.05"
+
+# Memory-safety variants run on the nightly schedule ONLY. They are the slowest
+# jobs here (a full device tier against an ASan DUT), so they must never gate
+# a push pipeline. A manual
+# job still counts towards the pipeline status (blocked/warning), which is why
+# there is no `when: manual` fallback: on every other pipeline the jobs simply
+# do not exist. Run them on demand from the schedule page, or locally with
+# tests/common/tools/run-in-docker.ps1 -Preset linux-test-asan.
+.nightly:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      allow_failure: true
+
+# ----------------------------------------------------------
+# build
+# ----------------------------------------------------------
+build-gcc:
+  stage: build
   script:
     - cmake --preset=linux-debug-gcc
     - cmake --build --preset=linux-debug-gcc
   artifacts:
+    access: developer
     paths:
-      - out/build/linux-debug-gcc/apps
+      - build/linux-debug-gcc/apps
     expire_in: 1 week
 
 # ----------------------------------------------------------
-# Unit Tests (Linux)
+# test: unit
 # ----------------------------------------------------------
-linux-test:
+unit-gcc:
   stage: test
-  image: itgesellschaft/knxiot-knx-ci:latest
   script:
     - cmake --preset=linux-test-gcc
     - cmake --build --preset=linux-test-gcc
     - ctest --preset=linux-test-gcc --output-junit report.xml
   artifacts:
+    access: developer
     when: always
     reports:
       junit: build/linux-test-gcc/report.xml
   dependencies: []
 
-# ----------------------------------------------------------
-# Sanitizer Tests (ASan + UBSan) — Unit Tests
-# ----------------------------------------------------------
-linux-test-asan:
+unit-asan:
   stage: test
-  image: itgesellschaft/knxiot-knx-ci:latest
   script:
     - cmake --preset=linux-test-asan
     - cmake --build --preset=linux-test-asan
     - ctest --preset=linux-test-asan --output-junit report.xml
   artifacts:
+    access: developer
     when: always
     reports:
       junit: build/linux-test-asan/report.xml
   dependencies: []
 
 # ----------------------------------------------------------
-# Sanitizer Tests (ASan + UBSan) — Runtime Conformance
-# NOTE: allow_failure while a benign 1-byte SPAKE shutdown leak remains
-#       (oc_oscore_set_auth_shared, api/oc_knx_sec.c). Memory-error and
-#       UB detection are gating-quality; the leak is the only known noise.
+# test: unit function coverage (gcov via gcovr)
+# The same GoogleTest suite built with --coverage -O0 (ENABLE_COVERAGE). The
+# filters keep the number honest: this project's own code under api/,
+# messaging/, security/ and util/, not tests/, not the fetched dependencies,
+# not the vendored api/c-timestamp parser. The percentage shows on the job
+# and in the merge request; the HTML report is an artifact.
 # ----------------------------------------------------------
-linux-runtime-test-asan:
+unit-coverage-gcc:
   stage: test
-  tags:
-    - runtimetests
-  image: itgesellschaft/knxiot-knx-ci:latest
   script:
-    - apt-get update -qq && apt-get install -y -qq iproute2 > /dev/null 2>&1
-    - ip link add veth-dut type veth peer name veth-test
-    - ip link set veth-dut up
-    - ip link set veth-test up
-    - sleep 2
-    # Add multicast routes on both veth interfaces.
-    # mdns_listen_sock6 sends responses via sendto() with sin6_scope_id=0;
-    # without an explicit route the kernel cannot pick the outgoing interface
-    # on a veth pair (no default IPv6 multicast route in Docker/GitLab CI).
-    - ip -6 route add ff00::/8 dev veth-dut || true
-    - ip -6 route add ff00::/8 dev veth-test || true
-    - export DUT_ADDR=$(ip -6 -o addr show dev veth-dut scope link | awk '{print $4}' | cut -d/ -f1)
-    - echo "DUT address=${DUT_ADDR} on veth-dut / veth-test"
-    - cmake --preset=linux-test-asan -DOC_DEBUG_ENABLED=OFF -DOC_PRINT_ENABLED=OFF -DOC_DEBUG_OSCORE_ENABLED=OFF
-    - cmake --build --preset=linux-test-asan --target runtime_test_server
-    - curl -sSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
-    - python3 /tmp/get-pip.py --break-system-packages --quiet
-    - python3 -m pip install --break-system-packages --quiet -r tests/runtime/requirements.txt
+    - !reference [.python-deps, script]
+    - python3 -m pip install --break-system-packages --quiet gcovr
+    - cmake --preset=linux-coverage-gcc
+    - cmake --build --preset=linux-coverage-gcc
+    - ctest --preset=linux-coverage-gcc --output-junit report.xml
+    - mkdir -p build/linux-coverage-gcc/coverage-html
     - >
-      RUNTIME_TEST_SERVER=build/linux-test-asan/tests/runtime_test_server
-      DUT_IFACE=veth-dut
-      DEVICE_HOST=$DUT_ADDR
-      DEVICE_IFACE=veth-test
-      RUNTIME_TEST_QUIET=1
-      ASAN_OPTIONS=detect_leaks=1:abort_on_error=1
-      COAP_TIMEOUT=15
-      SERVER_STARTUP_TIMEOUT=30
-      python3 -m pytest
-      tests/runtime/test_5_1_discovery.py
-      tests/runtime/test_5_1_discovery_multicast.py
-      tests/runtime/test_5_1_discovery_extended.py
-      tests/runtime/test_5_1_discovery_mdns.py
-      tests/runtime/test_5_2_reset.py
-      tests/runtime/test_5_2_wellknown_knx.py
-      tests/runtime/test_5_2_fingerprint.py
-      tests/runtime/test_5_2_device_resources.py
-      tests/runtime/test_5_2_swu.py
-      tests/runtime/test_5_3_security.py
-      tests/runtime/test_5_4_group_comm.py
-      tests/runtime/test_5_4_observe.py
-      tests/runtime/test_5_5_fp_tables.py
-      tests/runtime/test_5_6_app_program.py
-      tests/runtime/test_5_7_functional_blocks.py
-      tests/runtime/test_5_8_parameters.py
-      tests/runtime/test_5_10_generic.py
-      -v --tb=short --junit-xml=build/linux-test-asan/runtime-report.xml
+      gcovr --root .
+      --filter 'api/' --filter 'messaging/' --filter 'security/' --filter 'util/'
+      --exclude 'api/c-timestamp/.*'
+      --cobertura build/linux-coverage-gcc/coverage.xml
+      --html-medium-threshold 65
+      --html-high-threshold 85
+      --html-details build/linux-coverage-gcc/coverage-html/index.html
+      --print-summary
+      build/linux-coverage-gcc
+  # gcovr --print-summary writes "functions: 91.2% (83 out of 91)"; the
+  # TOTAL line only exists in its default table report, which is not printed here.
+  coverage: '/^functions:\s+(\d+(?:\.\d+)?)%/'
   artifacts:
+    access: developer
     when: always
+    paths:
+      - build/linux-coverage-gcc/coverage-html/
     reports:
-      junit: build/linux-test-asan/runtime-report.xml
+      junit: build/linux-coverage-gcc/report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: build/linux-coverage-gcc/coverage.xml
+    expire_in: 4 weeks
   dependencies: []
-  allow_failure: true
 
 # ----------------------------------------------------------
-# Runtime Conformance Tests (network-level, like EITT)
+# test: fuzz seed replay (gating) + coverage
+# Replays every generated seed exactly once (-runs=0) first: deterministic on
+# purpose, so a random mutation seed can never fail a pipeline for an
+# unrelated commit. Every seed that once crashed the stack stays in the corpus
+# as its regression test, so this job is the gate for those fixes. Then, per
+# target, mutates from that corpus for a short, fixed budget
+# (FUZZ_COVERAGE_SECONDS) purely to grow line coverage - any crash found there
+# is logged and kept as an artifact but does NOT fail the job (that is what the
+# manual fuzz-explore job gates on).
+# Also reports source coverage (gcov via gcovr, clang): how much of api/,
+# messaging/, security/ and util/ the corpus plus the mutation burst reaches.
+# Excludes tests/, third-party dependencies and the vendored api/c-timestamp.
 # ----------------------------------------------------------
-linux-runtime-test:
+fuzz-seed-replay:
   stage: test
-  tags:
-    - runtimetests
-  image: itgesellschaft/knxiot-knx-ci:latest
+  variables:
+    FUZZ_COVERAGE_SECONDS: "30"
   script:
-    # Install iproute2 for veth pair creation
-    - apt-get update -qq && apt-get install -y -qq iproute2 > /dev/null 2>&1
-    # Create a veth pair for multicast-capable IPv6 networking
-    - ip link add veth-dut type veth peer name veth-test
-    - ip link set veth-dut up
-    - ip link set veth-test up
-    - sleep 2  # wait for IPv6 DAD / link-local assignment
-    # Add multicast routes on both veth interfaces.
-    # mdns_listen_sock6 sends responses via sendto() with sin6_scope_id=0;
-    # without an explicit route the kernel cannot pick the outgoing interface
-    # on a veth pair (no default IPv6 multicast route in Docker/GitLab CI).
-    - ip -6 route add ff00::/8 dev veth-dut || true
-    - ip -6 route add ff00::/8 dev veth-test || true
-    # Discover the DUT's link-local address on veth-dut
-    - export DUT_ADDR=$(ip -6 -o addr show dev veth-dut scope link | awk '{print $4}' | cut -d/ -f1)
-    - echo "DUT address=${DUT_ADDR} on veth-dut / veth-test"
-    # Build
-    - cmake --preset=linux-test-gcc -DOC_DEBUG_ENABLED=OFF -DOC_PRINT_ENABLED=OFF -DOC_DEBUG_OSCORE_ENABLED=OFF
-    - cmake --build --preset=linux-test-gcc --target runtime_test_server
+    # llvm-19 provides llvm-cov-19 (gcovr's gcov-executable for clang's
+    # --coverage output); the clang package alone does not install it.
+    - apt-get update -qq && apt-get install -y -qq clang libclang-rt-19-dev llvm-19 > /dev/null 2>&1
     - curl -sSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
     - python3 /tmp/get-pip.py --break-system-packages --quiet
-    - python3 -m pip install --break-system-packages --quiet -r tests/runtime/requirements.txt
-    # Run tests — DUT binds to veth-dut, test client sends via veth-test
-    # NOTE: Running only verified EITT-matching test categories.
-    #       Add more test files here as each 5.x category is verified.
-    - >
-      RUNTIME_TEST_SERVER=build/linux-test-gcc/tests/runtime_test_server
-      DUT_IFACE=veth-dut
-      DEVICE_HOST=$DUT_ADDR
-      DEVICE_IFACE=veth-test
-      RUNTIME_TEST_QUIET=1
-      python3 -m pytest
-      tests/runtime/test_5_1_discovery.py
-      tests/runtime/test_5_1_discovery_multicast.py
-      tests/runtime/test_5_1_discovery_extended.py
-      tests/runtime/test_5_1_discovery_mdns.py
-      tests/runtime/test_5_2_reset.py
-      tests/runtime/test_5_2_wellknown_knx.py
-      tests/runtime/test_5_2_fingerprint.py
-      tests/runtime/test_5_2_device_resources.py
-      tests/runtime/test_5_2_swu.py
-      tests/runtime/test_5_3_security.py
-      tests/runtime/test_5_4_group_comm.py
-      tests/runtime/test_5_4_observe.py
-      tests/runtime/test_5_5_fp_tables.py
-      tests/runtime/test_5_6_app_program.py
-      tests/runtime/test_5_7_functional_blocks.py
-      tests/runtime/test_5_8_parameters.py
-      tests/runtime/test_5_10_generic.py
-      -v --tb=short --junit-xml=build/linux-test-gcc/runtime-report.xml
+    - python3 -m pip install --break-system-packages --quiet gcovr
+    - mkdir -p build/linux-fuzz-coverage-clang/coverage-html fuzz-coverage-crashes
+    - cmake --preset=linux-fuzz-coverage-clang
+    - cmake --build --preset=linux-fuzz-coverage-clang
+    - |
+      status=0
+      ctest --preset=linux-fuzz-coverage-clang -L fuzz --output-junit build/linux-fuzz-coverage-clang/fuzz-report.xml || status=$?
+      cd build/linux-fuzz-coverage-clang/tests/fuzz
+      for t in fuzz_coap_parse fuzz_oscore_options fuzz_oc_rep fuzz_mdns \
+               fuzz_query_string fuzz_blockwise_reassembly fuzz_hex_and_base64 fuzz_timestamp \
+               fuzz_endpoint_string_parse fuzz_swu_query_params fuzz_group_object_table \
+               fuzz_oscore_context_lookup fuzz_discovery_filter fuzz_spake2plus_wire \
+               fuzz_uuid_parse fuzz_oscore_full_decrypt fuzz_replay_window fuzz_oscore_aad_nonce fuzz_oscore_echo_tx \
+               fuzz_core_res_wildcard fuzz_at_x_get_query fuzz_spake2plus_initiator \
+               fuzz_knx_lsm_post fuzz_auth_at_post; do
+        "./$t" "corpus/${t#fuzz_}" -max_total_time="$FUZZ_COVERAGE_SECONDS" -timeout=10 \
+          -rss_limit_mb=2048 -artifact_prefix="../../../../fuzz-coverage-crashes/${t}-" \
+          || { echo "warning: $t found a crash during the coverage mutation burst - see fuzz-coverage-crashes/"; status=1; }
+      done
+      cd -
+      if ! gcovr --root . --gcov-executable 'llvm-cov-19 gcov' \
+        --filter 'api/' --filter 'messaging/' --filter 'security/' --filter 'util/' \
+        --exclude 'api/c-timestamp/.*' \
+        --cobertura build/linux-fuzz-coverage-clang/coverage.xml \
+        --html-medium-threshold 65 \
+        --html-high-threshold 85 \
+        --html-details build/linux-fuzz-coverage-clang/coverage-html/index.html \
+        --print-summary build/linux-fuzz-coverage-clang; then
+        status=1
+      fi
+      exit "$status"
+  # gcovr --print-summary writes "functions: 91.2% (83 out of 91)"; the
+  # TOTAL line only exists in its default table report, which is not printed here.
+  coverage: '/^functions:\s+(\d+(?:\.\d+)?)%/'
   artifacts:
+    access: developer
+    when: always
+    paths:
+      - build/linux-fuzz-coverage-clang/coverage-html/
+      - fuzz-coverage-crashes/
+    reports:
+      junit: build/linux-fuzz-coverage-clang/fuzz-report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: build/linux-fuzz-coverage-clang/coverage.xml
+    expire_in: 4 weeks
+  needs: []
+
+# ----------------------------------------------------------
+# test: fuzz mutation run (on demand)
+# Start from the GitLab UI. Override FUZZ_SECONDS when triggering to change the
+# budget per target. New inputs land in fuzz-findings/, crashes in
+# fuzz-crashes/; add an interesting input to tests/fuzz/make_corpus.py to keep
+# it as a permanent seed.
+# ----------------------------------------------------------
+fuzz-explore:
+  stage: test
+  when: manual
+  allow_failure: true
+  variables:
+    FUZZ_SECONDS: "900"
+  script:
+    # libclang-rt-19-dev provides the compiler-rt static archives (asan/ubsan/fuzzer);
+    # the clang package alone only installs the frontend, not these link-time archives.
+    - apt-get update -qq && apt-get install -y -qq clang libclang-rt-19-dev > /dev/null 2>&1
+    - cmake --preset=linux-fuzz-clang
+    - cmake --build --preset=linux-fuzz-clang
+    - |
+      status=0
+      mkdir -p fuzz-crashes
+      for t in fuzz_coap_parse fuzz_oscore_options fuzz_oc_rep fuzz_mdns \
+               fuzz_query_string fuzz_blockwise_reassembly fuzz_hex_and_base64 fuzz_timestamp \
+               fuzz_endpoint_string_parse fuzz_swu_query_params fuzz_group_object_table \
+               fuzz_oscore_context_lookup fuzz_discovery_filter fuzz_spake2plus_wire \
+               fuzz_uuid_parse fuzz_oscore_full_decrypt fuzz_replay_window fuzz_oscore_aad_nonce fuzz_oscore_echo_tx \
+               fuzz_core_res_wildcard fuzz_at_x_get_query fuzz_spake2plus_initiator \
+               fuzz_knx_lsm_post fuzz_auth_at_post; do
+        seeds="build/linux-fuzz-clang/tests/fuzz/corpus/${t#fuzz_}"
+        mkdir -p "fuzz-findings/$t"
+        "build/linux-fuzz-clang/tests/fuzz/$t" "fuzz-findings/$t" "$seeds" \
+          -max_total_time="$FUZZ_SECONDS" -timeout=10 -rss_limit_mb=2048 \
+          -artifact_prefix=fuzz-crashes/ || status=1
+      done
+      exit $status
+  artifacts:
+    access: developer
+    when: always
+    paths:
+      - fuzz-crashes/
+      - fuzz-findings/
+    expire_in: 4 weeks
+  needs: []
+
+# ----------------------------------------------------------
+# device-test: runtime tier, gcc
+# The hand-written behaviour tests (hardening, observe, state machines,
+# everything KNX never wrote a TestCase for). tests/common/fixtures.py orders
+# the modules. Expected: 237 passed / 8 environment skips.
+# allow_failure: the device tiers depend on a tagged, privileged runner; a
+# missing runner must not block the pipeline. Read the JUnit report.
+# ----------------------------------------------------------
+runtime-gcc:
+  extends: .device-test
+  allow_failure: true
+  variables:
+    RUNTIME_TEST_SERVER: build/linux-test-gcc/tests/runtime_test_server
+  script:
+    - !reference [.device-network, script]
+    - cmake --preset=linux-test-gcc -DOC_DEBUG_ENABLED=OFF -DOC_PRINT_ENABLED=OFF -DOC_DEBUG_OSCORE_ENABLED=OFF
+    - cmake --build --preset=linux-test-gcc --target runtime_test_server
+    - !reference [.python-deps, script]
+    - python3 -m pytest tests/runtime/ -rfE -v --tb=short --junit-xml=build/linux-test-gcc/runtime-report.xml
+  artifacts:
+    access: developer
     when: always
     reports:
       junit: build/linux-test-gcc/runtime-report.xml
-  dependencies: []
+
+# ----------------------------------------------------------
+# device-test: conformance tier, gcc
+# KNX's conformance template (from update.knx.org, see .knx-files) played
+# against the DUT by the test tool's run_sequences.py (submodule
+# tests/iot-test-tool), which starts and stops it.
+# tests/conformance/overrides.yaml carries the skips (5.4.2, out of scope;
+# 5.3.14.1, optional) and xfails, the same ones the local Docker runs use.
+# One pytest item per EITT sequence (one per TestCollection, 9 items); like
+# EITT a sequence runs on after a failed row and the item lists every case
+# that did not pass. Expected: 8 passed / 1 xfailed (5.10: 5.10.1.2 and
+# 5.10.1.4 are xfail cases; confirmed by pipeline 59132); the skipped cases (5.3.14.1, 5.4.2.x) are listed as SKIP
+# inside the 5.3 and 5.4 items, which still pass.
+# allow_failure: only because the job depends on the tagged runner; there is
+# no known red left, so it can become gating whenever the runner is reliable.
+#
+# The run record (conformance.krr.jsonl, tests/iot-test-tool/docs/run-record-and-evaluator.md)
+# is kept as an artifact: load it in the GUI, or re-judge it locally after a
+# change to the evaluation without a device:
+#   cd tests/iot-test-tool && python3 -m interpreter.reevaluate <record> --overrides ../conformance [--promote RULE]
+# The record's engine is the tool's commit (KRR_ENGINE_SHA).
+# The job re-evaluates its own record straight away. That must reproduce
+# every verdict (exit 1 otherwise); a record that does not is useless for
+# offline re-evaluation, so it fails the job even when pytest passed.
+# conformance-reevaluate.txt also carries the report-mode rule tally.
+# ----------------------------------------------------------
+conformance-gcc:
+  extends:
+    - .device-test
+    - .knx-files
   allow_failure: true
+  variables:
+    RUNTIME_TEST_SERVER: build/linux-test-gcc/tests/runtime_test_server
+  script:
+    - !reference [.device-network, script]
+    - cmake --preset=linux-test-gcc -DOC_DEBUG_ENABLED=OFF -DOC_PRINT_ENABLED=OFF -DOC_DEBUG_OSCORE_ENABLED=OFF
+    - cmake --build --preset=linux-test-gcc --target runtime_test_server
+    - !reference [.python-deps, script]
+    - !reference [.knx-files, script]
+    - |
+      status=0
+      export KRR_ENGINE_SHA="$(git -C tests/iot-test-tool rev-parse HEAD)"
+      python3 tests/iot-test-tool/run_sequences.py --dut-command "$RUNTIME_TEST_SERVER_PREFIX $RUNTIME_TEST_SERVER" --overrides tests/conformance -v --tb=short --junit-xml=build/linux-test-gcc/conformance-report.xml --run-record=build/linux-test-gcc/conformance.krr.jsonl || status=$?
+      cd tests/iot-test-tool
+      python3 -m interpreter.reevaluate ../../build/linux-test-gcc/conformance.krr.jsonl --overrides ../conformance --json ../../build/linux-test-gcc/conformance-reevaluate.json > ../../build/linux-test-gcc/conformance-reevaluate.txt || status=$?
+      cat ../../build/linux-test-gcc/conformance-reevaluate.txt
+      # the run in the tool's GUI, in the browser: Browse the job's
+      # artifacts and open trace-viewer/view.html
+      python3 -m web.trace_viewer ../../build/linux-test-gcc/conformance.krr.jsonl ../../build/linux-test-gcc/trace-viewer || true
+      exit $status
+  artifacts:
+    access: developer
+    when: always
+    paths:
+      - build/linux-test-gcc/conformance.krr.jsonl
+      - build/linux-test-gcc/trace-viewer/
+      - build/linux-test-gcc/conformance-reevaluate.txt
+      - build/linux-test-gcc/conformance-reevaluate.json
+    reports:
+      junit: build/linux-test-gcc/conformance-report.xml
+    expire_in: 4 weeks
+
+# ----------------------------------------------------------
+# device-test: memory-safety checks (nightly)
+# Same two tiers against a DUT built with ASan+UBSan. The pytest tally is
+# informational, not the verdict: a slower DUT may fail timing-sensitive steps
+# without a device defect (in the first local run the EITT tally matched gcc
+# exactly, 176/1/8/2 in 12:25). The job fails only on a sanitizer report:
+#   ERROR: AddressSanitizer   memory error (abort_on_error=1 also kills the DUT)
+#   runtime error:            UBSan
+# LeakSanitizer output is counted and printed but does not fail the job: a
+# benign 1-byte SPAKE shutdown leak remains (oc_oscore_set_auth_shared,
+# api/oc_knx_sec.c). The UBSan nonnull-attribute reports for
+# memcpy/memcmp/memchr with a NULL pointer and length 0 were F-025, fixed
+# (git log -p -S F-025 -- tests/FINDINGS.md).
+# The DUT's stderr reaches the log through the
+# [server-err] lines of tests/common/fixtures.py; -s keeps pytest from
+# capturing them.
+# ----------------------------------------------------------
+.memcheck:
+  extends:
+    - .device-test
+    - .nightly
+    - .knx-files
+  allow_failure: true
+  variables:
+    RUNTIME_TEST_SERVER: build/linux-test-asan/tests/runtime_test_server
+    ASAN_OPTIONS: "detect_leaks=1:abort_on_error=1"
+    UBSAN_OPTIONS: "print_stacktrace=1"
+  script:
+    - !reference [.device-network, script]
+    - cmake --preset=linux-test-asan -DOC_DEBUG_ENABLED=OFF -DOC_PRINT_ENABLED=OFF -DOC_DEBUG_OSCORE_ENABLED=OFF
+    - cmake --build --preset=linux-test-asan --target runtime_test_server
+    - !reference [.python-deps, script]
+    - !reference [.knx-files, script]
+    - eval "$MEMCHECK_COMMAND -rfE -v -s --tb=short --junit-xml=build/linux-test-asan/${MEMCHECK_NAME}-report.xml" 2>&1 | tee build/linux-test-asan/${MEMCHECK_NAME}-memcheck.log || true
+    - |
+      log=build/linux-test-asan/${MEMCHECK_NAME}-memcheck.log
+      leaks=$(grep -c 'ERROR: LeakSanitizer' "$log" || true)
+      echo "LeakSanitizer reports (informational): $leaks"
+      if grep -E 'ERROR: AddressSanitizer|runtime error:' "$log"; then
+        echo "memcheck FAILED: sanitizer report in the DUT output (see above)"
+        exit 1
+      fi
+      echo "memcheck OK: no AddressSanitizer / UBSan report"
+  artifacts:
+    access: developer
+    when: always
+    paths:
+      - build/linux-test-asan/${MEMCHECK_NAME}-memcheck.log
+    reports:
+      junit: build/linux-test-asan/${MEMCHECK_NAME}-report.xml
+
+runtime-asan-memcheck:
+  extends: .memcheck
+  variables:
+    MEMCHECK_NAME: runtime
+    MEMCHECK_COMMAND: python3 -m pytest tests/runtime/
+
+conformance-asan-memcheck:
+  extends: .memcheck
+  variables:
+    MEMCHECK_NAME: conformance
+    MEMCHECK_COMMAND: python3 tests/iot-test-tool/run_sequences.py --dut-command "ip netns exec dut build/linux-test-asan/tests/runtime_test_server" --overrides tests/conformance

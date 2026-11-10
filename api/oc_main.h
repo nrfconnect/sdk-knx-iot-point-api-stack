@@ -1,8 +1,8 @@
-/* 
+/*
  * Copyright (c) 2019 Intel Corporation
  * Copyright (c) 2022 Cascoda Ltd
  * Copyright (c) 2024-2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,8 +10,7 @@
   @brief functions to be called from main, including device callbacks
   @file
 */
-#ifndef OC_MAIN_H
-#define OC_MAIN_H
+#pragma once
 
 #include "oc_api.h"
 
@@ -67,25 +66,10 @@ extern "C" {
    * @brief retrieve the restart info, e.g. the callback and callback data
    *
    * @return oc_restart_t* the restart data
-   */
-  oc_restart_t* oc_get_restart_cb(void);
-
-  /**
-   * @brief The hostname info
    *
+   * @note cannot be NULL, guaranteed by oc_main_init()
    */
-  typedef struct oc_hostname_t
-  {
-    oc_hostname_cb_t cb; /**< the callback */
-    void* data;          /**< the callback user data */
-  } oc_hostname_t;
-
-  /**
-   * @brief retrieve the hostname info, e.g. the callback and callback data
-   *
-   * @return oc_hostname_t* the hostname info
-   */
-  oc_hostname_t* oc_get_hostname_cb(void);
+  const oc_restart_t* oc_get_restart_cb(void);
 
   /**
    * @brief The programming mode info
@@ -133,11 +117,30 @@ extern "C" {
   } oc_swu_t;
 
   /**
+   * @brief device swu 'update' trigger callback
+   */
+  typedef struct oc_swu_upgrade_t
+  {
+    oc_swu_upgrade_cb_t cb; // application callback for upgrade trigger
+    void* data;             // user context passed to callback
+  } oc_swu_upgrade_t;
+
+  /**
   * @brief retrieve the swu change info, e.g. the callback and callback data
   *
   * @return oc_swu_t* the swu info
   */
-  oc_swu_t* oc_get_swu_cb(void);
+  const oc_swu_t* oc_get_swu_cb(void);
+
+
+  /**
+  * @brief retrieve the swu upgrade trigger info, e.g. the callback and callback data
+  *
+  * @return oc_swu_upgrade_t* the swu upgrade trigger info
+  *
+  * @note cannot be NULL, guaranteed by oc_main_init()
+  */
+  const oc_swu_upgrade_t* oc_get_swu_upgrade_cb(void);
 
   /**
    * @brief is main initialized
@@ -147,29 +150,8 @@ extern "C" {
    */
   bool oc_main_initialized(void);
 
-  /**
-   * Set acceptance of new commands(GET/PUT/POST/DELETE)
-   *
-   * The device drops/accepts new commands when the drop is set to true/false.
-   *
-   * @note If KNX_TCP_TLS is set, this call is used to drop all new incoming
-   *       commands during closing TLS sessions (CLOSE_ALL_TLS_SESSIONS).
-   *
-   * @param[in] drop set whether all new commands will be accepted/dropped
-   */
-  void oc_set_drop_commands(bool drop);
-
-  /**
-   * Get status of dropping new commands.
-   *
-   * @return true if dropping new commands
-   */
-  bool oc_drop_command(void);
-
   void _oc_signal_event_loop(void);
 
 #ifdef __cplusplus
 }
 #endif
-
-#endif 

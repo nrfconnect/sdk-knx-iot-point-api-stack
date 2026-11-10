@@ -1,0 +1,237 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: KNX IoT Demos <noreply@knx.org>
+Date: Fri, 27 Mar 2026 00:00:00 +0000
+Subject: [PATCH] drivers: ieee802154: esp32: Add Enhanced ACK support
+
+Implement esp_ieee802154_enh_ack_generator() to generate IEEE 802.15.4-2015
+Enhanced ACK frames. The hardware ISR calls this weak symbol whenever a
+Frame Version 2 (2015) frame with the ACK-request bit set is received.
+
+Without this override the default stub returns ESP_FAIL, which causes the
+hardware to skip sending an ACK. Thread 1.3 Border Routers send Frame
+Version 2 frames and require Enhanced ACK, so the join handshake never
+completes and the device stays as leader of its own partition.
+
+The implementation:
+- Stores per-peer header IEs via IEEE802154_CONFIG_ENH_ACK_HEADER_IE
+  (used by OpenThread for CSL and Link Metrics IEs).
+- Looks up stored IEs by the sender's extended address (little-endian).
+- Builds a minimal IEEE 802.15.4-2015 Enh-Ack frame: FCF (ACK type,
+  version 2, PAN ID compression, DSN suppress copy, IE present),
+  optional DSN, destination address (= source of received frame),
+  header IEs + Header Termination 2 IE when IEs are present.
+- Uses a k_spinlock for ISR-safe access to the IE table.
+
+Signed-off-by: KNX IoT Demos <noreply@knx.org>
+---
+ drivers/ieee802154/ieee802154_esp32.c | 147 ++++++++++++++++++++++++++
+ drivers/ieee802154/ieee802154_esp32.h |  19 ++++
+ 2 files changed, 166 insertions(+)
+
+diff --git a/drivers/ieee802154/ieee802154_esp32.c b/drivers/ieee802154/ieee802154_esp32.c
+index f1043e4ed0..6b001c648c 100644
+--- a/drivers/ieee802154/ieee802154_esp32.c
++++ b/drivers/ieee802154/ieee802154_esp32.c
+@@ -467,6 +467,88 @@ void IRAM_ATTR esp_ieee802154_transmit_failed(const uint8_t *frame, esp_ieee8021
+ #endif
+ }
+ 
++/* override weak function in components/ieee802154/esp_ieee802154.c of ESP-IDF */
++IRAM_ATTR esp_err_t esp_ieee802154_enh_ack_generator(uint8_t *frame,
++					     esp_ieee802154_frame_info_t *frame_info,
++					     uint8_t *enhack_frame)
++{
++	uint8_t src_addr[IEEE802154_FRAME_EXT_ADDR_SIZE];
++	uint8_t src_mode;
++	uint8_t fcf1_ack;
++	uint8_t pos;
++	uint8_t *ie_data = NULL;
++	uint8_t ie_len = 0;
++	k_spinlock_key_t key;
++
++	/* frame[0]=PHR, frame[1]=FCF[0], frame[2]=FCF[1], frame[3]=DSN */
++	src_mode = ieee802154_frame_get_src_addr(frame, src_addr);
++	if (src_mode == IEEE802154_FRAME_SRC_MODE_NONE) {
++		return ESP_FAIL;
++	}
++
++	if (src_mode == IEEE802154_FRAME_SRC_MODE_EXT) {
++		key = k_spin_lock(&esp32_data.ack_ie_lock);
++		for (int i = 0; i < IEEE802154_ESP32_ENH_ACK_MAX_PEERS; i++) {
++			if (esp32_data.ack_ie_table[i].valid &&
++			    memcmp(esp32_data.ack_ie_table[i].ext_addr, src_addr,
++				   IEEE802154_FRAME_EXT_ADDR_SIZE) == 0) {
++				ie_data = esp32_data.ack_ie_table[i].ie_data;
++				ie_len = esp32_data.ack_ie_table[i].ie_len;
++				break;
++			}
++		}
++		k_spin_unlock(&esp32_data.ack_ie_lock, key);
++	}
++
++	/* Build Enh-Ack PSDU at enhack_frame[1..], enhack_frame[0] = PHR */
++	pos = 1; /* skip PHR byte */
++
++	/* FCF[0]: type=ACK, frame pending if requested, PAN ID compression */
++	enhack_frame[pos++] = IEEE802154_FRAME_TYPE_ACK |
++			      (frame_info->pending ? BIT(4) : 0) |
++			      IEEE802154_FRAME_PANID_COMP_BIT;
++
++	/* FCF[1]: DSN suppress (copy from received), IE present flag,
++	 * dst_mode = src_mode of received frame >> 4 (bits 7:6 -> bits 3:2),
++	 * frame version 2, no source address mode
++	 */
++	fcf1_ack = ((frame[2] & IEEE802154_FRAME_DSN_BIT) ? IEEE802154_FRAME_DSN_BIT : 0) |
++		   (ie_len ? IEEE802154_FRAME_IE_BIT : 0) |
++		   ((frame[2] & IEEE802154_FRAME_SRC_MODE_MASK) >> 4) |
++		   IEEE802154_FRAME_VERSION_2;
++	enhack_frame[pos++] = fcf1_ack;
++
++	/* DSN: copy from received frame when not suppressed */
++	if (!(frame[2] & IEEE802154_FRAME_DSN_BIT)) {
++		enhack_frame[pos++] = frame[3];
++	}
++
++	/* Destination address = source address of received frame */
++	if (src_mode == IEEE802154_FRAME_SRC_MODE_EXT) {
++		memcpy(&enhack_frame[pos], src_addr, IEEE802154_FRAME_EXT_ADDR_SIZE);
++		pos += IEEE802154_FRAME_EXT_ADDR_SIZE;
++	} else {
++		memcpy(&enhack_frame[pos], src_addr, IEEE802154_FRAME_SHORT_ADDR_SIZE);
++		pos += IEEE802154_FRAME_SHORT_ADDR_SIZE;
++	}
++
++	/* Header IEs */
++	if (ie_len > 0) {
++		memcpy(&enhack_frame[pos], ie_data, ie_len);
++		pos += ie_len;
++		/* Header Termination 2 IE: element_id=0x7f, length=0, type=0
++		 * In-memory LE encoding: {0x80, 0x3f}
++		 */
++		enhack_frame[pos++] = 0x80;
++		enhack_frame[pos++] = 0x3f;
++	}
++
++	/* PHR = PSDU content length + FCS */
++	enhack_frame[0] = (pos - 1) + IEEE802154_FRAME_FCS_SIZE;
++
++	return ESP_OK;
++}
++
+ static int esp32_tx(const struct device *dev, enum ieee802154_tx_mode tx_mode, struct net_pkt *pkt,
+ 		    struct net_buf *frag)
+ {
+@@ -689,6 +771,71 @@ static int esp32_configure(const struct device *dev, enum ieee802154_config_type
+ 	case IEEE802154_CONFIG_RX_ON_WHEN_IDLE:
+ 		esp_ieee802154_set_rx_when_idle(config->rx_on_when_idle);
+ 		break;
++	case IEEE802154_CONFIG_ENH_ACK_HEADER_IE: {
++		k_spinlock_key_t key = k_spin_lock(&esp32_data.ack_ie_lock);
++
++		if (config->ack_ie.purge_ie) {
++			memset(esp32_data.ack_ie_table, 0,
++			       sizeof(esp32_data.ack_ie_table));
++			k_spin_unlock(&esp32_data.ack_ie_lock, key);
++			break;
++		}
++
++		if (config->ack_ie.ext_addr == NULL) {
++			k_spin_unlock(&esp32_data.ack_ie_lock, key);
++			return -ENOTSUP;
++		}
++
++		uint8_t ext_addr_le[IEEE802154_FRAME_EXT_ADDR_SIZE];
++
++		sys_memcpy_swap(ext_addr_le, config->ack_ie.ext_addr,
++				IEEE802154_FRAME_EXT_ADDR_SIZE);
++
++		int slot = -1;
++
++		for (int i = 0; i < IEEE802154_ESP32_ENH_ACK_MAX_PEERS; i++) {
++			if (esp32_data.ack_ie_table[i].valid &&
++			    memcmp(esp32_data.ack_ie_table[i].ext_addr,
++				   ext_addr_le,
++				   IEEE802154_FRAME_EXT_ADDR_SIZE) == 0) {
++				slot = i;
++				break;
++			} else if (slot < 0 &&
++				   !esp32_data.ack_ie_table[i].valid) {
++				slot = i;
++			}
++		}
++
++		if (slot < 0) {
++			k_spin_unlock(&esp32_data.ack_ie_lock, key);
++			return -ENOMEM;
++		}
++
++		if (config->ack_ie.header_ie == NULL ||
++		    config->ack_ie.header_ie->length == 0) {
++			esp32_data.ack_ie_table[slot].valid = false;
++			k_spin_unlock(&esp32_data.ack_ie_lock, key);
++			break;
++		}
++
++		uint8_t ie_len = config->ack_ie.header_ie->length +
++				 IEEE802154_HEADER_IE_HEADER_LENGTH;
++
++		if (ie_len > IEEE802154_ESP32_ENH_ACK_MAX_IE_SIZE) {
++			k_spin_unlock(&esp32_data.ack_ie_lock, key);
++			return -ENOMEM;
++		}
++
++		esp32_data.ack_ie_table[slot].valid = true;
++		memcpy(esp32_data.ack_ie_table[slot].ext_addr, ext_addr_le,
++		       IEEE802154_FRAME_EXT_ADDR_SIZE);
++		memcpy(esp32_data.ack_ie_table[slot].ie_data,
++		       config->ack_ie.header_ie, ie_len);
++		esp32_data.ack_ie_table[slot].ie_len = ie_len;
++
++		k_spin_unlock(&esp32_data.ack_ie_lock, key);
++		break;
++	}
+ 	default:
+ 		return -ENOTSUP;
+ 	}
+diff --git a/drivers/ieee802154/ieee802154_esp32.h b/drivers/ieee802154/ieee802154_esp32.h
+index 40bca4fd4d..1502bab0e9 100644
+--- a/drivers/ieee802154/ieee802154_esp32.h
++++ b/drivers/ieee802154/ieee802154_esp32.h
+@@ -8,8 +8,23 @@
+ #define ZEPHYR_DRIVERS_IEEE802154_IEEE802154_ESP32_H_
+ 
+ #include <esp_ieee802154_types.h>
++#include <esp_ieee802154_frame.h>
+ 
+ #include <zephyr/net/ieee802154_radio.h>
++#include <zephyr/spinlock.h>
++
++
++#define IEEE802154_ESP32_ENH_ACK_MAX_PEERS   8
++#define IEEE802154_ESP32_ENH_ACK_MAX_IE_SIZE 32
++
++struct ieee802154_esp32_ack_ie {
++	bool valid;
++	/* Extended address in little-endian byte order. */
++	uint8_t ext_addr[IEEE802154_FRAME_EXT_ADDR_SIZE];
++	/* Raw IE bytes (header IE descriptor + payload). */
++	uint8_t ie_data[IEEE802154_ESP32_ENH_ACK_MAX_IE_SIZE];
++	uint8_t ie_len;
++};
+ 
+ struct ieee802154_esp32_data {
+ 	/* Pointer to the network interface. */
+@@ -71,6 +86,10 @@ struct ieee802154_esp32_data {
+ 	/* Deferred PM policy update, submitted from the MAC ISR callbacks. */
+ 	struct k_work_delayable pm_work;
+ #endif
++
++	/* Enhanced ACK peer IE table and spinlock for ISR-safe access. */
++	struct ieee802154_esp32_ack_ie ack_ie_table[IEEE802154_ESP32_ENH_ACK_MAX_PEERS];
++	struct k_spinlock ack_ie_lock;
+ };
+ 
+ #endif /* ZEPHYR_DRIVERS_IEEE802154_IEEE802154_ESP32_H_ */
+-- 
+2.51.0.windows.1
+

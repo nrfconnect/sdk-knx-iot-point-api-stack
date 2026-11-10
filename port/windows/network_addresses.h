@@ -1,14 +1,13 @@
-/* 
+/*
  * Copyright (c) 2017 Lynx Technology
  * Copyright (c) 2018 Intel Corporation
  * Copyright (c) 2019 Kistler Instrumente AG
  * Copyright (c) 2026 KNX Association
- *            
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef NETWORK_ADDRESSES_H
-#define NETWORK_ADDRESSES_H
+#pragma once
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -33,6 +32,4 @@ void free_network_addresses(ifaddr_t *ifaddr);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

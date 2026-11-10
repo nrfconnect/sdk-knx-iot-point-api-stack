@@ -4,6 +4,8 @@
 
 config KNXIOT_LIB
     bool "KNX-IoT Point API Stack"
+    # Since Zephyr v4.5.0 MBEDTLS and the PSA_WANT_* symbols depend on PSA_CRYPTO.
+    select PSA_CRYPTO
     select MBEDTLS
     # PSA crypto requirements for KNX-IoT security (SPAKE2+ and OSCORE).
     # These selects mirror security/knx_psa_crypto_config.h (the Linux/Windows PSA
@@ -99,14 +101,6 @@ config KNXIOT_PUBLISHER_TABLE
       receive group messages. Disable for plain senders that only transmit
       S-mode messages without table-based management.
 
-config KNXIOT_ECHO_RING_SIZE
-    int "OSCORE multicast echo ring size"
-    default 64
-    range 1 256
-    help
-      Number of retained OSCORE multicast messages and echo responder records.
-      The value must be a power of two.
-
 # ── Table sizes ────────────────────────────────────────────────────────────────
 
 config KNXIOT_GOT_MAX_ENTRIES
@@ -140,11 +134,11 @@ config KNXIOT_GRT_MAX_ENTRIES
       (receives S-mode messages from). Size this to the number of
       group objects the device listens to.
 
-config KNXIOT_SEC_MAX_ENTRIES
+config KNXIOT_ATT_MAX_ENTRIES
     int "Access Token Table max entries"
     default 20
     help
-      Corresponds to CMake: KNX_SEC_MAX_ENTRIES.
+      Corresponds to CMake: KNX_ATT_MAX_ENTRIES.
       Maximum number of entries in the Access Token (AT) table.
       Each entry holds a security token granting a management client
       access rights to this device. Size this to the maximum number
@@ -161,6 +155,48 @@ config KNXIOT_PAGE_SIZE
       Reduce if CoAP response payloads exceed the network MTU.
 
 # ── Network ────────────────────────────────────────────────────────────────────
+
+choice KNXIOT_NETWORK_BACKEND
+    prompt "KNX-IoT network backend"
+    default KNXIOT_NETWORK_BACKEND_THREAD
+    help
+      Selects the connectivity implementation compiled into the stack.
+      The application supplies the matching Zephyr configuration for the
+      selected backend.
+
+config KNXIOT_NETWORK_BACKEND_ETHERNET
+    bool "Ethernet"
+    help
+      Use Ethernet as the network backend.
+      Compiles port/zephyr/connectivity_posix.c with the shared DNS-SD
+      responder. Needs CONFIG_NET_L2_ETHERNET.
+
+config KNXIOT_NETWORK_BACKEND_THREAD
+    bool "OpenThread"
+    help
+      Use OpenThread (IEEE 802.15.4 Thread mesh) as the network backend.
+      Compiles port/zephyr/connectivity_thread.c with the OpenThread SRP
+      client. Needs CONFIG_OPENTHREAD, with or without the Zephyr
+      OpenThread L2.
+
+config KNXIOT_NETWORK_BACKEND_WIFI
+    bool "Wi-Fi"
+    select WIFI
+    help
+      Use Wi-Fi as the network backend.
+      Compiles port/zephyr/connectivity_posix.c with the shared DNS-SD
+      responder.
+
+endchoice
+
+# The Thread port subscribes the all-CoAP-nodes addresses and one address per
+# GPT group id in OpenThread's external multicast pool, which Zephyr defaults
+# to 2. 23 = 3 all-CoAP-nodes addresses + KNXIOT_GPT_MAX_ENTRIES (default 20);
+# Kconfig can't compute it, so connectivity_thread.c warns when the pool is
+# smaller than that. This default only applies because this module's Kconfig
+# is parsed before OpenThread's; a value in prj.conf still wins.
+configdefault OPENTHREAD_IP6_MAX_EXT_MCAST_ADDRS
+    default 23 if KNXIOT_NETWORK_BACKEND_THREAD
 
 config KNX_UNICAST_PORT
     int "IPv6 unicast port for KNX S-mode messages"
@@ -205,11 +241,24 @@ config KNX_RESET_PROCESS_TIME_S
 
 # ── Security ───────────────────────────────────────────────────────────────────
 
-config KNXIOT_TLS_PKI
-    bool "TLS PKI support"
-    default n
+config KNXIOT_ECHO_RING_SIZE
+    int "Echo ring size"
+    default 16
     help
-      Corresponds to CMake: OC_PKI_ENABLED.
+      Corresponds to CMake: KNX_ECHO_RING_SIZE.
+      Details see 'ECHO RING'.
+
+# ── Shell ──────────────────────────────────────────────────────────────────────
+
+config KNXIOT_SHELL
+    bool "KNX IoT shell command (knx_iot)"
+    default y
+    depends on SHELL
+    help
+      Compiles the shared KNX IoT shell commands (port/knx_shell_commands.c) and their
+      Zephyr shell binding (port/zephyr/knx_shell.c), which registers the "knx_iot"
+      command with its subcommands (device parameters, tables, factory reset, heap
+      statistics). Needs the Zephyr shell (CONFIG_SHELL).
 
 # ── Testing ────────────────────────────────────────────────────────────────────
 

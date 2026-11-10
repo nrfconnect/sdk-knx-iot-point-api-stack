@@ -186,15 +186,21 @@ Macros used: `MBEDTLS_MPI_CHK(f)` + `cleanup:` label pattern (error-handling idi
 
 #### 1.4 TLS/DTLS
 
+> **REMOVED.** The TLS/DTLS transport (`security/oc_tls.c`, `security/oc_tls.h`,
+> guarded by `KNX_TCP_TLS`) has been deleted from the stack. TCP and TLS/DTLS
+> transports are not supported; only UDP CoAP + OSCORE is. The section below is
+> kept for historical context only — none of these files or headers exist any
+> more, and `KNX_TCP_TLS` is no longer a recognised symbol.
+
 Files: `security/oc_tls.c`, `security/oc_tls.h`
 
-Compiled only when the preprocessor symbol `KNX_TCP_TLS` is defined. This is **currently not defined** in any build configuration (Linux, Windows, or Zephyr). The code is therefore dormant.
+These files were compiled only when the preprocessor symbol `KNX_TCP_TLS` was defined, which no build configuration (Linux, Windows, or Zephyr) ever did. The code was therefore dormant for its entire lifetime, and both files have since been deleted.
 
 | Header                          | Notes |
 |---------------------------------|-------|
 | `mbedtls/ssl.h`                 | Full DTLS/TLS stack |
 | `mbedtls/ssl_cookie.h`          | DTLS cookie context |
-| `mbedtls/ssl_internal.h`        | **Does not exist in Mbed TLS 3.x** (removed in 3.0). Will fail to compile if `KNX_TCP_TLS` is ever enabled. |
+| `mbedtls/ssl_internal.h`        | **Did not exist in Mbed TLS 3.x** (removed in 3.0), so this file could never have compiled. Moot now that it has been deleted. |
 | `mbedtls/x509_crt.h`            | X.509 certificate handling (via `oc_tls.h`) |
 | `mbedtls/timing.h`              | DTLS timeout |
 | `mbedtls/memory_buffer_alloc.h` | Static buffer allocator (non-dynamic builds) |
@@ -382,7 +388,7 @@ These are problems that exist right now, regardless of any 4.x migration:
 
 | Issue | File | Details |
 |-------|------|---------|
-| `mbedtls/ssl_internal.h` included | `security/oc_tls.c` | This header was removed in Mbed TLS 3.0. The file only compiles under `#ifdef KNX_TCP_TLS`, which is not currently defined, so it does not cause build failures today. If `KNX_TCP_TLS` is ever enabled, the build will fail. |
+| ~~`mbedtls/ssl_internal.h` included~~ | ~~`security/oc_tls.c`~~ | **RESOLVED — file removed.** `security/oc_tls.c` and the `KNX_TCP_TLS` TLS/DTLS transport have been deleted from the stack, so this header is no longer referenced anywhere. |
 
 #### APIs Deprecated in 3.6.5 and Removed in Mbed TLS 4.x
 
@@ -789,11 +795,16 @@ psa_generate_random(rnd, sizeof(rnd));
 
 ### 1. Stack includes in the PSA config file
 
-`knx_mbedtls_config.h` includes KNX-IoT stack config header:
+`knx_mbedtls_config.h` included a KNX-IoT stack config header:
 
 ```c
 #include <oc_config.h>      /* OC_PKI */
 ```
+
+> **REMOVED.** PKI is not supported and `OC_PKI` was never defined by any build
+> configuration, so the `OC_PKI`-guarded blocks and this include were deleted from
+> `knx_mbedtls_config.h`. The include-directory plumbing described below is still
+> required: `knx_psa_crypto_config.h` includes `port/oc_assert.h` for `oc_exit`.
 
 This works because `port/CMakeLists.txt` adds the stack's include directories to all
 tf-psa-crypto CMake sub-targets after `FetchContent_MakeAvailable(mbedtls)`.
@@ -851,9 +862,16 @@ either config file.
 In the old config, the automatic-dependencies cascade
 `MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED` → `MBEDTLS_X509_CRT_PARSE_C` →
 `MBEDTLS_X509_USE_C` → `MBEDTLS_OID_C` ran unconditionally and caused a build error
-even though `KNX_TCP_TLS` is not active.  Fix: `MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED`
-and the entire automatic-dependencies block in `knx_mbedtls_config.h` are now guarded
-by `#ifdef KNX_TCP_TLS`.
+even though `KNX_TCP_TLS` was not active.  It was first fixed by guarding
+`MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED` and the entire automatic-dependencies
+block with `#ifdef KNX_TCP_TLS`.
+
+> **SUPERSEDED.** `KNX_TCP_TLS` and the TLS/DTLS transport have since been removed
+> from the stack. The guarded automatic-dependencies block and the TLS
+> key-exchange defines (`MBEDTLS_KEY_EXCHANGE_PSK_ENABLED`,
+> `MBEDTLS_KEY_EXCHANGE_ECDHE_PSK_ENABLED`, `MBEDTLS_PSK_MAX_LEN`,
+> `MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED`) were deleted from
+> `knx_mbedtls_config.h` outright, so the cascade can no longer occur.
 
 ### 4. Migrated TLS record size macro
 

@@ -1,20 +1,10 @@
 /*
-// Copyright (c) 2023 Cascoda Ltd
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
-#ifndef OC_REPLAY_H
-#define OC_REPLAY_H
+ * Copyright (c) 2023 Cascoda Ltd
+ * Copyright (c) 2026 KNX Association
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#pragma once
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,7 +35,7 @@ typedef enum replay_state
  * @param rx_ssn Sender Sequence Number of newly received OSCORE request
  * @param endpoint inbound endpoint carrying kid and kid_ctx
  */
-void oc_replay_add_client(uint64_t rx_ssn, const oc_endpoint_t* endpoint);
+void oc_replay_add_client(uint32_t rx_ssn, const oc_endpoint_t* endpoint);
 
 /**
  * @brief Clear all replay records
@@ -68,10 +58,8 @@ void oc_oscore_free_all_replay_records(void);
  * @return Either client is synchronised (you may accept the frame with the given SSN)
  * or it is not synchronised (either you challenge the frame or deny it completely)
  */
-replay_state_t oc_replay_check_client(uint64_t rx_ssn, const oc_endpoint_t* endpoint);
+replay_state_t oc_replay_check_client(uint32_t rx_ssn, const oc_endpoint_t* endpoint);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif
