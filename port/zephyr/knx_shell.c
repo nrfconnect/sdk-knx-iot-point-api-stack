@@ -78,7 +78,8 @@ static int knx_iot_dispatch(const struct shell* sh, size_t argc, char** argv)
  *     malloc()/free().  NOT shown by "kernel heap".  Backed by remaining
  *     RAM after all static allocations including the sys_heap array.
  *
- * Requires CONFIG_SYS_HEAP_RUNTIME_STATS=y (set via CONFIG_KERNEL_SHELL). */
+ * Requires CONFIG_SYS_HEAP_RUNTIME_STATS=y. The system heap part is only
+ * available when K_HEAP_MEM_POOL_SIZE > 0. */
 static int knx_heap_cmd(const struct shell *sh, size_t argc, char **argv)
 {
     (void)argc;
@@ -87,9 +88,14 @@ static int knx_heap_cmd(const struct shell *sh, size_t argc, char **argv)
 #if defined(CONFIG_SYS_HEAP_RUNTIME_STATS)
     int rc = 0;
     struct sys_memory_stats stats;
-    extern struct sys_heap _system_heap;
 
     // TODO do we want more info? See: samples/basic/sys_heap/src/main.c
+
+#if (K_HEAP_MEM_POOL_SIZE > 0)
+    /* _system_heap only exists when the k_malloc() pool is not empty.
+     * K_HEAP_MEM_POOL_SIZE is CONFIG_HEAP_MEM_POOL_SIZE or, if larger, the
+     * sum of all CONFIG_HEAP_MEM_POOL_ADD_SIZE_* requirements. */
+    extern struct sys_heap _system_heap;
 
     shell_print(sh, "Zephyr system heap (k_malloc — Wi-Fi driver, net stack, mDNS, DNS, HTTP, DHCP):");
     if ((rc = sys_heap_runtime_stats_get(&_system_heap, &stats)) == 0) {
@@ -101,6 +107,9 @@ static int knx_heap_cmd(const struct shell *sh, size_t argc, char **argv)
     } else {
         shell_error(sh, "  Failed to get system heap stats (%d)!", rc);
     }
+#else
+    shell_print(sh, "Zephyr system heap (k_malloc): not present (K_HEAP_MEM_POOL_SIZE=0)");
+#endif
 
     shell_print(sh, "C library heap (z_malloc_heap — all malloc/free callers, incl. KNX IoT stack):");
     /* Note: free + allocated < init_bytes because the heap uses part of the
