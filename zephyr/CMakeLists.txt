@@ -209,14 +209,8 @@ list(APPEND PORT_SOURCES
     ${STACK_ROOT}/port/zephyr/clock.c
     ${STACK_ROOT}/port/zephyr/random.c
     ${STACK_ROOT}/port/zephyr/storage.c
+    ${STACK_ROOT}/port/zephyr/oc_network_interface.c
 )
-
-# Network interface enumeration, needs the Zephyr IPv6 stack.
-if(CONFIG_NET_IPV6)
-    list(APPEND PORT_SOURCES
-        ${STACK_ROOT}/port/zephyr/oc_network_interface.c
-    )
-endif()
 
 # Platform port - Zephyr-specific - Optional
 # KNX IoT shell command: The shared command handlers (port/knx_shell_commands.c) plus the
