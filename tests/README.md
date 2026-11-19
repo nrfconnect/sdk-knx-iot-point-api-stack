@@ -79,6 +79,9 @@ tests/common/tools/run-in-docker.sh --tier runtime --uncommitted
 tests/common/tools/run-in-docker.sh --tier tool        # the tool's own tests, no device
 ```
 
+To run the unit, coverage and fuzz jobs in Linux as well, use the image in
+`docker/Dockerfile`; see [docs/docker.md](../docs/docker.md).
+
 The DUT is built with the test presets, which set the reset delay
 (`KNX_RESET_DELAY_MILLISECONDS`, 1 ms) and the default echo response delay
 (`KNX_OSCORE_OSN_DELAY_MILLISECONDS`, 10 ms) short: both tools act on the device right

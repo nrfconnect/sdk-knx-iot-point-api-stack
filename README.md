@@ -88,7 +88,7 @@ Test-enabled presets are also available, including `windows-test-gcc`, `linux-te
 
 ### Usage
 
-This repository primarily builds the reusable stack library and supporting test binaries. Device applications typically include it as a dependency rather than running it directly. For application-level workflows, ETS6 commissioning, and example devices, see the [KNX IoT Point API documentation pages](https://buildwithknxiot.knx.org/public-projects/knx-iot-docs/pointapi/introduction/) and the demos repository.
+This repository primarily builds the reusable stack library and supporting test binaries. Device applications typically include it as a dependency rather than running it directly. [docs/application-integration.md](docs/application-integration.md) describes how an application integrates the stack. For application-level workflows, ETS6 commissioning, and example devices, see the [KNX IoT Point API documentation pages](https://buildwithknxiot.knx.org/public-projects/knx-iot-docs/pointapi/introduction/) and the demos repository.
 
 ## Running Tests
 
@@ -201,11 +201,15 @@ Key areas:
 - **`include/oc_helpers.h`** contains utilities for strings and arrays backed by heap or memory pools.
 - **`port/*.h`** defines shared abstractions for DNS-SD, clocks, logging, randomness, storage, and networking.
 
+How these parts work together — the layers and their boundaries, the single-threaded runtime model, the send and receive flows, OSCORE replay protection, SPAKE2+ etc. is described in [docs/software-design.md](docs/software-design.md).
+
 ## Further Documentation
 
 | Document | Description |
 | -------- | ----------- |
 | [KNX IoT documentation pages](https://buildwithknxiot.knx.org/public-projects/knx-iot-docs/) | Stack introduction, ETS6 workflows, and broader Point API documentation |
+| [docs/application-integration.md](docs/application-integration.md) | Step-by-step guide to building a device application on the stack: identity, start-up, event loop and threading, datapoints, group messages, software update |
+| [docs/software-design.md](docs/software-design.md) | Software architecture and design: layers, runtime model, message flows, OSCORE and SPAKE2+ |
 | [tests/README.md](tests/README.md) | Map of the five test tiers and how to run each |
 | [KNX IoT Point API Test Tool](https://gitlab.knx.org/public-projects/knx-iot-point-api/knx-iot-point-api-test-tool) | The conformance-test tool (submodule `tests/iot-test-tool`): runner, browser GUI, run records |
 | [tests/runtime/README.md](tests/runtime/README.md) | Runtime conformance test setup and execution |
