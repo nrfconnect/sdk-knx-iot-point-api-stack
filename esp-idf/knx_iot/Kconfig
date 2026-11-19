@@ -87,6 +87,15 @@ config KNXIOT_ATT_MAX_ENTRIES
     int "Access Token (AT) table max entries"
     default 20
 
+config KNXIOT_CBOR_MAX_DEPTH
+    int "Maximum nesting depth of a received CBOR payload"
+    default 8
+    range 4 32
+    help
+      KNX payloads nest up to 4 deep, a smaller value rejects valid table writes.
+      Passed to the built-in TinyCBOR as CBOR_PARSER_MAX_RECURSIONS; with an
+      external TinyCBOR define CBOR_PARSER_MAX_RECURSIONS there.
+
 config KNXIOT_PAGE_SIZE
     int "Server default page size"
     default 20

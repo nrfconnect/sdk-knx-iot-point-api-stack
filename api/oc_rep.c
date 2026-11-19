@@ -741,6 +741,22 @@ int oc_parse_rep(const uint8_t *in_payload, int in_payload_size, oc_rep_t **out_
 
   if (cbor_value_is_valid(&root_value)) 
   {
+    /*
+      Skip the payload once before the tree is built: TinyCBOR (built with
+      CBOR_PARSER_MAX_RECURSIONS = KNX_CBOR_MAX_DEPTH) rejects deeper nesting
+      with CborErrorNestingTooDeep, the recursive parse below is then bounded.
+    */
+    CborValue probe = root_value;
+    while (err == CborNoError && cbor_value_is_tag(&probe))
+      err = cbor_value_skip_tag(&probe);
+    if (err == CborNoError && cbor_value_is_valid(&probe))
+      err = cbor_value_advance(&probe);
+    if (err != CborNoError)
+    {
+      OC_WRN("payload rejected before parsing, tinyCBOR error code: %d", (int)err);
+      return err;
+    }
+
     // returns an object/array at top level for out_rep on no error
     oc_parse_single_entity(&root_value, out_rep, &err);
   }

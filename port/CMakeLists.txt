@@ -146,6 +146,10 @@ if(CONFIG_KNXIOT_TINYCBOR_BUILTIN)
     FetchContent_MakeAvailable(tinycbor)
     set(BUILD_TESTING ${_kis_saved_build_testing} CACHE BOOL "" FORCE)
     unset(_kis_saved_build_testing)
+
+    # bounds TinyCBOR's recursion when it skips a container; oc_parse_rep() relies on it to reject a
+    # received payload nested deeper than KNX_CBOR_MAX_DEPTH before the tree is built
+    target_compile_definitions(tinycbor PRIVATE CBOR_PARSER_MAX_RECURSIONS=${KNX_CBOR_MAX_DEPTH})
 endif()
 
 ### mDNS/DNS-SD library ###

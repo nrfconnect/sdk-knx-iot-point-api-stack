@@ -1692,7 +1692,15 @@ typedef struct oc_rep_s
   } value;                  // the value as union
 } oc_rep_t;
 
-// internal function
+/**
+ * @brief parse a received CBOR payload into a tree of oc_rep_t nodes (internal)
+ *
+ * A payload nested deeper than KNX_CBOR_MAX_DEPTH containers is rejected with
+ * CborErrorNestingTooDeep before any node is allocated. The limit is TinyCBOR's
+ * CBOR_PARSER_MAX_RECURSIONS, which the stack sets when it builds TinyCBOR.
+ *
+ * @return CborNoError, or the TinyCBOR error; the caller frees *out_rep with oc_free_rep()
+ */
 int oc_parse_rep(const uint8_t* in_payload, int in_payload_size, oc_rep_t** out_rep);
 
 // internal function

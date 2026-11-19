@@ -145,6 +145,18 @@ config KNXIOT_ATT_MAX_ENTRIES
       of management clients (e.g., ETS, MaC tools) that may be
       simultaneously authorised.
 
+config KNXIOT_CBOR_MAX_DEPTH
+    int "Maximum nesting depth of a received CBOR payload"
+    default 8
+    range 4 32
+    help
+      Corresponds to CMake: KNX_CBOR_MAX_DEPTH.
+      A payload with more nested arrays/maps is rejected with 4.00 before
+      it is parsed. Bounds the stack the parser can use (KNX payloads nest
+      at most 4 deep). Passed to the built-in TinyCBOR as
+      CBOR_PARSER_MAX_RECURSIONS; with an external TinyCBOR
+      (KNXIOT_TINYCBOR_BUILTIN=n) define CBOR_PARSER_MAX_RECURSIONS there.
+
 config KNXIOT_PAGE_SIZE
     int "Server default page size"
     default 20

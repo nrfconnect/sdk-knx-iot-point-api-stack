@@ -10,22 +10,22 @@
 
 #define __STDC_FORMAT_MACROS // defined to use format specifiers also in C++
 
+#include "api/oc_knx_sec.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "api/oc_knx_dev.h"
-#include "api/oc_knx_sec.h"
 #include "messaging/coap/observe.h"
+#include "messaging/coap/oscore_constants.h"
 #include "oc_api.h"
 #include "oc_core_res.h"
 #include "oc_discovery.h"
-#include "security/oc_oscore_context.h"
 #include "oc_helpers.h"
 #include "oc_knx_helpers.h"
 #include "oc_replay.h"
-#include "messaging/coap/oscore_constants.h"
 #include "port/oc_storage.h"
+#include "security/oc_oscore_context.h"
 
 // forward declarations for the resource chain
 extern const oc_resource_t core_resource_knx_auth_o;
@@ -2228,10 +2228,12 @@ void oc_init_oscore_from_storage(const bool read_ssn_from_storage)
   }
 }
 
-oc_status_t oc_knx_sec_check_acl(coap_method_t method, const oc_resource_t* resource, oc_endpoint_t* endpoint, oc_rep_t* value_object)
+static oc_status_t acl_scope_status(coap_method_t method, const oc_resource_t* resource, const oc_endpoint_t* endpoint,
+                                    oc_acl_mask_t* caller_acl_scope)
 {
   //  scope of called resource, init with default
   oc_acl_mask_t called_res_scope = OC_ACL_NONE;
+  *caller_acl_scope = OC_ACL_NONE;
 
   // check for scope, considering of CoAP INNER method (GET, PUT, ...)
   if (!oc_resource_get_acl_for_method(resource, method, &called_res_scope))
@@ -2278,19 +2280,32 @@ oc_status_t oc_knx_sec_check_acl(coap_method_t method, const oc_resource_t* reso
     (see resource definitions, e.g.; auth/o GET = if.p/d/c for linked-list)
   */
 
-  const oc_acl_mask_t caller_acl_scope = oc_at_get_scope_mask(endpoint->access_token.inbound);
+  *caller_acl_scope = oc_at_get_scope_mask(endpoint->access_token.inbound);
 
   // bitwise 'and' -> at least one scope from access token and resource must match, otherwise 4.03
-  if (!(caller_acl_scope & called_res_scope))
+  if (!(*caller_acl_scope & called_res_scope))
   {
     #ifdef OC_DEBUG
-    OC_DBG_OSCORE("access to %s unauthorized: request scope=%d ; resource scope=%d :", oc_string(resource->uri), caller_acl_scope, called_res_scope);
+    OC_DBG_OSCORE("access to %s unauthorized: request scope=%d ; resource scope=%d :", oc_string(resource->uri), *caller_acl_scope, called_res_scope);
 
-    oc_print_acl_scopes(caller_acl_scope);
+    oc_print_acl_scopes(*caller_acl_scope);
     oc_print_acl_scopes(called_res_scope);
 
     #endif
     return OC_STATUS_FORBIDDEN;
+  }
+
+  return OC_STATUS_OK;
+}
+
+oc_status_t oc_knx_sec_check_acl(coap_method_t method, const oc_resource_t* resource, oc_endpoint_t* endpoint, oc_rep_t* value_object)
+{
+  oc_acl_mask_t caller_acl_scope;
+
+  const oc_status_t status = acl_scope_status(method, resource, endpoint, &caller_acl_scope);
+  if (status != OC_STATUS_OK)
+  {
+    return status;
   }
 
   /*
@@ -2400,4 +2415,11 @@ oc_status_t oc_knx_sec_check_acl(coap_method_t method, const oc_resource_t* reso
 
   // acl scopes + method OK (O0, O1, O2 with all ga's covered or a 'sia' only payload)
   return OC_STATUS_OK;
+}
+
+oc_status_t oc_knx_sec_check_acl_scope(coap_method_t method, const oc_resource_t* resource, const oc_endpoint_t* endpoint)
+{
+  oc_acl_mask_t caller_acl_scope;
+
+  return acl_scope_status(method, resource, endpoint, &caller_acl_scope);
 }

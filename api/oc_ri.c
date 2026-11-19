@@ -1045,6 +1045,28 @@ static void free_all_event_timers(void)
   }
 }
 
+/*
+  Parses a CBOR (or OSCORE-decrypted CBOR) request payload with tinyCBOR via the oc_rep helper functions into a tree
+  of oc_rep_t nodes (calloc inside oc_parse_rep) reflecting the payload's schema; other content formats are not parsed.
+  A parse failure is an erroneous request (4.00), an unexpected end means the payload was cut (too large, 4.13).
+*/
+static oc_status_t oc_ri_parse_request_payload(const uint8_t* payload, uint32_t payload_len, oc_content_format_t content_format, oc_rep_t** rep)
+{
+  if (content_format != APPLICATION_CBOR && content_format != APPLICATION_OSCORE)
+  {
+    return OC_STATUS_OK;
+  }
+
+  const int parse_error = oc_parse_rep(payload, (int)payload_len, rep);
+  if (parse_error == 0)
+  {
+    return OC_STATUS_OK;
+  }
+
+  OC_WRN("error parsing request payload; tinyCBOR error code:  %d", parse_error);
+  return parse_error == CborErrorUnexpectedEOF ? OC_STATUS_REQUEST_ENTITY_TOO_LARGE : OC_STATUS_BAD_REQUEST;
+}
+
 bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
                                       oc_blockwise_state_t** request_state,
                                       oc_blockwise_state_t** response_state,
@@ -1052,7 +1074,7 @@ bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
 {
   /*
     error response of this request, OC_STATUS_OK = no error so far
-    - stages: payload parse -> resource lookup -> response state allocation -> access check -> method handler
+    - stages: resource lookup -> access scope -> payload parse -> response state allocation -> access check -> method handler
     - the first error wins, every later stage runs only while it is still OC_STATUS_OK
     -> set once at the end as the response code (4.00, 4.13, 4.04, 4.03, 4.01, 4.05)
   */
@@ -1109,30 +1131,12 @@ bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
     .request_method = method
   };
 
-  if (payload_len > 0 && (content_format == APPLICATION_CBOR || content_format == APPLICATION_OSCORE))
-  {
-    /*
-      Attempt to parse request payload using tinyCBOR via oc_rep helper functions. The result of this parse is a
-      tree of oc_rep_t structures which will reflect the schema of the payload. Any failures while parsing the
-      payload is viewed as an erroneous request and results in a 4.00 response being sent.
-      oc_rep_t nodes are allocated via calloc inside oc_parse_rep.
-    */
-    const int parse_error = oc_parse_rep(payload, (int)payload_len, &new_request.request_payload);
-    if (parse_error != 0)
-    {
-      OC_WRN("error parsing request payload; tinyCBOR error code:  %d", parse_error);
-
-      // an unexpected end means the payload was cut (too large, hence incomplete)
-      error = parse_error == CborErrorUnexpectedEOF ? OC_STATUS_REQUEST_ENTITY_TOO_LARGE : OC_STATUS_BAD_REQUEST;
-    }
-  }
-
   // default, no matching resource found
   const oc_resource_t* matching_resource = NULL;
 
   /*
-    If there were no errors thus far, attempt to locate the specific declared core/application resources
-    that will handle the request using the request uri.
+    Locate the core/application resource first: a request to an unknown path is answered with 4.04
+    without parsing its payload.
   */
   if (error == OC_STATUS_OK)
   {
@@ -1210,6 +1214,20 @@ bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
       OC_WRN("could not find resource in core and application");
       error = OC_STATUS_NOT_FOUND;
     }
+  }
+
+  /*
+    Scope check without the payload: a request without access is answered 4.01/4.03/4.05 without parsing its
+    payload. The payload-dependent part (group addresses of a <ga> token) follows in oc_knx_sec_check_acl().
+  */
+  if (error == OC_STATUS_OK)
+  {
+    error = oc_knx_sec_check_acl_scope(method, matching_resource, endpoint);
+  }
+
+  if (error == OC_STATUS_OK && payload_len > 0)
+  {
+    error = oc_ri_parse_request_payload(payload, payload_len, content_format, &new_request.request_payload);
   }
 
   // alloc response_state, it also affects response_buffer (OC_STATUS_OK here: a resource was found)
@@ -1475,25 +1493,25 @@ bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
       if (matching_resource && (method == COAP_PUT || method == COAP_POST) && response_buffer.code < oc_status_code(OC_STATUS_BAD_REQUEST))
       {
         /*
-          
-          1. /k and /p resources are observable, so if 'change' request was successfully handled, 
+
+          1. /k and /p resources are observable, so if 'change' request was successfully handled,
              then the resource state may have changed
 
-          2. /k has a mandatory OBSERVE with if.g.s, it may be unicast or multicast, 
-             both with POST, the actual service type is part of the s-mode payload (st='r/w/a') 
-             
+          2. /k has a mandatory OBSERVE with if.g.s, it may be unicast or multicast,
+             both with POST, the actual service type is part of the s-mode payload (st='r/w/a')
+
              - multicast ->  calls 'oc_ignore_request' which sets OC_IGNORE, not processed here
                              (consequently only on self-triggered request a notification is sent, 
                               see 'coap_notify_k_observers')
              
              - unicast   ->  calls below 'oc_notify_observers' which sends a notification to all observers of the resource,
-                             no delay (it was a unicast, hence no other devices firing notifications based on this request) 
-          
+                             no delay (it was a unicast, hence no other devices firing notifications based on this request)
+
           3. /p has an optional (OBSERVE) with if.p (Table 6, IoT Specification), unicast and mandatory PUT
-          4. /p has a mandatory OBSERVE with if.o (Table 6, IoT Specification), unicast and optional POST 
-             (the POST is handled as an alias via /k above)            
-             
-         
+          4. /p has a mandatory OBSERVE with if.o (Table 6, IoT Specification), unicast and optional POST
+             (the POST is handled as an alias via /k above)
+
+
         */
         oc_notify_observers(matching_resource);
       }

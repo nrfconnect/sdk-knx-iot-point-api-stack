@@ -19,13 +19,13 @@ extern "C" {
 
   #define DEFAULT_OSN_DELAY (1000)	// default (ms) defined by iot specification -> able to be modified by PUT
 
-  // AT and SSN storage keys, max 15 characters (ESP-IDF NVS limit, NVS_KEY_NAME_MAX_SIZE 16
-  // including NUL). The SSN entry of an AT entry uses the same AT table index, '_99999' is the
-  // index budget.
-  #define KNX_STORAGE_KEY_ATT_ENTRY "att_e"
-  #define KNX_STORAGE_KEY_ATT_ENTRY_SIZE (sizeof(KNX_STORAGE_KEY_ATT_ENTRY) + 6)
-  #define KNX_STORAGE_KEY_SSNT_ENTRY "ssnt_e"
-  #define KNX_STORAGE_KEY_SSNT_ENTRY_SIZE (sizeof(KNX_STORAGE_KEY_SSNT_ENTRY) + 6)
+// AT and SSN storage keys, max 15 characters (ESP-IDF NVS limit, NVS_KEY_NAME_MAX_SIZE 16
+// including NUL). The SSN entry of an AT entry uses the same AT table index, '_99999' is the
+// index budget.
+#define KNX_STORAGE_KEY_ATT_ENTRY "att_e"
+#define KNX_STORAGE_KEY_ATT_ENTRY_SIZE (sizeof(KNX_STORAGE_KEY_ATT_ENTRY) + 6)
+#define KNX_STORAGE_KEY_SSNT_ENTRY "ssnt_e"
+#define KNX_STORAGE_KEY_SSNT_ENTRY_SIZE (sizeof(KNX_STORAGE_KEY_SSNT_ENTRY) + 6)
 
 	/**
 	 * @brief The token profiles
@@ -159,12 +159,12 @@ extern "C" {
 	 */
 	int oc_core_get_at_table_size(void);
 
-	/**
+  /**
    * @brief returns the amount of used entries of the auth/at table
    *
    * @return the allocated amount of entries of the auth/at table
    */
-	int oc_core_items_used_in_auth_at_table(void);
+  int oc_core_items_used_in_auth_at_table(void);
 
 	/**
    * @brief Find (all) PASE entries in the access token table and delete them 
@@ -176,15 +176,15 @@ extern "C" {
 	*/
 	void oc_core_find_and_remove_pase_token_in_at_table(void);
 
-	/**
+  /**
    * @brief set shared (SPAKE) key to the auth at table, on the device (server) side
    *
-   * @param client_sender_id device id that has been negotiated with SPAKE2+, it will become the kid (Sender ID) within the OSCORE context. 
+   * @param client_sender_id device id that has been negotiated with SPAKE2+, it will become the kid (Sender ID) within the OSCORE context.
    * @param client_sender_id_size sender id size
    * @param shared_key the master key after SPAKE2 handshake
    * @param shared_key_size key size
    */
-	void oc_oscore_set_auth_shared(const char* client_sender_id, int client_sender_id_size, uint8_t* shared_key, int shared_key_size);
+  void oc_oscore_set_auth_shared(const char* client_sender_id, int client_sender_id_size, uint8_t* shared_key, int shared_key_size);
 
 	/**
 	 * @brief retrieve auth/at entry by index
@@ -231,7 +231,7 @@ extern "C" {
 	 *
 	 * @param entry pointer to the AT table entry to be deleted
    * @return 0 == success, - 1 == entry not found
-	 */
+   */
   int oc_delete_at_table_entry(oc_auth_at_t* entry);
 
  	/**
@@ -294,6 +294,18 @@ extern "C" {
 	 *         resource -> 4.03
 	 */
   oc_status_t oc_knx_sec_check_acl(coap_method_t method, const oc_resource_t* resource, oc_endpoint_t* endpoint, oc_rep_t* value_object);
+
+  /**
+   * @brief first stage of oc_knx_sec_check_acl() without the payload: the method has a handler and
+   *        the scope of the endpoint's access token matches the resource scope of the method
+   *
+   * Used before the request payload is parsed, so a request without access is answered without
+   * parsing it. A token with a <ga> list still needs oc_knx_sec_check_acl() on the parsed payload.
+   *
+   * @return OC_STATUS_OK the scopes match (or the resource is unsecured for this method), otherwise the error code
+   *         of oc_knx_sec_check_acl() (4.05, 4.01 or 4.03)
+   */
+  oc_status_t oc_knx_sec_check_acl_scope(coap_method_t method, const oc_resource_t* resource, const oc_endpoint_t* endpoint);
 
 	/**
 	 * @brief returns AT entry with OSCORE ID

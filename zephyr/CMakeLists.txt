@@ -129,6 +129,8 @@ if(CONFIG_KNXIOT_TINYCBOR_BUILTIN)
         $<TARGET_PROPERTY:zephyr_interface,INTERFACE_INCLUDE_DIRECTORIES>)
     target_compile_definitions(tinycbor PRIVATE
         $<TARGET_PROPERTY:zephyr_interface,INTERFACE_COMPILE_DEFINITIONS>)
+    # bounds TinyCBOR's recursion when it skips a container (see oc_parse_rep)
+    target_compile_definitions(tinycbor PRIVATE CBOR_PARSER_MAX_RECURSIONS=${CONFIG_KNXIOT_CBOR_MAX_DEPTH})
 
     zephyr_library_link_libraries(tinycbor)
     zephyr_include_directories(${tinycbor_SOURCE_DIR}/src ${tinycbor_BINARY_DIR})
@@ -366,6 +368,7 @@ zephyr_compile_definitions(
 ## Security
 zephyr_compile_definitions(
     KNX_ECHO_RING_SIZE=${CONFIG_KNXIOT_ECHO_RING_SIZE}
+    KNX_CBOR_MAX_DEPTH=${CONFIG_KNXIOT_CBOR_MAX_DEPTH}
 )
 
 ## Logging

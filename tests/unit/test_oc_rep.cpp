@@ -14,9 +14,9 @@
  * Copyright 2026 KNXA (to the extent protectable under applicable law)
  */
 
-#include <gtest/gtest.h>
-#include <cstring>
 #include <cstdlib>
+#include <cstring>
+#include <gtest/gtest.h>
 #include <string>
 
 extern "C" {
@@ -934,6 +934,85 @@ TEST_F(OcRepTest, ParseRep_DuplicateIntegerKeyInNestedMap)
   EXPECT_EQ(last_ga, 9999);
 }
 
+/* Nesting depth (KNX_CBOR_MAX_DEPTH): the parse recurses per level, so a deeper
+   payload is rejected before any node is allocated */
+
+/* depth nested one-element arrays around the integer 0: [[[...0...]]] */
+static std::vector<uint8_t> nested_arrays(int depth)
+{
+  std::vector<uint8_t> p((size_t)depth, 0x81);
+  p.push_back(0x00);
+  return p;
+}
+
+TEST_F(OcRepTest, ParseRep_ArraysAtMaxDepth_AreAccepted)
+{
+  const std::vector<uint8_t> p = nested_arrays(KNX_CBOR_MAX_DEPTH);
+  EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborNoError);
+  EXPECT_NE(rep, nullptr);
+}
+TEST_F(OcRepTest, ParseRep_ArraysOneBeyondMaxDepth_AreRejectedWithoutTree)
+{
+  /* 400: the 401-byte payload that drove the stack to 84 KB before the check */
+  for (const int depth : {KNX_CBOR_MAX_DEPTH + 1, 400})
+  {
+    const std::vector<uint8_t> p = nested_arrays(depth);
+    EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborErrorNestingTooDeep) << "depth " << depth;
+    EXPECT_EQ(rep, nullptr) << "depth " << depth;
+    if (rep != nullptr)
+    {
+      oc_free_rep(rep);
+      rep = nullptr;
+    }
+  }
+}
+TEST_F(OcRepTest, ParseRep_MapsOneBeyondMaxDepth_AreRejected)
+{
+  /* { 1: { 1: ... { 1: 0 } } } */
+  std::vector<uint8_t> p;
+  for (int i = 0; i < KNX_CBOR_MAX_DEPTH + 1; i++)
+  {
+    p.push_back(0xa1);
+    p.push_back(0x01);
+  }
+  p.push_back(0x00);
+  EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborErrorNestingTooDeep);
+  EXPECT_EQ(rep, nullptr);
+}
+TEST_F(OcRepTest, ParseRep_DeepSecondArrayItem_IsRejected)
+{
+  /* [ 1, [[...]] ]: the array type scan skips the second item before parsing it */
+  std::vector<uint8_t> p = {0x82, 0x01};
+  const std::vector<uint8_t> inner = nested_arrays(KNX_CBOR_MAX_DEPTH);
+  p.insert(p.end(), inner.begin(), inner.end());
+  EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborErrorNestingTooDeep);
+  EXPECT_EQ(rep, nullptr);
+}
+TEST_F(OcRepTest, ParseRep_TaggedRootOverDeepArrays_IsRejected)
+{
+  /* tag 32 in front of the nested arrays */
+  std::vector<uint8_t> p = {0xd8, 0x20};
+  const std::vector<uint8_t> inner = nested_arrays(KNX_CBOR_MAX_DEPTH + 1);
+  p.insert(p.end(), inner.begin(), inner.end());
+  EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborErrorNestingTooDeep);
+  EXPECT_EQ(rep, nullptr);
+}
+TEST_F(OcRepTest, ParseRep_SiblingsAtMaxDepth_AreAccepted)
+{
+  /* [ X, X ] with X nested to the limit: leaving a container restores the depth */
+  std::vector<uint8_t> p = {0x82};
+  const std::vector<uint8_t> inner = nested_arrays(KNX_CBOR_MAX_DEPTH - 1);
+  p.insert(p.end(), inner.begin(), inner.end());
+  p.insert(p.end(), inner.begin(), inner.end());
+  EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborNoError);
+  EXPECT_NE(rep, nullptr);
+}
+TEST_F(OcRepTest, ParseRep_TruncatedNestedPayload_StillReportsUnexpectedEof)
+{
+  /* the walk must keep the error that maps to 4.13 (entity too large) */
+  const uint8_t payload[] = {0xa1, 0x01, 0x82, 0x01};
+  EXPECT_EQ(oc_parse_rep(payload, sizeof(payload), &rep), CborErrorUnexpectedEOF);
+}
 /* ═══════════════════════════════════════════════════════════════════════════
  * Text-keyed variants (oc_rep_text_set_int, etc.)
  * ═══════════════════════════════════════════════════════════════════════════ */

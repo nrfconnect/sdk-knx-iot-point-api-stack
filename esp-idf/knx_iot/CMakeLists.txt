@@ -143,7 +143,6 @@ idf_component_register(
         "${STACK_ROOT}/port/freertos_esp32"
         "${STACK_ROOT}/security"
         "${STACK_ROOT}/messaging/coap"
-        "${STACK_ROOT}/api"
         "${STACK_ROOT}/api/c-timestamp"
     REQUIRES
         mbedtls
@@ -229,6 +228,8 @@ if(CONFIG_KNXIOT_TINYCBOR_BUILTIN)
         GIT_TAG v7.0
     )
     FetchContent_MakeAvailable(tinycbor)
+    # bounds TinyCBOR's recursion when it skips a container (see oc_parse_rep)
+    target_compile_definitions(tinycbor PRIVATE CBOR_PARSER_MAX_RECURSIONS=${CONFIG_KNXIOT_CBOR_MAX_DEPTH})
     target_link_libraries(${COMPONENT_LIB} PUBLIC tinycbor)
     target_include_directories(${COMPONENT_LIB} PUBLIC
         "${tinycbor_SOURCE_DIR}/src" "${tinycbor_BINARY_DIR}")
@@ -259,6 +260,7 @@ target_compile_definitions(${COMPONENT_LIB} PUBLIC
     KNX_GPT_MAX_ENTRIES=${CONFIG_KNXIOT_GPT_MAX_ENTRIES}
     KNX_GRT_MAX_ENTRIES=${CONFIG_KNXIOT_GRT_MAX_ENTRIES}
     KNX_ATT_MAX_ENTRIES=${CONFIG_KNXIOT_ATT_MAX_ENTRIES}
+    KNX_CBOR_MAX_DEPTH=${CONFIG_KNXIOT_CBOR_MAX_DEPTH}
     KNX_PAGE_SIZE=${CONFIG_KNXIOT_PAGE_SIZE}
     KNX_PAYLOAD_SIZE=768
     KNX_UNICAST_PORT=${CONFIG_KNX_UNICAST_PORT}

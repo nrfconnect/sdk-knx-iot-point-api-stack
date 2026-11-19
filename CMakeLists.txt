@@ -113,6 +113,10 @@ set(KNX_ATT_MAX_ENTRIES "20" CACHE STRING "Maximum number of access token table 
 set(KNX_PAGE_SIZE "20" CACHE STRING "Server default page size for pagination")
 set(KNX_PAYLOAD_SIZE "768" CACHE STRING "Application payload bytes per CoAP exchange (buffer size, see below)" FORCE)
 set(KNX_ECHO_RING_SIZE "64" CACHE STRING "Echo ring size, used buffers to defend against replayed 4.01 unicast echo responses")
+set(KNX_CBOR_MAX_DEPTH "8" CACHE STRING "Maximum nesting depth of a received CBOR payload, deeper payloads are rejected before parsing (passed to the built-in TinyCBOR as CBOR_PARSER_MAX_RECURSIONS)")
+if(KNX_CBOR_MAX_DEPTH LESS 4)
+    message(FATAL_ERROR "KNX_CBOR_MAX_DEPTH must be at least 4: KNX payloads nest up to 4 deep, a smaller value rejects valid table writes")
+endif()
 
 ## KNX payload size (bytes)
 #
@@ -352,6 +356,7 @@ target_compile_definitions(kis-common INTERFACE
     KNX_ATT_MAX_ENTRIES=${KNX_ATT_MAX_ENTRIES} # access token table size
     KNX_PAGE_SIZE=${KNX_PAGE_SIZE}             # server default page size
     KNX_ECHO_RING_SIZE=${KNX_ECHO_RING_SIZE}   # echo ring size
+    KNX_CBOR_MAX_DEPTH=${KNX_CBOR_MAX_DEPTH}   # nesting depth of a received CBOR payload
 
     ## Network
     # IPv6 unicast port
