@@ -356,24 +356,47 @@ void collect_and_rank_status(int coap_status, oc_status_t* current_oc_status)
   }
 }
 
+// example </p?pn=1>;rt="p.next";ct=40, 'p.next' is fix and 'p' is not an individual url part
+#define NEXT_PAGE_LINK_START ",<"
+#define NEXT_PAGE_LINK_QUERY "?pn="
+#define NEXT_PAGE_LINK_END ">;rt=\"p.next\";ct=40"
+#define MAX_PAGE_NUM (5) // buffer for the page number, max pn=9999 and the terminator
+
 int add_next_page_indicator(char* url, int next_page_num)
 {
-  // example </p?pn=1>;rt="p.next";ct=40, 'p.next' is fix and 'p' is not an individual url part
-  
-  #define MAX_PAGE_NUM (5) // max number pn=99999 
-
   char next_page_str[MAX_PAGE_NUM];
   (void)snprintf(next_page_str, MAX_PAGE_NUM, "%d", next_page_num);
 
-  int response_length = oc_rep_add_line_to_buffer(",<"); 
+  int response_length = oc_rep_add_line_to_buffer(NEXT_PAGE_LINK_START);
   response_length += oc_rep_add_line_to_buffer(url);
-  response_length += oc_rep_add_line_to_buffer("?pn=");
+  response_length += oc_rep_add_line_to_buffer(NEXT_PAGE_LINK_QUERY);
   response_length += oc_rep_add_line_to_buffer(next_page_str);
-  response_length += oc_rep_add_line_to_buffer(">;rt=\"p.next\";ct=40");
+  response_length += oc_rep_add_line_to_buffer(NEXT_PAGE_LINK_END);
 
   return response_length;
 }
 
+int knx_link_list_page_size(const char* url, size_t longest_link)
+{
+  if (g_encoder.end == NULL || g_encoder.data.ptr > g_encoder.end)
+  {
+    return KNX_PAGE_SIZE;
+  }
+
+  const size_t free_space = (size_t)(g_encoder.end - g_encoder.data.ptr);
+  const size_t next_page_link = sizeof(NEXT_PAGE_LINK_START) - 1 + (url ? strlen(url) : 0) + sizeof(NEXT_PAGE_LINK_QUERY) - 1 + (MAX_PAGE_NUM - 1) +
+    sizeof(NEXT_PAGE_LINK_END) - 1;
+
+  if (longest_link == SIZE_MAX || free_space < next_page_link + longest_link)
+  {
+    // not even one link fits, a page of one is answered with 5.00 as before
+    return 1;
+  }
+
+  // n links take n * longest_link + (n - 1) separators
+  const size_t fitting = (free_space - next_page_link + 1) / (longest_link + 1);
+  return fitting < (size_t)KNX_PAGE_SIZE ? (int)fitting : KNX_PAGE_SIZE;
+}
 
 void oc_knx_get_response_int(oc_request_t* request, int64_t value)
 {

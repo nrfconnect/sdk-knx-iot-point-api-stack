@@ -101,6 +101,26 @@ static uint8_t oc_core_get_dps_in_a_specific_fb(int fb_number, int fb_instance)
   return 0;
 }
 
+// the longest datapoint link of an FB sizes the default page, without ps it holds as many as fit the buffer
+static size_t fb_longest_link(int fb_number, int fb_instance)
+{
+  size_t longest_link = 0;
+  for (const oc_resource_t* resource = oc_ri_get_app_resources(); resource; resource = resource->next)
+  {
+    const uint16_t fb_number_l = resource->fb_data >> 16;
+    const uint8_t fb_instance_l = resource->fb_data >> 8 & 0xFF;
+    if ((resource->properties & OC_DISCOVERABLE) && fb_number_l == fb_number && fb_instance_l == fb_instance)
+    {
+      const size_t link_length = oc_resource_link_length(resource, true, true);
+      if (link_length > longest_link)
+      {
+        longest_link = link_length;
+      }
+    }
+  }
+  return longest_link;
+}
+
 static void oc_core_fb_x_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
   (void)data;
@@ -110,7 +130,7 @@ static void oc_core_fb_x_get_handler(oc_request_t* request, oc_interface_mask_t 
   size_t response_length = 0;
   int skipped = 0; // ignore resources that do not fit to the requested page
   int query_pn = KNX_PAGE_NUMBER;
-  int query_ps = KNX_PAGE_SIZE;
+  int query_ps = 0; // the default is set below, once the datapoint links are measured
 
   OC_INF("oc_core_fb_x_get_handler - start");
 
@@ -143,8 +163,11 @@ static void oc_core_fb_x_get_handler(oc_request_t* request, oc_interface_mask_t 
   // if instance/number not found a '-1'/'-1' is input here that results in total =0
   const int total = oc_core_get_dps_in_a_specific_fb(fb_number, fb_instance);
 
+  const int default_ps = knx_link_list_page_size(oc_string(request->resource->uri), fb_longest_link(fb_number, fb_instance));
+  query_ps = default_ps;
+
   // handle query parameters l=ps and/or l=total
-  if (query_l_was_processed(request, KNX_PAGE_SIZE, total))
+  if (query_l_was_processed(request, default_ps, total))
     return;
 
   // first entry number of a resource that will be placed on a page
@@ -470,8 +493,8 @@ static void oc_core_fb_get_handler(oc_request_t* request, oc_interface_mask_t if
   // - total=4, page number 1, page size 01, first entry = 001 -> more data on next page
   const bool more_request_needed = total > first_entry + query_ps;
 
-  if (oc_add_functional_blocks_from_application_to_response(request, true, true, &response_length, &query_parameter_kvpair_matches,
-                                                &skipped, first_entry, total))
+  if (oc_add_functional_blocks_from_application_to_response(request, true, true, &response_length, &query_parameter_kvpair_matches, &skipped,
+                                                            first_entry, first_entry + query_ps))
   {
     if (more_request_needed)
     {

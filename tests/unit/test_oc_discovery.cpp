@@ -408,6 +408,18 @@ TEST_F(WellKnownCoreHandler, FinalPageOmitsNextPageIndicator)
   EXPECT_EQ(payload().find("?pn="), std::string::npos);
 }
 
+TEST_F(WellKnownCoreHandler, PagingOnlyQueryReturnsRequestedPage)
+{
+  // A p.next link of a plain discovery carries only pn, it must not be treated as a filter without a match.
+  set_handler_query("pn=1&ps=1");
+
+  invoke();
+
+  ASSERT_EQ(response_buffer.code, oc_status_code(OC_STATUS_OK));
+  EXPECT_GT(response_buffer.response_length, 0);
+  EXPECT_NE(payload().find("</.well-known/core?pn=2>"), std::string::npos);
+}
+
 TEST_F(WellKnownCoreHandler, MatchingResourceTypeAndInterfaceReturnResource)
 {
   // Verify that matching rt and if filters return the corresponding resource.

@@ -98,6 +98,13 @@ void oc_prepare_linkformat_response(oc_request_t* request, oc_status_t response_
 {
   if (request && request->response && request->response->response_buffer)
   {
+    if (oc_rep_get_cbor_errno() == CborErrorOutOfMemory)
+    {
+      // link-format payload did not fit in the response buffer, do not send a truncated list
+      OC_ERR("oc_prepare_linkformat_response: payload does not fit in the response buffer");
+      response_length = 0;
+      response_code = OC_STATUS_INTERNAL_SERVER_ERROR;
+    }
     request->response->response_buffer->content_format = APPLICATION_LINK_FORMAT;
     request->response->response_buffer->response_length = response_length;
     request->response->response_buffer->code = oc_status_code(response_code);

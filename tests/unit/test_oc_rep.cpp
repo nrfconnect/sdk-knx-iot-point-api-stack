@@ -846,6 +846,58 @@ TEST_F(OcRepTest, AddLineSizeToBuffer)
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+ * raw writes are bounded by the encoder capacity (link-format responses)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+TEST_F(OcRepTest, AddLineToBuffer_BeyondCapacityWritesNothingAndFlagsOutOfMemory)
+{
+  memset(buf, 0xAA, sizeof(buf));
+  oc_rep_new(buf, 8);
+
+  EXPECT_EQ(oc_rep_add_line_to_buffer("0123"), 4);
+  EXPECT_EQ(oc_rep_add_line_to_buffer("456789"), 0);
+
+  EXPECT_EQ(oc_rep_get_cbor_errno(), CborErrorOutOfMemory);
+  EXPECT_EQ(memcmp(buf, "0123", 4), 0);
+  for (size_t i = 4; i < 64; i++)
+  {
+    EXPECT_EQ(buf[i], 0xAA) << "byte " << i << " written beyond the capacity";
+  }
+}
+
+TEST_F(OcRepTest, AddLineToBuffer_OutOfMemoryIsStickyForLaterLinesThatFit)
+{
+  oc_rep_new(buf, 8);
+
+  EXPECT_EQ(oc_rep_add_line_to_buffer("0123456789"), 0);
+  EXPECT_EQ(oc_rep_add_line_to_buffer("ab"), 2);
+
+  EXPECT_EQ(oc_rep_get_cbor_errno(), CborErrorOutOfMemory);
+}
+
+TEST_F(OcRepTest, AddLineToBuffer_ExactCapacityFits)
+{
+  memset(buf, 0xAA, sizeof(buf));
+  oc_rep_new(buf, 8);
+
+  EXPECT_EQ(oc_rep_add_line_to_buffer("01234567"), 8);
+
+  EXPECT_EQ(oc_rep_get_cbor_errno(), CborNoError);
+  EXPECT_EQ(buf[8], 0xAA);
+}
+
+TEST_F(OcRepTest, AddLineSizeToBuffer_BeyondCapacityWritesNothing)
+{
+  memset(buf, 0xAA, sizeof(buf));
+  oc_rep_new(buf, 4);
+
+  EXPECT_EQ(oc_rep_add_line_size_to_buffer("hello world", 5), 0);
+
+  EXPECT_EQ(oc_rep_get_cbor_errno(), CborErrorOutOfMemory);
+  EXPECT_EQ(buf[0], 0xAA);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
  * oc_rep_encode_raw
  * ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -1155,6 +1207,23 @@ TEST_F(OcRepTest, EncodeRawEncoder_WritesBytesAndAdvances)
   EXPECT_EQ(memcmp(buf, data, sizeof(data)), 0);
   /* encoder write pointer advanced by len */
   EXPECT_EQ(enc.data.ptr, buf + sizeof(data));
+}
+
+TEST_F(OcRepTest, EncodeRawEncoder_BeyondCapacityWritesNothing)
+{
+  memset(buf, 0xAA, sizeof(buf));
+  CborEncoder enc;
+  cbor_encoder_init(&enc, buf, 4, 0);
+  const uint8_t data[] = {1, 2, 3, 4, 5, 6};
+
+  oc_rep_encode_raw_encoder(&enc, data, sizeof(data));
+
+  EXPECT_EQ(g_err, CborErrorOutOfMemory);
+  EXPECT_EQ(enc.data.ptr, buf);
+  for (size_t i = 0; i < 16; i++)
+  {
+    EXPECT_EQ(buf[i], 0xAA) << "byte " << i << " written beyond the capacity";
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

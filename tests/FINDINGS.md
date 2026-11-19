@@ -5,7 +5,6 @@ Defects in the stack found by its tests that are still open.
 A finding is removed once it is fixed (its test then asserts the corrected
 behaviour) or withdrawn. Numbers are never reused, and tests and comments
 keep citing them: `git log -p -S "F-NNN" -- tests/FINDINGS.md` shows a
-removed entry. The next number is F-078.
 
 ## ~~F-029: `oc_endpoint_print()` frees an uninitialized string for non-IPv6 endpoints~~ - FIXED
 
@@ -669,3 +668,9 @@ removed entry. The next number is F-078.
   - conformance 5.5 passes (Docker)
   - Tests: `test_oc_knx_fp`, `FpHandlers.RcpPostIaAndGrpidInOneRequestIsRejected`, `PubPostIaAndGrpidInOneRequestIsRejected` (pin a1, pass also without the fix), `RcpPostIaOnAMulticastEntrySwitchesToUnicast`, `RcpPostGrpidOnAUnicastEntrySwitchesToMulticast` (`at` cleared), `PubPostIaOnAMulticastEntrySwitchesToUnicast` (all three fail without the switch: the old mode stays).
 
+## ~~F-078: the default page of /p and /f/{fb} does not fit long datapoint links~~ - FIXED
+
+- **Files:** `api/oc_knx_p.c` (GET `/p`), `api/oc_knx_fb.c` (GET `/f/{fb}`), `api/oc_knx_helpers.c`.
+- **Severity:** Low - a client that lists the datapoints without `ps` gets a cut page or 5.00 once the links are long.
+- **Description:** without `ps` a page holds `KNX_PAGE_SIZE` links. Realistic links (about 69 bytes, e.g. `/p/uhrs/tempsetpuseroffset` with `if.o`, `if.d` and `ct=60`) of a full page do not fit the `KNX_PAYLOAD_SIZE` response buffer, the encoder runs out and the page is cut or answered 5.00.
+- **Fix:** without `ps` the default page holds as many links as fit the response buffer (`knx_link_list_page_size()`, measured with `oc_resource_link_length()`); `l=ps` reports that page size and the next page continues where the first one ended (`pn * ps`). Tests: `test_oc_knx_p`, `KnxPAppResources.GetDefaultPageOfLongDatapointsFitsTheResponseBuffer`; `test_oc_knx_fb`, `CountFunctionalBlocks.DatapointHandlerDefaultPageOfLongDatapointsFitsTheResponseBuffer`.

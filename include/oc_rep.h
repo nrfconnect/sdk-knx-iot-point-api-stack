@@ -53,6 +53,36 @@ extern int g_err;
 void oc_rep_new(uint8_t *payload, int size);
 
 /**
+ * @brief State of the (single, global) CBOR encoder, see oc_rep_save_encoder()
+ */
+typedef struct oc_rep_encoder_state_t
+{
+  uint8_t* buf;            ///< buffer given to oc_rep_new()
+  CborEncoder encoder;     ///< g_encoder
+  CborEncoder root_map;    ///< root_map
+  CborEncoder links_array; ///< links_array
+  int err;                 ///< g_err
+} oc_rep_encoder_state_t;
+
+/**
+ * @brief Save the state of the global encoder.
+ *
+ * A function that encodes into a buffer of its own (oc_rep_new()) while its caller may be
+ * encoding a payload, such as a table store or an s-mode send called from a request handler,
+ * saves the encoder first and restores it when done, so the caller continues on its own buffer.
+ *
+ * @param[out] state the saved state
+ */
+void oc_rep_save_encoder(oc_rep_encoder_state_t* state);
+
+/**
+ * @brief Restore the global encoder saved with oc_rep_save_encoder().
+ *
+ * @param[in] state the saved state
+ */
+void oc_rep_restore_encoder(const oc_rep_encoder_state_t* state);
+
+/**
  * Get the size of the cbor encoded data.
  *
  * This can be used to check if the cbor encode data will fit inside the payload
@@ -90,6 +120,9 @@ const uint8_t *oc_rep_get_encoder_buf(void);
  * @brief Encode raw data, as if it was already encoded.
  * using the global encoder.
  *
+ * Data that does not fit in the remaining buffer is not written, the encoder
+ * is not advanced and CborErrorOutOfMemory is flagged (oc_rep_get_cbor_errno).
+ *
  * @param data Pointer to data to be encoded. Will be copied into the global
  * buffer.
  * @param len Length of data.
@@ -98,6 +131,8 @@ void oc_rep_encode_raw(const uint8_t *data, size_t len);
 
 /**
  * @brief Encode raw data, as if it was already encoded.
+ *
+ * Same bounds handling as oc_rep_encode_raw.
  *
  * @param encoder The encoder to be used.
  * @param data Pointer to data to be encoded. Will be copied into the global
@@ -112,7 +147,8 @@ void oc_rep_encode_raw_encoder(CborEncoder *encoder, const uint8_t *data,
  * @note updates the occupied size in the response buffer
  *
  * @param line data to be added
- * @return length of the line added to the response buffer
+ * @return length of the line added to the response buffer, 0 when it does
+ * not fit (nothing written, CborErrorOutOfMemory flagged)
  */
 int oc_rep_add_line_to_buffer(const char *line);
 
@@ -122,7 +158,8 @@ int oc_rep_add_line_to_buffer(const char *line);
  *
  * @param line data to be added
  * @param len the length of the line data to be added
- * @return length of the line added to the response buffer
+ * @return length of the line added to the response buffer, 0 when it does
+ * not fit (nothing written, CborErrorOutOfMemory flagged)
  */
 int oc_rep_add_line_size_to_buffer(const char *line, int len);
 

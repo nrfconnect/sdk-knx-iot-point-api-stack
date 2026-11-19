@@ -40,7 +40,7 @@ static void oc_core_p_get_handler(oc_request_t* request, oc_interface_mask_t ifa
   size_t response_length = 0;
   int total = 0; // total entries of this resource
   int query_pn = KNX_PAGE_NUMBER;
-  int query_ps = KNX_PAGE_SIZE;
+  int query_ps = 0; // the default is set below, once the datapoint links are measured
 
   OC_INF("oc_core_p_get_handler - start");
 
@@ -49,20 +49,30 @@ static void oc_core_p_get_handler(oc_request_t* request, oc_interface_mask_t ifa
     return;
   }
 
-  // calculate total resources
+  // calculate total resources, and the longest datapoint link that sizes the default page
   const oc_resource_t* my_p0 = oc_ri_get_app_resources();
   const oc_resource_t* my_p1 = my_p0;
+  size_t longest_link = 0;
 
   for (; my_p0; my_p0 = my_p0->next)
   {
     if (oc_string(my_p0->uri))
     { // check path is enough
       total++;
+      const size_t link_length = oc_resource_link_length(my_p0, true, true);
+      if (link_length > longest_link)
+      {
+        longest_link = link_length;
+      }
     }
   }
 
+  // without ps a page holds as many datapoint links as fit the response buffer
+  const int default_ps = knx_link_list_page_size(oc_string(request->resource->uri), longest_link);
+  query_ps = default_ps;
+
   // handle query parameters l=ps and/or l=total
-  if (query_l_was_processed(request, KNX_PAGE_SIZE, total))
+  if (query_l_was_processed(request, default_ps, total))
     return;
 
   // first entry number of a resource that will be placed on a page

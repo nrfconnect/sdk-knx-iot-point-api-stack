@@ -28,6 +28,24 @@ oc_rep_new(uint8_t *out_payload, int size)
   cbor_encoder_init(&g_encoder, out_payload, size, 0);
 }
 
+void oc_rep_save_encoder(oc_rep_encoder_state_t* state)
+{
+  state->buf = g_buf;
+  state->encoder = g_encoder;
+  state->root_map = root_map;
+  state->links_array = links_array;
+  state->err = g_err;
+}
+
+void oc_rep_restore_encoder(const oc_rep_encoder_state_t* state)
+{
+  g_buf = state->buf;
+  g_encoder = state->encoder;
+  root_map = state->root_map;
+  links_array = state->links_array;
+  g_err = state->err;
+}
+
 CborError
 oc_rep_get_cbor_errno(void)
 {
@@ -40,41 +58,44 @@ oc_rep_get_encoder_buf(void)
   return g_buf;
 }
 
-void
-oc_rep_encode_raw(const uint8_t *data, size_t len)
+// data that does not fit is not written and flags CborErrorOutOfMemory (sticky), a successful
+// write leaves an earlier encoder error in place
+static bool encode_raw_bounded(CborEncoder* encoder, const uint8_t* data, size_t len)
 {
-  memcpy(g_encoder.data.ptr, data, len);
-  g_encoder.data.ptr = g_encoder.data.ptr + len;
-  g_err = CborNoError;
-}
-
-void
-oc_rep_encode_raw_encoder(CborEncoder *encoder, const uint8_t *data, size_t len)
-{
+  if (encoder->end == NULL || encoder->data.ptr > encoder->end || (size_t)(encoder->end - encoder->data.ptr) < len)
+  {
+    OC_ERR("raw encode of %u bytes does not fit in the payload buffer", (unsigned)len);
+    g_err = CborErrorOutOfMemory;
+    return false;
+  }
   memcpy(encoder->data.ptr, data, len);
   encoder->data.ptr = encoder->data.ptr + len;
-  g_err = CborNoError;
+  return true;
 }
+
+void oc_rep_encode_raw(const uint8_t* data, size_t len) { (void)encode_raw_bounded(&g_encoder, data, len); }
+
+void oc_rep_encode_raw_encoder(CborEncoder* encoder, const uint8_t* data, size_t len) { (void)encode_raw_bounded(encoder, data, len); }
 
 int
 oc_rep_add_line_to_buffer(const char *line)
 {
-  int len = 0;
-  if (line != NULL) {
-    len = (int)strlen(line);
-    oc_rep_encode_raw((uint8_t *)line, len);
+  if (line == NULL)
+  {
+    return 0;
   }
-  return len;
+  const size_t len = strlen(line);
+  return encode_raw_bounded(&g_encoder, (const uint8_t*)line, len) ? (int)len : 0;
 }
 
 int
 oc_rep_add_line_size_to_buffer(const char *line, int len)
 {
-  if (line != NULL) {
-    oc_rep_encode_raw((uint8_t *)line, len);
-    return len;
+  if (line == NULL || len < 0)
+  {
+    return 0;
   }
-  return 0;
+  return encode_raw_bounded(&g_encoder, (const uint8_t*)line, (size_t)len) ? len : 0;
 }
 
 int

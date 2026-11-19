@@ -96,6 +96,20 @@ bool oc_add_resource_to_response_payload(const oc_resource_t *resource,
                                          bool include_if);
 
 /**
+ * @brief length of the link oc_add_resource_to_response_payload() frames for the resource (without the separating
+ *        ',' in front of it)
+ *
+ * The link is framed into the free space of the response buffer and taken back, the encoder is left as it was.
+ *
+ * @param resource the resource
+ * @param truncate see oc_add_resource_to_response_payload()
+ * @param include_if see oc_add_resource_to_response_payload()
+ *
+ * @return the length in bytes, 0 if the resource has no uri, SIZE_MAX if the link does not fit the free space
+ */
+size_t oc_resource_link_length(const oc_resource_t* resource, bool truncate, bool include_if);
+
+/**
  * @brief well-known discovery handler
  *
  * @param request the request

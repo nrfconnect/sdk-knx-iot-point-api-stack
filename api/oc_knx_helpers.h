@@ -150,6 +150,20 @@ int evaluate_query_px(oc_request_t* request, int* pn_value, int* ps_value);
 int add_next_page_indicator(char* url, int next_page_num);
 
 /**
+ * @brief default page size (ps) of a link-format list whose page must fit the response buffer
+ *
+ * A page holds 'ps' links separated by ',' plus the p.next link. Without a size check KNX_PAGE_SIZE long links
+ * do not fit the buffer, and the whole list answers 5.00. The page size is the number of links of the longest
+ * length that fit the free space of the response buffer next to the p.next link, at most KNX_PAGE_SIZE. It is
+ * the same for every page of the list (pn * ps must stay consistent) and is reported for l=ps.
+ *
+ * @param url the url of the list resource (framed in the p.next link)
+ * @param longest_link the longest link of the list, see oc_resource_link_length()
+ * @return 1 ... KNX_PAGE_SIZE
+ */
+int knx_link_list_page_size(const char* url, size_t longest_link);
+
+/**
  * @brief helper function to frame url part of query response:
  *  *
  * @param url the url to be framed

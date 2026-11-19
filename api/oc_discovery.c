@@ -212,6 +212,20 @@ bool oc_add_resource_to_response_payload(const oc_resource_t* resource, size_t* 
 	return true;
 }
 
+size_t oc_resource_link_length(const oc_resource_t* resource, bool truncate, bool include_if)
+{
+  oc_rep_encoder_state_t state;
+  oc_rep_save_encoder(&state);
+
+  g_err = CborNoError;
+  size_t length = 0;
+  (void)oc_add_resource_to_response_payload(resource, &length, truncate, include_if);
+  const bool fits = oc_rep_get_cbor_errno() == CborNoError;
+
+  oc_rep_restore_encoder(&state);
+  return fits ? length : SIZE_MAX;
+}
+
 bool oc_check_request_from_index(int index, oc_request_t* request, size_t* response_length, int* skipped, int first_entry, bool truncate, bool include_if)
 {
   const oc_resource_t* indexed_resource = oc_core_get_core_resource_by_index(index);
@@ -398,6 +412,11 @@ static void wkc_parse_query(oc_request_t* request, wkc_query_t* query)
     {
       query->d = value;
       query->d_len = (int)value_len;
+      query->key_match = true;
+    }
+    else if (key_len == 2 && (strncmp(key, "pn", 2) == 0 || strncmp(key, "ps", 2) == 0))
+    {
+      // paging only, evaluated by evaluate_query_px()
       query->key_match = true;
     }
   }
