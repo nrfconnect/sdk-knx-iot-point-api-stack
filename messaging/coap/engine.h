@@ -16,6 +16,13 @@
 #include "separate.h"
 #include "transactions.h"
 
+#ifndef OC_RESPONSE_CACHE_SIZE
+  #define OC_RESPONSE_CACHE_SIZE (4) // MUST use only values of 2 power n
+#endif
+#if OC_RESPONSE_CACHE_SIZE < 1 || (OC_RESPONSE_CACHE_SIZE & (OC_RESPONSE_CACHE_SIZE - 1)) != 0
+  #error "OC_RESPONSE_CACHE_SIZE must be a power of two (the cache index wraps with a mask)"
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -229,7 +229,7 @@ static coap_status_t oscore_parse_inner_message(uint8_t* data, size_t data_len, 
                   send-proof found -> NEW responder, write a seen-responder slot and accept.
 
   Ring size:
-  - KNX_ECHO_RING_SIZE (default 64; MUST be a power of two).
+  - KNX_ECHO_RING_SIZE (default 16; MUST be a power of two).
     Both slot kinds share one ring lifetime and are evicted in arrival order.
 
   - Sleepy devices may have a timeout of > 5 ... 10 minutes, an auto-clearing of slots
@@ -253,8 +253,11 @@ static coap_status_t oscore_parse_inner_message(uint8_t* data, size_t data_len, 
 */
 
 #ifndef KNX_ECHO_RING_SIZE
-// total ring slots (anchor slots + seen-responder slots); MUST be a power of two
-#define KNX_ECHO_RING_SIZE (64)
+  // total ring slots (anchor slots + seen-responder slots); MUST be a power of two
+  #define KNX_ECHO_RING_SIZE (16)
+#endif
+#if KNX_ECHO_RING_SIZE < 1 || (KNX_ECHO_RING_SIZE & (KNX_ECHO_RING_SIZE - 1)) != 0
+  #error "KNX_ECHO_RING_SIZE must be a power of two (the ring index wraps with a mask)"
 #endif
 
 /* 

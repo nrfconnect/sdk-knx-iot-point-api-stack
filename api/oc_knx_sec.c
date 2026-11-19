@@ -212,23 +212,20 @@ static void oc_core_knx_auth_o_osndelay_put_handler(oc_request_t* request, oc_in
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_auth_o_osndelay_data;
-const oc_resource_t core_resource_knx_auth_o_osndelay = {
-  &core_resource_knx_auth_o,
-  {NULL, sizeof("/auth/o/osndelay"), "/auth/o/osndelay"},
-  {NULL, 0, NULL},
-  {NULL, sizeof("urn:knx:dpt:timePeriodMsec"), "urn:knx:dpt:timePeriodMsec"},
-  {APPLICATION_CBOR, CONTENT_NONE},
-  OC_DISCOVERABLE,
-  {oc_core_knx_auth_o_osndelay_get_handler, NULL, OC_ACL_D, OC_IF_D},
-  {oc_core_knx_auth_o_osndelay_put_handler, NULL, OC_ACL_SEC, OC_IF_SEC},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {{NULL}, NULL},
-  {{NULL}, NULL},
-  0,
-  0,
-  true,
-  &core_resource_knx_auth_o_osndelay_data};
+const oc_resource_t core_resource_knx_auth_o_osndelay = {NULL,
+                                                         {NULL, sizeof("/auth/o/osndelay"), "/auth/o/osndelay"},
+                                                         {NULL, 0, NULL},
+                                                         {NULL, sizeof("urn:knx:dpt:timePeriodMsec"), "urn:knx:dpt:timePeriodMsec"},
+                                                         {APPLICATION_CBOR, CONTENT_NONE},
+                                                         OC_DISCOVERABLE,
+                                                         {oc_core_knx_auth_o_osndelay_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                                         {oc_core_knx_auth_o_osndelay_put_handler, NULL, OC_ACL_SEC, OC_IF_SEC},
+                                                         {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                         {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                         0,
+                                                         0,
+                                                         true,
+                                                         &core_resource_knx_auth_o_osndelay_data};
 
 static void oc_core_knx_auth_o_replwdo_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
@@ -240,23 +237,20 @@ static void oc_core_knx_auth_o_replwdo_get_handler(oc_request_t* request, oc_int
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_auth_o_replwdo_data;
-const oc_resource_t core_resource_knx_auth_o_replwdo = {
-  &core_resource_knx_auth_o_osndelay,
-  {NULL, sizeof("/auth/o/replwdo"), "/auth/o/replwdo"},
-  {NULL, 0, NULL},
-  {NULL, sizeof("urn:knx:dpt.value2UCount"), "urn:knx:dpt.value2UCount"},
-  {APPLICATION_CBOR, CONTENT_NONE},
-  OC_DISCOVERABLE,
-  {oc_core_knx_auth_o_replwdo_get_handler, NULL, OC_ACL_D, OC_IF_D},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {{NULL}, NULL},
-  {{NULL}, NULL},
-  0,
-  0,
-  true,
-  &core_resource_knx_auth_o_replwdo_data};
+const oc_resource_t core_resource_knx_auth_o_replwdo = {NULL,
+                                                        {NULL, sizeof("/auth/o/replwdo"), "/auth/o/replwdo"},
+                                                        {NULL, 0, NULL},
+                                                        {NULL, sizeof("urn:knx:dpt.value2UCount"), "urn:knx:dpt.value2UCount"},
+                                                        {APPLICATION_CBOR, CONTENT_NONE},
+                                                        OC_DISCOVERABLE,
+                                                        {oc_core_knx_auth_o_replwdo_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                                        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                        0,
+                                                        0,
+                                                        true,
+                                                        &core_resource_knx_auth_o_replwdo_data};
 
 static void oc_core_knx_auth_o_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
@@ -347,23 +341,20 @@ static void oc_core_knx_auth_o_get_handler(oc_request_t* request, oc_interface_m
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_auth_o_data;
-const oc_resource_t core_resource_knx_auth_o = {
-  &core_resource_knx_auth_at,
-  {NULL, sizeof("/auth/o"), "/auth/o"},
-  {NULL, 0, NULL},
-  {NULL, 0, NULL},
-  {APPLICATION_LINK_FORMAT, CONTENT_NONE},
-  OC_DISCOVERABLE,
-  {oc_core_knx_auth_o_get_handler, NULL, OC_ACL_P | OC_ACL_D | OC_ACL_C, OC_IF_LI},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {{NULL}, NULL},
-  {{NULL}, NULL},
-  0,
-  0,
-  true,
-  &core_resource_knx_auth_o_data};
+const oc_resource_t core_resource_knx_auth_o = {NULL,
+                                                {NULL, sizeof("/auth/o"), "/auth/o"},
+                                                {NULL, 0, NULL},
+                                                {NULL, 0, NULL},
+                                                {APPLICATION_LINK_FORMAT, CONTENT_NONE},
+                                                OC_DISCOVERABLE,
+                                                {oc_core_knx_auth_o_get_handler, NULL, OC_ACL_P | OC_ACL_D | OC_ACL_C, OC_IF_LI},
+                                                {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                0,
+                                                0,
+                                                true,
+                                                &core_resource_knx_auth_o_data};
 
 /*
   resets the RAM content of an AT-table entry to its empty state (id, scope, profile, oscore object, ga array)
@@ -1317,23 +1308,20 @@ static void oc_core_auth_at_delete_handler(oc_request_t* request, oc_interface_m
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_auth_at_data;
-const oc_resource_t core_resource_knx_auth_at = {
-  &core_resource_knx_auth_at_x,
-  {NULL, sizeof("/auth/at"), "/auth/at"},
-  {NULL, 0, NULL},
-  {NULL, 0, NULL},
-  {APPLICATION_LINK_FORMAT, CONTENT_NONE},
-  OC_DISCOVERABLE,
-  {oc_core_auth_at_get_handler, NULL, OC_ACL_P | OC_ACL_D | OC_ACL_C, OC_IF_LI},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {oc_core_auth_at_post_handler, NULL, OC_ACL_SEC, OC_IF_SEC},
-  {oc_core_auth_at_delete_handler, NULL, OC_ACL_SEC, OC_IF_SEC},
-  {{NULL}, NULL},
-  {{NULL}, NULL},
-  0,
-  0,
-  true,
-  &core_resource_knx_auth_at_data};
+const oc_resource_t core_resource_knx_auth_at = {NULL,
+                                                 {NULL, sizeof("/auth/at"), "/auth/at"},
+                                                 {NULL, 0, NULL},
+                                                 {NULL, 0, NULL},
+                                                 {APPLICATION_LINK_FORMAT, CONTENT_NONE},
+                                                 OC_DISCOVERABLE,
+                                                 {oc_core_auth_at_get_handler, NULL, OC_ACL_P | OC_ACL_D | OC_ACL_C, OC_IF_LI},
+                                                 {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                 {oc_core_auth_at_post_handler, NULL, OC_ACL_SEC, OC_IF_SEC},
+                                                 {oc_core_auth_at_delete_handler, NULL, OC_ACL_SEC, OC_IF_SEC},
+                                                 0,
+                                                 0,
+                                                 true,
+                                                 &core_resource_knx_auth_at_data};
 
 static void oc_core_auth_at_x_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
@@ -1504,23 +1492,20 @@ static void oc_core_auth_at_x_delete_handler(oc_request_t* request, oc_interface
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_auth_at_x_data;
-const oc_resource_t core_resource_knx_auth_at_x = {
-  &core_resource_knx_auth,
-  {NULL, sizeof("/auth/at/*"), "/auth/at/*"},
-  {NULL, 0, NULL},
-  {NULL, 0, NULL},
-  {APPLICATION_CBOR, CONTENT_NONE},
-  OC_DISCOVERABLE,
-  {oc_core_auth_at_x_get_handler, NULL, OC_ACL_SEC, OC_IF_SEC},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {oc_core_auth_at_x_delete_handler, NULL, OC_ACL_SEC, OC_IF_SEC},
-  {{NULL}, NULL},
-  {{NULL}, NULL},
-  0,
-  0,
-  true,
-  &core_resource_knx_auth_at_x_data};
+const oc_resource_t core_resource_knx_auth_at_x = {NULL,
+                                                   {NULL, sizeof("/auth/at/*"), "/auth/at/*"},
+                                                   {NULL, 0, NULL},
+                                                   {NULL, 0, NULL},
+                                                   {APPLICATION_CBOR, CONTENT_NONE},
+                                                   OC_DISCOVERABLE,
+                                                   {oc_core_auth_at_x_get_handler, NULL, OC_ACL_SEC, OC_IF_SEC},
+                                                   {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                   {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                   {oc_core_auth_at_x_delete_handler, NULL, OC_ACL_SEC, OC_IF_SEC},
+                                                   0,
+                                                   0,
+                                                   true,
+                                                   &core_resource_knx_auth_at_x_data};
 
 static void oc_core_knx_auth_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
@@ -1609,23 +1594,20 @@ static void oc_core_knx_auth_get_handler(oc_request_t* request, oc_interface_mas
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_auth_data;
-const oc_resource_t core_resource_knx_auth = {
-  &core_resource_well_known_core,
-  {NULL, sizeof("/auth"), "/auth"},
-  {NULL, (size_t)1 * 32, (char[1][32]){"urn:knx:fb.auth"}},
-  {NULL, 0, NULL},
-  {APPLICATION_LINK_FORMAT, CONTENT_NONE},
-  OC_DISCOVERABLE,
-  {oc_core_knx_auth_get_handler, NULL, OC_ACL_P | OC_ACL_D | OC_ACL_C, OC_IF_LI},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {{NULL}, NULL},
-  {{NULL}, NULL},
-  0,
-  0,
-  true,
-  &core_resource_knx_auth_data};
+const oc_resource_t core_resource_knx_auth = {NULL,
+                                              {NULL, sizeof("/auth"), "/auth"},
+                                              {NULL, (size_t)1 * 32, (void*)(const char[1][32]){"urn:knx:fb.auth"}},
+                                              {NULL, 0, NULL},
+                                              {APPLICATION_LINK_FORMAT, CONTENT_NONE},
+                                              OC_DISCOVERABLE,
+                                              {oc_core_knx_auth_get_handler, NULL, OC_ACL_P | OC_ACL_D | OC_ACL_C, OC_IF_LI},
+                                              {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                              {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                              {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                              0,
+                                              0,
+                                              true,
+                                              &core_resource_knx_auth_data};
 
 void oc_print_auth_at_entry(const oc_auth_at_t* entry)
 {

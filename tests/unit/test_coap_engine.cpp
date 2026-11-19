@@ -1,9 +1,12 @@
 /*
- * Unit tests for messaging/coap/engine.c — duplicate detection
+ * Unit tests for messaging/coap/engine.c — duplicate detection, response cache
  *
  * Covers:
  *   oc_coap_check_if_duplicate_and_if_not_add_to_history
  *     — static history buffer, pure struct input, no init needed
+ *   oc_coap_response_cache_store
+ *     — which responses are cached, the cached message shrunk to its bytes and
+ *       re-sent for a duplicate (oc_send_buffer wrapped), slots freed when overwritten
  *
  * Note: oc_coap_check_if_loopback_message requires oc_connectivity_get_endpoints()
  * which depends on platform init — not testable in isolation.
@@ -11,12 +14,16 @@
 
 #include <gtest/gtest.h>
 #include <cstring>
+#ifdef __GLIBC__
+  #include <malloc.h>
+#endif
 
 extern "C"
 {
 #include "messaging/coap/coap.h"
 #include "messaging/coap/engine.h"
 #include "oc_buffer.h"
+#include "oc_buffer_settings.h"
 }
 
 /* Helper: build a minimal coap_packet_t + oc_endpoint_t for duplicate checks */
@@ -171,9 +178,22 @@ TEST(ClearResponseHistory, SafeOnEmptyCache)
  * Only piggybacked ACK responses are cached:
  *   - length > 4 (header-only 4-byte empty ACKs are skipped)
  *   - CoAP type field (bits 4-5 of byte 0) == COAP_TYPE_ACK (2)
- * When cached, the message is kept alive via oc_message_add_ref()
- * (ref_count 1 -> 2). Otherwise the function is a no-op.
+ * A cached response keeps a reference to the outbound message, whose full PDU
+ * allocation is cut to the message bytes. A duplicate of the request re-sends
+ * it via oc_send_buffer(), which is wrapped here to record what is sent.
  * ═══════════════════════════════════════════════════════════════════════════ */
+
+static int g_resent;
+static uint8_t g_resent_bytes[64];
+static size_t g_resent_length;
+
+extern "C" int __wrap_oc_send_buffer(oc_message_t* message)
+{
+  g_resent++;
+  g_resent_length = message->length;
+  memcpy(g_resent_bytes, message->data, message->length < sizeof(g_resent_bytes) ? message->length : sizeof(g_resent_bytes));
+  return 0;
+}
 
 /* Helper: fill a message's wire header. byte0 carries Ver|Type|TKL. */
 static void make_coap_message(oc_message_t *msg, uint8_t type_bits,
@@ -184,25 +204,55 @@ static void make_coap_message(oc_message_t *msg, uint8_t type_bits,
   msg->data[1] = 0x45; /* arbitrary code (2.05) */
   msg->data[2] = (uint8_t)(mid >> 8);
   msg->data[3] = (uint8_t)(mid & 0xFF);
+  for (size_t i = 4; i < length; i++)
+    msg->data[i] = (uint8_t)(0xA0 + i);
   msg->length = length;
   msg->endpoint.addr.ipv6.port = 5683;
   msg->endpoint.addr.ipv6.address[15] = 0x77;
 }
 
-TEST(ResponseCacheStore, PiggybackedAckIsCached)
+/* store msg as the response to request 'mid', then receive that request again;
+   returns the number of re-sends */
+static int store_then_duplicate(oc_message_t* msg, uint16_t mid)
 {
+  coap_packet_t pkt;
+  oc_endpoint_t ep;
+  make_udp_packet(&pkt, &ep, mid, 5683, 0x77);
+  EXPECT_FALSE(oc_coap_check_if_duplicate_and_if_not_add_to_history(&pkt, &ep));
+  oc_coap_response_cache_store(msg);
+  g_resent = 0;
+  EXPECT_TRUE(oc_coap_check_if_duplicate_and_if_not_add_to_history(&pkt, &ep));
+  return g_resent;
+}
+
+TEST(ResponseCacheStore, PiggybackedAckIsCachedAndShrunk)
+{
+  coap_packet_t pkt;
+  oc_endpoint_t ep;
+  make_udp_packet(&pkt, &ep, 40001, 5683, 0x77);
+  EXPECT_FALSE(oc_coap_check_if_duplicate_and_if_not_add_to_history(&pkt, &ep));
+
   oc_message_t *msg = oc_allocate_message();
   ASSERT_NE(msg, nullptr);
-  ASSERT_EQ(msg->ref_count, 1);
+  make_coap_message(msg, COAP_TYPE_ACK, 40001, 12);
+  uint8_t sent[12];
+  memcpy(sent, msg->data, sizeof(sent));
 
-  /* Piggybacked ACK: type=ACK and length > 4 */
-  make_coap_message(msg, COAP_TYPE_ACK, 40001, 8);
+  /* cached: the cache holds a reference, the full PDU allocation is cut to the message bytes */
   oc_coap_response_cache_store(msg);
-
-  /* Cached -> an extra reference was taken */
   EXPECT_EQ(msg->ref_count, 2);
+#ifdef __GLIBC__
+  EXPECT_LT(malloc_usable_size(msg->data), (size_t)oc_get_pdu_size());
+#endif
+  oc_message_unref(msg);
 
-  /* Clearing the cache force-releases the cached reference and frees msg */
+  /* the duplicate is answered from the cached, shrunk message */
+  g_resent = 0;
+  EXPECT_TRUE(oc_coap_check_if_duplicate_and_if_not_add_to_history(&pkt, &ep));
+  EXPECT_EQ(g_resent, 1);
+  EXPECT_EQ(g_resent_length, sizeof(sent));
+  EXPECT_EQ(memcmp(g_resent_bytes, sent, sizeof(sent)), 0);
+
   oc_coap_clear_response_history();
 }
 
@@ -213,7 +263,7 @@ TEST(ResponseCacheStore, EmptyAckIsNotCached)
 
   /* 4-byte header-only empty ACK must NOT be cached */
   make_coap_message(msg, COAP_TYPE_ACK, 40002, 4);
-  oc_coap_response_cache_store(msg);
+  EXPECT_EQ(store_then_duplicate(msg, 40002), 0);
 
   EXPECT_EQ(msg->ref_count, 1);
   oc_message_unref(msg);
@@ -226,7 +276,7 @@ TEST(ResponseCacheStore, NonAckIsNotCached)
 
   /* CON message (type 0) with payload must NOT be cached */
   make_coap_message(msg, COAP_TYPE_CON, 40003, 8);
-  oc_coap_response_cache_store(msg);
+  EXPECT_EQ(store_then_duplicate(msg, 40003), 0);
 
   EXPECT_EQ(msg->ref_count, 1);
   oc_message_unref(msg);
@@ -239,9 +289,36 @@ TEST(ResponseCacheStore, ShortMessageIsNotCached)
 
   /* Malformed/too-short message (< 4 bytes) must NOT be cached */
   make_coap_message(msg, COAP_TYPE_ACK, 40004, 3);
-  oc_coap_response_cache_store(msg);
+  EXPECT_EQ(store_then_duplicate(msg, 40004), 0);
 
   EXPECT_EQ(msg->ref_count, 1);
   oc_message_unref(msg);
 }
 
+TEST(ResponseCacheStore, OverwrittenSlotFreesItsMessage)
+{
+  /* more responses than slots, wrapping the slots twice: each store releases the message of the
+     slot it reuses; LeakSanitizer reports any message that is not freed */
+  oc_coap_clear_response_history();
+
+  /* the first message is held by the test as well, to watch the cache's reference */
+  oc_message_t* first = oc_allocate_message();
+  ASSERT_NE(first, nullptr);
+  make_coap_message(first, COAP_TYPE_ACK, 41000, 10);
+  oc_coap_response_cache_store(first);
+  EXPECT_EQ(first->ref_count, 2);
+
+  for (uint16_t i = 1; i < 2 * OC_RESPONSE_CACHE_SIZE + 1; i++)
+  {
+    oc_message_t* msg = oc_allocate_message();
+    ASSERT_NE(msg, nullptr);
+    make_coap_message(msg, COAP_TYPE_ACK, (uint16_t)(41000 + i), 10);
+    oc_coap_response_cache_store(msg);
+    oc_message_unref(msg);
+    /* the slot of the first message is reused by store number OC_RESPONSE_CACHE_SIZE + 1 */
+    EXPECT_EQ(first->ref_count, i < OC_RESPONSE_CACHE_SIZE ? 2 : 1) << "after store " << i + 1;
+  }
+
+  oc_message_unref(first);
+  oc_coap_clear_response_history();
+}

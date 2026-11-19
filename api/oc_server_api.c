@@ -391,28 +391,6 @@ void oc_resource_set_functional_block_data(oc_resource_t* resource,
   resource->fb_data = (fb_number << 16) + (fb_instance << 8) + fb_number_datapoints;
 }
 
-void oc_resource_set_properties_cbs(oc_resource_t* resource,
-                                    oc_get_properties_cb_t get_properties, void* get_props_user_data,
-                                    oc_set_properties_cb_t set_properties, void* set_props_user_data)
-{
-  if (resource == NULL)
-  {
-    OC_ERR("oc_resource_set_properties_cbs: resource is NULL");
-    return;
-  }
-
-  if (resource->is_const)
-  {
-    OC_ERR("oc_resource_set_properties_cbs: resource data is const");
-    return;
-  }
-
-  resource->get_properties.cb.get_props = get_properties;
-  resource->get_properties.user_data = get_props_user_data;
-  resource->set_properties.cb.set_props = set_properties;
-  resource->set_properties.user_data = set_props_user_data;
-}
-
 void oc_resource_set_request_handler(oc_resource_t* resource,
                                      coap_method_t method, oc_request_callback_t callback, void* user_data,
                                      oc_acl_mask_t scopes, oc_interface_mask_t interfaces)

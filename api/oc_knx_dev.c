@@ -37,23 +37,20 @@ static void oc_core_dev_sn_get_handler(oc_request_t* request, oc_interface_mask_
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_sn_data;
-const oc_resource_t core_resource_dev_sn = {
-        &core_resource_dev_hwv,
-        {NULL, sizeof("/dev/sn"), "/dev/sn"},
-        {NULL, (size_t)1 * 32, (char[1][32]){"urn:knx:dpa:0.11"}},
-        {NULL, sizeof("urn:knx:dpt.serNum"), "urn:knx:dpt.serNum"},
-        {APPLICATION_CBOR, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_dev_sn_get_handler, NULL, OC_ACL_D, OC_IF_D},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        true,
-        &core_resource_dev_sn_data};
+const oc_resource_t core_resource_dev_sn = {NULL,
+                                            {NULL, sizeof("/dev/sn"), "/dev/sn"},
+                                            {NULL, (size_t)1 * 32, (void*)(const char[1][32]){"urn:knx:dpa:0.11"}},
+                                            {NULL, sizeof("urn:knx:dpt.serNum"), "urn:knx:dpt.serNum"},
+                                            {APPLICATION_CBOR, CONTENT_NONE},
+                                            OC_DISCOVERABLE,
+                                            {oc_core_dev_sn_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                            {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                            {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                            {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                            0,
+                                            0,
+                                            true,
+                                            &core_resource_dev_sn_data};
 
 static void oc_core_dev_hwv_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data) 
 {
@@ -65,23 +62,20 @@ static void oc_core_dev_hwv_get_handler(oc_request_t* request, oc_interface_mask
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_hwv_data;
-const oc_resource_t core_resource_dev_hwv = {
-        &core_resource_dev_fwv,
-        {NULL, sizeof("/dev/hwv"), "/dev/hwv"},
-        {NULL, 0, NULL},
-        {NULL, sizeof("urn:knx:dpt.version"), "urn:knx:dpt.version"},
-        {APPLICATION_CBOR, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_dev_hwv_get_handler, NULL, OC_ACL_D, OC_IF_D},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        true,
-        &core_resource_dev_hwv_data};
+const oc_resource_t core_resource_dev_hwv = {NULL,
+                                             {NULL, sizeof("/dev/hwv"), "/dev/hwv"},
+                                             {NULL, 0, NULL},
+                                             {NULL, sizeof("urn:knx:dpt.version"), "urn:knx:dpt.version"},
+                                             {APPLICATION_CBOR, CONTENT_NONE},
+                                             OC_DISCOVERABLE,
+                                             {oc_core_dev_hwv_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             0,
+                                             0,
+                                             true,
+                                             &core_resource_dev_hwv_data};
 
 static void oc_core_dev_fwv_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
@@ -93,23 +87,20 @@ static void oc_core_dev_fwv_get_handler(oc_request_t* request, oc_interface_mask
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_fwv_data;
-const oc_resource_t core_resource_dev_fwv = {
-        &core_resource_dev_hwt,
-        {NULL, sizeof("/dev/fwv"), "/dev/fwv"},
-        {NULL, (size_t)1 * 32, (char[1][32]){"urn:knx:dpa.0.25"}},
-        {NULL, sizeof("urn:knx:dpt.version"), "urn:knx:dpt.version"},
-        {APPLICATION_CBOR, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_dev_fwv_get_handler, NULL, OC_ACL_D, OC_IF_D},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        true,
-        &core_resource_dev_fwv_data};
+const oc_resource_t core_resource_dev_fwv = {NULL,
+                                             {NULL, sizeof("/dev/fwv"), "/dev/fwv"},
+                                             {NULL, (size_t)1 * 32, (void*)(const char[1][32]){"urn:knx:dpa.0.25"}},
+                                             {NULL, sizeof("urn:knx:dpt.version"), "urn:knx:dpt.version"},
+                                             {APPLICATION_CBOR, CONTENT_NONE},
+                                             OC_DISCOVERABLE,
+                                             {oc_core_dev_fwv_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             0,
+                                             0,
+                                             true,
+                                             &core_resource_dev_fwv_data};
 
 static void oc_core_dev_hwt_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data) 
 {
@@ -121,23 +112,20 @@ static void oc_core_dev_hwt_get_handler(oc_request_t* request, oc_interface_mask
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_hwt_data;
-const oc_resource_t core_resource_dev_hwt = {
-        &core_resource_dev_order_number,
-        {NULL, sizeof("/dev/hwt"), "/dev/hwt"},
-        {NULL, 0, NULL},
-        {NULL, sizeof("urn:knx:dpt.varString8859_1"), "urn:knx:dpt.varString8859_1"},
-        {APPLICATION_CBOR, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_dev_hwt_get_handler, NULL, OC_ACL_D, OC_IF_D},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        true,
-        &core_resource_dev_hwt_data};
+const oc_resource_t core_resource_dev_hwt = {NULL,
+                                             {NULL, sizeof("/dev/hwt"), "/dev/hwt"},
+                                             {NULL, 0, NULL},
+                                             {NULL, sizeof("urn:knx:dpt.varString8859_1"), "urn:knx:dpt.varString8859_1"},
+                                             {APPLICATION_CBOR, CONTENT_NONE},
+                                             OC_DISCOVERABLE,
+                                             {oc_core_dev_hwt_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             0,
+                                             0,
+                                             true,
+                                             &core_resource_dev_hwt_data};
 
 static void oc_core_dev_order_number_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
@@ -149,23 +137,20 @@ static void oc_core_dev_order_number_get_handler(oc_request_t* request, oc_inter
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_order_number_data;
-const oc_resource_t core_resource_dev_order_number = {
-        &core_resource_dev_hostname,
-        {NULL, sizeof("/dev/model"), "/dev/model"}, // due to compatibility this href name MUST remain            
-        {NULL, (size_t)1 * 32, (char[1][32]){"urn:knx:dpa.0.15"}},
-        {NULL, sizeof("urn:knx:dpt.utf8"), "urn:knx:dpt.utf8"},
-        {APPLICATION_CBOR, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_dev_order_number_get_handler, NULL, OC_ACL_D, OC_IF_D},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        true,
-        &core_resource_dev_order_number_data};
+const oc_resource_t core_resource_dev_order_number = {NULL,
+                                                      {NULL, sizeof("/dev/model"), "/dev/model"}, // due to compatibility this href name MUST remain
+                                                      {NULL, (size_t)1 * 32, (void*)(const char[1][32]){"urn:knx:dpa.0.15"}},
+                                                      {NULL, sizeof("urn:knx:dpt.utf8"), "urn:knx:dpt.utf8"},
+                                                      {APPLICATION_CBOR, CONTENT_NONE},
+                                                      OC_DISCOVERABLE,
+                                                      {oc_core_dev_order_number_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                                      {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                      {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                      {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                      0,
+                                                      0,
+                                                      true,
+                                                      &core_resource_dev_order_number_data};
 
 static void oc_core_dev_hostname_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data) 
 {
@@ -181,23 +166,20 @@ static void oc_core_dev_hostname_get_handler(oc_request_t* request, oc_interface
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_hostname_data;
-const oc_resource_t core_resource_dev_hostname = {
-        &core_resource_dev_iid,
-        {NULL, sizeof("/dev/hname"), "/dev/hname"},
-        {NULL, 0, NULL},
-        {NULL, sizeof("urn:knx:dpt.varString8859_1"), "urn:knx:dpt.varString8859_1"},
-        {APPLICATION_CBOR, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_dev_hostname_get_handler, NULL, OC_ACL_D, OC_IF_D},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        true,
-        &core_resource_dev_hostname_data};
+const oc_resource_t core_resource_dev_hostname = {NULL,
+                                                  {NULL, sizeof("/dev/hname"), "/dev/hname"},
+                                                  {NULL, 0, NULL},
+                                                  {NULL, sizeof("urn:knx:dpt.varString8859_1"), "urn:knx:dpt.varString8859_1"},
+                                                  {APPLICATION_CBOR, CONTENT_NONE},
+                                                  OC_DISCOVERABLE,
+                                                  {oc_core_dev_hostname_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                                  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                  0,
+                                                  0,
+                                                  true,
+                                                  &core_resource_dev_hostname_data};
 
 static void oc_core_dev_iid_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data) 
 {
@@ -209,23 +191,20 @@ static void oc_core_dev_iid_get_handler(oc_request_t* request, oc_interface_mask
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_iid_data;
-const oc_resource_t core_resource_dev_iid = {
-        &core_resource_dev_pm,
-        {NULL, sizeof("/dev/iid"), "/dev/iid"},
-        {NULL, 0, NULL},
-        {NULL, sizeof("urn:knx:dpt.value8Ucount"), "urn:knx:dpt.value8Ucount"},
-        {APPLICATION_CBOR, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_dev_iid_get_handler, NULL, OC_ACL_D, OC_IF_D},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        true,
-        &core_resource_dev_iid_data};
+const oc_resource_t core_resource_dev_iid = {NULL,
+                                             {NULL, sizeof("/dev/iid"), "/dev/iid"},
+                                             {NULL, 0, NULL},
+                                             {NULL, sizeof("urn:knx:dpt.value8Ucount"), "urn:knx:dpt.value8Ucount"},
+                                             {APPLICATION_CBOR, CONTENT_NONE},
+                                             OC_DISCOVERABLE,
+                                             {oc_core_dev_iid_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             0,
+                                             0,
+                                             true,
+                                             &core_resource_dev_iid_data};
 
 static void oc_core_dev_ipv6_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data) 
 {
@@ -325,23 +304,20 @@ static void oc_core_dev_ipv6_get_handler(oc_request_t* request, oc_interface_mas
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_ipv6_data;
-const oc_resource_t core_resource_dev_ipv6 = {
-        &core_resource_dev_sna,
-        {NULL, sizeof("/dev/ipv6"), "/dev/ipv6"},
-        {NULL, 0, NULL},
-        {NULL, sizeof("urn:knx:dpt.ipv6"), "urn:knx:dpt.ipv6"},
-        {APPLICATION_CBOR, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_dev_ipv6_get_handler, NULL, OC_ACL_D, OC_IF_D},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        true,
-        &core_resource_dev_ipv6_data};
+const oc_resource_t core_resource_dev_ipv6 = {NULL,
+                                              {NULL, sizeof("/dev/ipv6"), "/dev/ipv6"},
+                                              {NULL, 0, NULL},
+                                              {NULL, sizeof("urn:knx:dpt.ipv6"), "urn:knx:dpt.ipv6"},
+                                              {APPLICATION_CBOR, CONTENT_NONE},
+                                              OC_DISCOVERABLE,
+                                              {oc_core_dev_ipv6_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                              {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                              {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                              {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                              0,
+                                              0,
+                                              true,
+                                              &core_resource_dev_ipv6_data};
 
 static void oc_core_dev_pm_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data) 
 {
@@ -397,23 +373,20 @@ static void oc_core_dev_pm_put_handler(oc_request_t* request, oc_interface_mask_
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_pm_data;
-const oc_resource_t core_resource_dev_pm = {
-        &core_resource_dev_ipv6,
-        {NULL, sizeof("/dev/pm"), "/dev/pm"},
-        {NULL, (size_t)1 * 32, (char[1][32]){"urn:knx:dpa.0.54"}},
-        {NULL, sizeof("urn:knx:dpt.binaryValue"), "urn:knx:dpt.binaryValue"},
-        {APPLICATION_CBOR, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_dev_pm_get_handler, NULL, OC_ACL_D, OC_IF_D},
-        {oc_core_dev_pm_put_handler, NULL, OC_ACL_P, OC_IF_P},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        true,
-        &core_resource_dev_pm_data};
+const oc_resource_t core_resource_dev_pm = {NULL,
+                                            {NULL, sizeof("/dev/pm"), "/dev/pm"},
+                                            {NULL, (size_t)1 * 32, (void*)(const char[1][32]){"urn:knx:dpa.0.54"}},
+                                            {NULL, sizeof("urn:knx:dpt.binaryValue"), "urn:knx:dpt.binaryValue"},
+                                            {APPLICATION_CBOR, CONTENT_NONE},
+                                            OC_DISCOVERABLE,
+                                            {oc_core_dev_pm_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                            {oc_core_dev_pm_put_handler, NULL, OC_ACL_P, OC_IF_P},
+                                            {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                            {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                            0,
+                                            0,
+                                            true,
+                                            &core_resource_dev_pm_data};
 
 static void oc_core_dev_dev_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
@@ -500,23 +473,20 @@ static void oc_core_dev_dev_get_handler(oc_request_t* request, oc_interface_mask
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_data;
-const oc_resource_t core_resource_dev = {
-        &core_resource_app,
-        {NULL, sizeof("/dev"), "/dev"},
-        {NULL, (size_t)1 * 32, (char[1][32]){"urn:knx:fb.0"}},
-        {NULL, 0, NULL},
-        {APPLICATION_LINK_FORMAT, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_dev_dev_get_handler, NULL, OC_ACL_P | OC_ACL_D | OC_ACL_C, OC_IF_LI},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        true,
-        &core_resource_dev_data};
+const oc_resource_t core_resource_dev = {NULL,
+                                         {NULL, sizeof("/dev"), "/dev"},
+                                         {NULL, (size_t)1 * 32, (void*)(const char[1][32]){"urn:knx:fb.0"}},
+                                         {NULL, 0, NULL},
+                                         {APPLICATION_LINK_FORMAT, CONTENT_NONE},
+                                         OC_DISCOVERABLE,
+                                         {oc_core_dev_dev_get_handler, NULL, OC_ACL_P | OC_ACL_D | OC_ACL_C, OC_IF_LI},
+                                         {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                         {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                         {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                         0,
+                                         0,
+                                         true,
+                                         &core_resource_dev_data};
 
 // 16 bit KNX ia = sa(8)+da(8), example Subnetwork Add. (sa) 0 + (da) Device Add. 1 = 0x0001
 static void oc_core_dev_sa_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data) 
@@ -529,23 +499,20 @@ static void oc_core_dev_sa_get_handler(oc_request_t* request, oc_interface_mask_
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_sna_data;
-const oc_resource_t core_resource_dev_sna = {
-        &core_resource_dev_da,
-        {NULL, sizeof("/dev/sna"), "/dev/sna"},
-        {NULL, (size_t)1 * 32, (char[1][32]){"urn:knx:dpa.0.57"}},
-        {NULL, sizeof("urn:knx:dpt.value1Ucount"), "urn:knx:dpt.value1Ucount"},
-        {APPLICATION_CBOR, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_dev_sa_get_handler, NULL, OC_ACL_D, OC_IF_D},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        true,
-        &core_resource_dev_sna_data};
+const oc_resource_t core_resource_dev_sna = {NULL,
+                                             {NULL, sizeof("/dev/sna"), "/dev/sna"},
+                                             {NULL, (size_t)1 * 32, (void*)(const char[1][32]){"urn:knx:dpa.0.57"}},
+                                             {NULL, sizeof("urn:knx:dpt.value1Ucount"), "urn:knx:dpt.value1Ucount"},
+                                             {APPLICATION_CBOR, CONTENT_NONE},
+                                             OC_DISCOVERABLE,
+                                             {oc_core_dev_sa_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             0,
+                                             0,
+                                             true,
+                                             &core_resource_dev_sna_data};
 
 // 16 bit KNX ia = sa(8)+da(8), example Subnetwork Add. (sa) 0 + (da) Device Add. 1 = 0x0001
 static void oc_core_dev_da_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data) 
@@ -558,23 +525,20 @@ static void oc_core_dev_da_get_handler(oc_request_t* request, oc_interface_mask_
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_da_data;
-const oc_resource_t core_resource_dev_da = {
-        &core_resource_dev_fid,
-        {NULL, sizeof("/dev/da"), "/dev/da"},
-        {NULL, (size_t)1 * 32, (char[1][32]){"urn:knx:dpa.0.58"}},
-        {NULL, sizeof("urn:knx:dpt.value1Ucount"), "urn:knx:dpt.value1Ucount"},
-        {APPLICATION_CBOR, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_dev_da_get_handler, NULL, OC_ACL_D, OC_IF_D},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        true,
-        &core_resource_dev_da_data};
+const oc_resource_t core_resource_dev_da = {NULL,
+                                            {NULL, sizeof("/dev/da"), "/dev/da"},
+                                            {NULL, (size_t)1 * 32, (void*)(const char[1][32]){"urn:knx:dpa.0.58"}},
+                                            {NULL, sizeof("urn:knx:dpt.value1Ucount"), "urn:knx:dpt.value1Ucount"},
+                                            {APPLICATION_CBOR, CONTENT_NONE},
+                                            OC_DISCOVERABLE,
+                                            {oc_core_dev_da_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                            {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                            {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                            {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                            0,
+                                            0,
+                                            true,
+                                            &core_resource_dev_da_data};
 
 static void oc_core_dev_fid_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data) 
 {
@@ -586,23 +550,20 @@ static void oc_core_dev_fid_get_handler(oc_request_t* request, oc_interface_mask
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_fid_data;
-const oc_resource_t core_resource_dev_fid = {
-        &core_resource_dev_port,
-        {NULL, sizeof("/dev/fid"), "/dev/fid"},
-        {NULL, 0, NULL},
-        {NULL, sizeof("urn:knx:dpt.value8Ucount"), "urn:knx:dpt.value8Ucount"},
-        {APPLICATION_CBOR, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_dev_fid_get_handler, NULL, OC_ACL_D, OC_IF_D},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        true,
-        &core_resource_dev_fid_data};
+const oc_resource_t core_resource_dev_fid = {NULL,
+                                             {NULL, sizeof("/dev/fid"), "/dev/fid"},
+                                             {NULL, 0, NULL},
+                                             {NULL, sizeof("urn:knx:dpt.value8Ucount"), "urn:knx:dpt.value8Ucount"},
+                                             {APPLICATION_CBOR, CONTENT_NONE},
+                                             OC_DISCOVERABLE,
+                                             {oc_core_dev_fid_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             0,
+                                             0,
+                                             true,
+                                             &core_resource_dev_fid_data};
 
 static void oc_core_dev_port_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data) 
 {
@@ -624,23 +585,20 @@ static void oc_core_dev_port_get_handler(oc_request_t* request, oc_interface_mas
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_port_data;
-const oc_resource_t core_resource_dev_port = {
-        &core_resource_dev_mport,
-        {NULL, sizeof("/dev/port"), "/dev/port"},
-        {NULL, 0, NULL},
-        {NULL, sizeof("urn:knx:dpt.value2Ucount"), "urn:knx:dpt.value2Ucount"},
-        {APPLICATION_CBOR, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_dev_port_get_handler, NULL, OC_ACL_D, OC_IF_D},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        1,
-        &core_resource_dev_port_data};
+const oc_resource_t core_resource_dev_port = {NULL,
+                                              {NULL, sizeof("/dev/port"), "/dev/port"},
+                                              {NULL, 0, NULL},
+                                              {NULL, sizeof("urn:knx:dpt.value2Ucount"), "urn:knx:dpt.value2Ucount"},
+                                              {APPLICATION_CBOR, CONTENT_NONE},
+                                              OC_DISCOVERABLE,
+                                              {oc_core_dev_port_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                              {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                              {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                              {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                              0,
+                                              0,
+                                              1,
+                                              &core_resource_dev_port_data};
 
 static void oc_core_dev_mport_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
@@ -652,23 +610,20 @@ static void oc_core_dev_mport_get_handler(oc_request_t* request, oc_interface_ma
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_mport_data;
-const oc_resource_t core_resource_dev_mport = {
-        &core_resource_dev_mid,
-        {NULL, sizeof("/dev/mport"), "/dev/mport"},
-        {NULL, 0, NULL},
-        {NULL, sizeof("urn:knx:dpt.value2Ucount"), "urn:knx:dpt.value2Ucount"},
-        {APPLICATION_CBOR, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_dev_mport_get_handler, NULL, OC_ACL_D, OC_IF_D},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        1,
-        &core_resource_dev_mport_data};
+const oc_resource_t core_resource_dev_mport = {NULL,
+                                               {NULL, sizeof("/dev/mport"), "/dev/mport"},
+                                               {NULL, 0, NULL},
+                                               {NULL, sizeof("urn:knx:dpt.value2Ucount"), "urn:knx:dpt.value2Ucount"},
+                                               {APPLICATION_CBOR, CONTENT_NONE},
+                                               OC_DISCOVERABLE,
+                                               {oc_core_dev_mport_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                               {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                               {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                               {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                               0,
+                                               0,
+                                               1,
+                                               &core_resource_dev_mport_data};
 
 static void oc_core_ap_x_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data) 
 {
@@ -726,23 +681,20 @@ static void oc_core_ap_x_put_handler(oc_request_t* request, oc_interface_mask_t 
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_app_x_data;
-const oc_resource_t core_resource_app_pv = {
-        &core_resource_a_lsm,
-        {NULL, sizeof("/ap/pv"), "/ap/pv"},
-        {NULL, (size_t)1 * 32, (char[1][32]){"urn:knx:dpa.3.13"}},
-        {NULL, sizeof("urn:knx:dpt.programVersion"), "urn:knx:dpt.programVersion"},
-        {APPLICATION_CBOR, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_ap_x_get_handler, NULL, OC_ACL_D, OC_IF_D},
-        {oc_core_ap_x_put_handler, NULL, OC_ACL_P, OC_IF_P},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        1,
-        &core_resource_app_x_data};
+const oc_resource_t core_resource_app_pv = {NULL,
+                                            {NULL, sizeof("/ap/pv"), "/ap/pv"},
+                                            {NULL, (size_t)1 * 32, (void*)(const char[1][32]){"urn:knx:dpa.3.13"}},
+                                            {NULL, sizeof("urn:knx:dpt.programVersion"), "urn:knx:dpt.programVersion"},
+                                            {APPLICATION_CBOR, CONTENT_NONE},
+                                            OC_DISCOVERABLE,
+                                            {oc_core_ap_x_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                            {oc_core_ap_x_put_handler, NULL, OC_ACL_P, OC_IF_P},
+                                            {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                            {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                            0,
+                                            0,
+                                            1,
+                                            &core_resource_app_x_data};
 
 static void oc_core_ap_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
@@ -827,23 +779,20 @@ static void oc_core_ap_get_handler(oc_request_t* request, oc_interface_mask_t if
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_app_data;
-const oc_resource_t core_resource_app = {
-       &core_resource_app_pv,
-       {NULL, sizeof("/ap"), "/ap"},
-       {NULL, (size_t)1 * 32, (char[1][32]){"urn:knx:fb.3"}},
-       {NULL, sizeof("urn:knx:dpt.value2Ucount"), "urn:knx:dpt.value2Ucount"},
-       {APPLICATION_LINK_FORMAT, CONTENT_NONE},
-       OC_DISCOVERABLE,
-       {oc_core_ap_get_handler, NULL, OC_ACL_P | OC_ACL_D | OC_ACL_C, OC_IF_LI},
-       {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-       {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-       {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-       {{NULL}, NULL},
-       {{NULL}, NULL},
-       0,
-       0,
-       1,
-       &core_resource_app_data};
+const oc_resource_t core_resource_app = {NULL,
+                                         {NULL, sizeof("/ap"), "/ap"},
+                                         {NULL, (size_t)1 * 32, (void*)(const char[1][32]){"urn:knx:fb.3"}},
+                                         {NULL, sizeof("urn:knx:dpt.value2Ucount"), "urn:knx:dpt.value2Ucount"},
+                                         {APPLICATION_LINK_FORMAT, CONTENT_NONE},
+                                         OC_DISCOVERABLE,
+                                         {oc_core_ap_get_handler, NULL, OC_ACL_P | OC_ACL_D | OC_ACL_C, OC_IF_LI},
+                                         {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                         {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                         {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                         0,
+                                         0,
+                                         1,
+                                         &core_resource_app_data};
 
 static void oc_core_dev_mid_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data) 
 {
@@ -855,23 +804,20 @@ static void oc_core_dev_mid_get_handler(oc_request_t* request, oc_interface_mask
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_mid_data;
-const oc_resource_t core_resource_dev_mid = {
-        &core_resource_dev,
-        {NULL, sizeof("/dev/mid"), "/dev/mid"},
-        {NULL, (size_t)1 * 32, (char[1][32]){"urn:knx:dpa.0.12"}},
-        {NULL, sizeof("urn:knx:dpt.value2Ucount"), "urn:knx:dpt.value2Ucount"},
-        {APPLICATION_CBOR, CONTENT_NONE},
-        OC_DISCOVERABLE,
-        {oc_core_dev_mid_get_handler, NULL, OC_ACL_D, OC_IF_D},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-        {{NULL}, NULL},
-        {{NULL}, NULL},
-        0,
-        0,
-        1,
-        &core_resource_dev_mid_data};
+const oc_resource_t core_resource_dev_mid = {NULL,
+                                             {NULL, sizeof("/dev/mid"), "/dev/mid"},
+                                             {NULL, (size_t)1 * 32, (void*)(const char[1][32]){"urn:knx:dpa.0.12"}},
+                                             {NULL, sizeof("urn:knx:dpt.value2Ucount"), "urn:knx:dpt.value2Ucount"},
+                                             {APPLICATION_CBOR, CONTENT_NONE},
+                                             OC_DISCOVERABLE,
+                                             {oc_core_dev_mid_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                             0,
+                                             0,
+                                             1,
+                                             &core_resource_dev_mid_data};
 
 void oc_knx_load_device(void) 
 {

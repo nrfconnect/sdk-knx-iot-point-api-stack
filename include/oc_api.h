@@ -280,7 +280,7 @@ extern "C"
    * @param[in] response the instance of an internal struct that is used to track
    *                     the state of the separate response
    * @param[in] binary_size the full size of the binary
-   * @param[in] block_offset the offset (in the file)  
+   * @param[in] block_offset the offset (in the file)
    * @param[in] block_data the block data
    * @param[in] block_len the size of the block_data
    * @param[in] data the user supplied data
@@ -489,7 +489,7 @@ extern "C"
    * @param[in/out] interfaces
    *
    * @return
-   * - true if the resource and at least on resource method is defined (interfaces are set accordingly) 
+   * - true if the resource and at least on resource method is defined (interfaces are set accordingly)
    * - false otherwise (interfaces are not touched)
    *
    * @note ADDs all if's from all for this resource defined methods to the 'interfaces' parameter,
@@ -511,22 +511,6 @@ extern "C"
    *
    */
   bool oc_resource_get_acl_for_method(const oc_resource_t* resource, coap_method_t method, oc_acl_mask_t* scopes);
-
-
-  /**
-   * @brief sets the callback properties for set properties and get properties
-   *
-   * @param resource the resource for the callback data
-   * @param get_properties callback function for retrieving the properties
-   * @param get_props_user_data the user data for the get_properties callback
-   * function
-   * @param set_properties callback function for setting the properties
-   * @param set_props_user_data the user data for the set_properties callback
-   * function
-   */
-  void oc_resource_set_properties_cbs(oc_resource_t* resource, oc_get_properties_cb_t get_properties,
-                                      void* get_props_user_data, oc_set_properties_cb_t set_properties,
-                                      void* set_props_user_data);
 
   /**
    * @brief set a (FB) resource to a specific function block instance.

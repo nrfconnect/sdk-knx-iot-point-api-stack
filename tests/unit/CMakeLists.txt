@@ -147,6 +147,10 @@ target_link_options(test_oc_ri_periodic_observe PRIVATE
     -Wl,--wrap=oc_notify_observers
 )
 kis_add_test(test_coap_engine       test_coap_engine.cpp)
+# --wrap=oc_send_buffer records the re-send of a cached response
+target_link_options(test_coap_engine PRIVATE
+    -Wl,--wrap=oc_send_buffer
+)
 kis_add_test(test_coap_receive_payload test_coap_receive_payload.cpp)
 # Request payload size limits in coap_receive: --wrap fakes the network side (same pattern as test_smode_send_refcount)
 # and records the response.

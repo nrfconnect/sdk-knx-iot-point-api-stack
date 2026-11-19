@@ -132,8 +132,6 @@ const oc_resource_t core_resource_knx_swu_protocol = {NULL,
                                                       {oc_knx_swu_protocol_put_handler, NULL, OC_ACL_SWU, OC_IF_SWU},
                                                       {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                       {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                                      {{NULL}, NULL},
-                                                      {{NULL}, NULL},
                                                       0,
                                                       0,
                                                       true,
@@ -149,23 +147,20 @@ static void oc_knx_swu_hwref_get_handler(oc_request_t* request, oc_interface_mas
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_swu_hwref_data;
-const oc_resource_t core_resource_knx_swu_hwref = {
-  &core_resource_knx_swu_method,
-  {NULL, sizeof("/swu/hwref"), "/swu/hwref"},
-  {NULL, 0, NULL},
-  {NULL, sizeof("urn:knx:dpt.varString8559_1"), "urn:knx:dpt.varString8559_1"},
-  {APPLICATION_CBOR, CONTENT_NONE},
-  OC_DISCOVERABLE,
-  {oc_knx_swu_hwref_get_handler, NULL, OC_ACL_D, OC_IF_D},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {{NULL}, NULL},
-  {{NULL}, NULL},
-  0,
-  0,
-  true,
-  &core_resource_knx_swu_hwref_data};
+const oc_resource_t core_resource_knx_swu_hwref = {NULL,
+                                                   {NULL, sizeof("/swu/hwref"), "/swu/hwref"},
+                                                   {NULL, 0, NULL},
+                                                   {NULL, sizeof("urn:knx:dpt.varString8559_1"), "urn:knx:dpt.varString8559_1"},
+                                                   {APPLICATION_CBOR, CONTENT_NONE},
+                                                   OC_DISCOVERABLE,
+                                                   {oc_knx_swu_hwref_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                                   {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                   {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                   {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                   0,
+                                                   0,
+                                                   true,
+                                                   &core_resource_knx_swu_hwref_data};
 
 static void oc_knx_swu_method_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
@@ -205,23 +200,20 @@ static void oc_knx_swu_method_put_handler(oc_request_t* request, oc_interface_ma
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_swu_method_data;
-const oc_resource_t core_resource_knx_swu_method = {
-  &core_resource_knx_swu_lastupdate,
-  {NULL, sizeof("/swu/method"), "/swu/method"},
-  {NULL, 0, NULL},
-  {NULL, sizeof("urn:knx:dpt.transferMethod"), "urn:knx:dpt.transferMethod"},
-  {APPLICATION_CBOR, CONTENT_NONE},
-  OC_DISCOVERABLE,
-  {oc_knx_swu_method_get_handler, NULL, OC_ACL_D, OC_IF_D},
-  {oc_knx_swu_method_put_handler, NULL, OC_ACL_SWU, OC_IF_SWU},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {{NULL}, NULL},
-  {{NULL}, NULL},
-  0,
-  0,
-  true,
-  &core_resource_knx_swu_method_data};
+const oc_resource_t core_resource_knx_swu_method = {NULL,
+                                                    {NULL, sizeof("/swu/method"), "/swu/method"},
+                                                    {NULL, 0, NULL},
+                                                    {NULL, sizeof("urn:knx:dpt.transferMethod"), "urn:knx:dpt.transferMethod"},
+                                                    {APPLICATION_CBOR, CONTENT_NONE},
+                                                    OC_DISCOVERABLE,
+                                                    {oc_knx_swu_method_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                                    {oc_knx_swu_method_put_handler, NULL, OC_ACL_SWU, OC_IF_SWU},
+                                                    {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                    {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                    0,
+                                                    0,
+                                                    true,
+                                                    &core_resource_knx_swu_method_data};
 
 static void oc_knx_swu_last_update_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
@@ -266,23 +258,20 @@ static void oc_knx_swu_last_update_get_handler(oc_request_t* request, oc_interfa
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_swu_lastupdate_data;
-const oc_resource_t core_resource_knx_swu_lastupdate = {
-  &core_resource_knx_swu_result,
-  {NULL, sizeof("/swu/lastupdate"), "/swu/lastupdate"},
-  {NULL, 0, NULL},
-  {NULL, sizeof("urn:knx:dpt.varString8859_1"), "urn:knx:dpt.varString8859_1"},
-  {APPLICATION_CBOR, CONTENT_NONE},
-  OC_DISCOVERABLE,
-  {oc_knx_swu_last_update_get_handler, NULL, OC_ACL_D, OC_IF_D},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {{NULL}, NULL},
-  {{NULL}, NULL},
-  0,
-  0,
-  true,
-  &core_resource_knx_swu_lastupdate_data};
+const oc_resource_t core_resource_knx_swu_lastupdate = {NULL,
+                                                        {NULL, sizeof("/swu/lastupdate"), "/swu/lastupdate"},
+                                                        {NULL, 0, NULL},
+                                                        {NULL, sizeof("urn:knx:dpt.varString8859_1"), "urn:knx:dpt.varString8859_1"},
+                                                        {APPLICATION_CBOR, CONTENT_NONE},
+                                                        OC_DISCOVERABLE,
+                                                        {oc_knx_swu_last_update_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                                        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                        {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                        0,
+                                                        0,
+                                                        true,
+                                                        &core_resource_knx_swu_lastupdate_data};
 
 static void oc_knx_swu_result_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
@@ -304,8 +293,6 @@ const oc_resource_t core_resource_knx_swu_result = {NULL,
                                                     {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                     {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                     {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                                    {{NULL}, NULL},
-                                                    {{NULL}, NULL},
                                                     0,
                                                     0,
                                                     true,
@@ -331,8 +318,6 @@ const oc_resource_t core_resource_knx_swu_state = {NULL,
                                                    {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                    {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                    {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                                   {{NULL}, NULL},
-                                                   {{NULL}, NULL},
                                                    0,
                                                    0,
                                                    true,
@@ -420,23 +405,20 @@ static void oc_knx_swu_update_get_handler(oc_request_t* request, oc_interface_ma
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_swu_update_data;
-const oc_resource_t core_resource_knx_swu_update = {
-  &core_resource_knx_swu_pkgv,
-  {NULL, sizeof("/swu/update"), "/swu/update"},
-  {NULL, 0, NULL},
-  {NULL, sizeof("urn:knx:dpt.timePeriodSecZ"), "urn:knx:dpt.timePeriodSecZ"},
-  {APPLICATION_CBOR, CONTENT_NONE},
-  OC_DISCOVERABLE,
-  {oc_knx_swu_update_get_handler, NULL, OC_ACL_D, OC_IF_D},
-  {oc_knx_swu_update_put_handler, NULL, OC_ACL_SWU, OC_IF_SWU},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {{NULL}, NULL},
-  {{NULL}, NULL},
-  0,
-  0,
-  true,
-  &core_resource_knx_swu_update_data};
+const oc_resource_t core_resource_knx_swu_update = {NULL,
+                                                    {NULL, sizeof("/swu/update"), "/swu/update"},
+                                                    {NULL, 0, NULL},
+                                                    {NULL, sizeof("urn:knx:dpt.timePeriodSecZ"), "urn:knx:dpt.timePeriodSecZ"},
+                                                    {APPLICATION_CBOR, CONTENT_NONE},
+                                                    OC_DISCOVERABLE,
+                                                    {oc_knx_swu_update_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                                    {oc_knx_swu_update_put_handler, NULL, OC_ACL_SWU, OC_IF_SWU},
+                                                    {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                    {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                    0,
+                                                    0,
+                                                    true,
+                                                    &core_resource_knx_swu_update_data};
 
 static void oc_knx_swu_pkg_version_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
@@ -475,8 +457,6 @@ const oc_resource_t core_resource_knx_swu_pkgv = {NULL,
                                                   {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                   {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                   {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                                  {{NULL}, NULL},
-                                                  {{NULL}, NULL},
                                                   0,
                                                   0,
                                                   true,
@@ -676,8 +656,6 @@ const oc_resource_t core_resource_knx_swu_pkgcmd = {NULL,
                                                     {oc_knx_swu_a_put_handler, NULL, OC_ACL_SWU, OC_IF_SWU},
                                                     {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                     {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                                    {{NULL}, NULL},
-                                                    {{NULL}, NULL},
                                                     0,
                                                     0,
                                                     true,
@@ -704,8 +682,6 @@ const oc_resource_t core_resource_knx_swu_pkgbytes = {NULL,
                                                       {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                       {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                                       {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                                      {{NULL}, NULL},
-                                                      {{NULL}, NULL},
                                                       0,
                                                       0,
                                                       true,
@@ -744,23 +720,20 @@ static void oc_knx_swu_pkg_name_get_handler(oc_request_t* request, oc_interface_
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_swu_pkgnames_data;
-const oc_resource_t core_resource_knx_swu_pkgnames = {
-  &core_resource_knx_swu,
-  {NULL, sizeof("/swu/pkgname"), "/swu/pkgname"},
-  {NULL, 0, NULL},
-  {NULL, sizeof("urn:knx:dpt.varString8859_1"), "urn:knx:dpt.varString8859_1"},
-  {APPLICATION_CBOR, CONTENT_NONE},
-  OC_DISCOVERABLE,
-  {oc_knx_swu_pkg_name_get_handler, NULL, OC_ACL_D, OC_IF_D},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-  {{NULL}, NULL},
-  {{NULL}, NULL},
-  0,
-  0,
-  true,
-  &core_resource_knx_swu_pkgnames_data};
+const oc_resource_t core_resource_knx_swu_pkgnames = {NULL,
+                                                      {NULL, sizeof("/swu/pkgname"), "/swu/pkgname"},
+                                                      {NULL, 0, NULL},
+                                                      {NULL, sizeof("urn:knx:dpt.varString8859_1"), "urn:knx:dpt.varString8859_1"},
+                                                      {APPLICATION_CBOR, CONTENT_NONE},
+                                                      OC_DISCOVERABLE,
+                                                      {oc_knx_swu_pkg_name_get_handler, NULL, OC_ACL_D, OC_IF_D},
+                                                      {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                      {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                      {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
+                                                      0,
+                                                      0,
+                                                      true,
+                                                      &core_resource_knx_swu_pkgnames_data};
 
 static void oc_core_knx_swu_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
@@ -847,7 +820,7 @@ static void oc_core_knx_swu_get_handler(oc_request_t* request, oc_interface_mask
 static oc_resource_data_t core_resource_knx_swu_data;
 const oc_resource_t core_resource_knx_swu = {NULL,
                                              {NULL, sizeof("/swu"), "/swu"},
-                                             {NULL, (size_t)1 * 32, (char[1][32]){"urn:knx:fb.swu"}},
+                                             {NULL, (size_t)1 * 32, (void*)(const char[1][32]){"urn:knx:fb.swu"}},
                                              {NULL, 0, NULL},
                                              {APPLICATION_LINK_FORMAT, CONTENT_NONE},
                                              OC_DISCOVERABLE,
@@ -855,8 +828,6 @@ const oc_resource_t core_resource_knx_swu = {NULL,
                                              {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                              {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
                                              {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                             {{NULL}, NULL},
-                                             {{NULL}, NULL},
                                              0,
                                              0,
                                              true,

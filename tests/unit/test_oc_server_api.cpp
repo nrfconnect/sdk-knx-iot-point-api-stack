@@ -537,21 +537,6 @@ TEST_F(ServerApiResource, SetFunctionalBlockData)
   EXPECT_EQ(r.fb_data, (uint32_t)((0x1234 << 16) + (0x56 << 8) + 0x78));
 }
 
-static void dummy_get_props(oc_resource_t *, oc_interface_mask_t, void *) {}
-static bool dummy_set_props(oc_resource_t *, oc_rep_t *, void *) { return true; }
-
-TEST_F(ServerApiResource, SetPropertiesCbs)
-{
-  oc_resource_t r;
-  memset(&r, 0, sizeof(r));
-  int gud = 1, sud = 2;
-  oc_resource_set_properties_cbs(&r, dummy_get_props, &gud, dummy_set_props, &sud);
-  EXPECT_EQ((void *)r.get_properties.cb.get_props, (void *)dummy_get_props);
-  EXPECT_EQ(r.get_properties.user_data, &gud);
-  EXPECT_EQ((void *)r.set_properties.cb.set_props, (void *)dummy_set_props);
-  EXPECT_EQ(r.set_properties.user_data, &sud);
-}
-
 TEST_F(ServerApiResource, BindDpt)
 {
   oc_resource_t r;
@@ -602,13 +587,10 @@ TEST_F(ServerApiResource, AllConstMutatorsAreNoops)
   oc_resource_bind_resource_type(&r, "type");
   oc_resource_bind_dpt(&r, "dpt");
   oc_resource_bind_content_type(&r, APPLICATION_CBOR, CONTENT_NONE);
-  oc_resource_set_properties_cbs(&r, dummy_get_props, nullptr,
-                                 dummy_set_props, nullptr);
 
   EXPECT_STREQ(oc_string_array_get_item(r.types, 0), "");
   EXPECT_EQ(oc_string_len(r.dpt), 0);
   EXPECT_EQ(r.content_type[0], 0);
-  EXPECT_EQ(r.get_properties.cb.get_props, nullptr);
   oc_free_string_array(&r.types);
 }
 
@@ -618,8 +600,6 @@ TEST_F(ServerApiResource, NullMutatorsAreSafe)
   oc_resource_set_properties(nullptr, (oc_resource_properties_t)0);
   oc_resource_reset_properties(nullptr, (oc_resource_properties_t)0);
   oc_resource_set_functional_block_data(nullptr, 1, 2, 3);
-  oc_resource_set_properties_cbs(nullptr, dummy_get_props, nullptr,
-                                 dummy_set_props, nullptr);
   oc_resource_set_request_handler(nullptr, COAP_GET, nullptr, nullptr,
                                   OC_ACL_NONE, OC_IF_NONE);
   oc_resource_bind_resource_type(nullptr, "type");

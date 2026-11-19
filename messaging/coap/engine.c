@@ -80,16 +80,13 @@ void oc_coap_clear_request_history(void)
   OC_DBG("wipe inbound request history buffer");
 }
 
-/* 
-   Response cache for CON retransmission handling (RFC 7252 section 4.5).
-   When a piggybacked ACK response is lost and the client retransmits the CON
-   request, the server re-sends the cached response instead of dropping it.
-   Only ACK responses (type=2) are cached, since CON responses have their
-   own retransmission via the transaction layer.
-*/
-#ifndef OC_RESPONSE_CACHE_SIZE
-#define OC_RESPONSE_CACHE_SIZE (4) // MUST use only values of 2 power n
-#endif
+  /*
+     Response cache for CON retransmission handling (RFC 7252 section 4.5).
+     When a piggybacked ACK response is lost and the client retransmits the CON
+     request, the server re-sends the cached response instead of dropping it.
+     Only ACK responses (type=2) are cached, since CON responses have their
+     own retransmission via the transaction layer. The size is OC_RESPONSE_CACHE_SIZE (engine.h).
+  */
 
   /*
     The retransmissions use binary exponential backoff:
@@ -192,6 +189,13 @@ void oc_coap_response_cache_store(oc_message_t* message)
 
     // keep the CURRENT send out/ outbound new message alive by adding a ref
     oc_message_add_ref(message);
+
+    // the message is a full PDU allocation (OC_PDU_SIZE + 1) but stays cached until its slot is reused: keep only its bytes
+    uint8_t* shrunk = (uint8_t*)realloc(message->data, message->length);
+    if (shrunk)
+    {
+      message->data = shrunk;
+    }
 
     response_cache[response_cache_idx].key = key;
     response_cache[response_cache_idx].message = message; // cache message (only ptr)

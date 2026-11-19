@@ -431,30 +431,6 @@ typedef struct oc_request_handler {
 } oc_request_handler_t;
 
 /**
- * @brief set properties callback
- *
- */
-typedef bool (*oc_set_properties_cb_t)(oc_resource_t*, oc_rep_t*, void*);
-
-/**
- * @brief get properties callback
- *
- */
-typedef void (*oc_get_properties_cb_t)(oc_resource_t*, oc_interface_mask_t, void*);
-
-/**
- * @brief properties callback structure
- *
- */
-typedef struct oc_properties_cb_t {
-  union {
-    oc_set_properties_cb_t set_props;
-    oc_get_properties_cb_t get_props;
-  } cb;
-  void* user_data;
-} oc_properties_cb_t;
-
-/**
  * @brief resource structure for a resource's (in RAM) modifiable data at runtime 
  * @note data MUST be RAM allocated, even it is part of compiled stack resources (and is of only one byte) 
  *        - for application resources (/p/1/...) it is allocated from HEAP -> oc_new_resource  
@@ -481,8 +457,6 @@ struct oc_resource {
   oc_request_handler_t put_handler;     /**< callback for PUT */
   oc_request_handler_t post_handler;    /**< callback for POST */
   oc_request_handler_t delete_handler;  /**< callback for DELETE */
-  oc_properties_cb_t get_properties;    /**< callback for get properties */
-  oc_properties_cb_t set_properties;    /**< callback for set properties */
   uint16_t observe_period_seconds;      /**< observe period in seconds  */
   uint32_t fb_data;                     /**< compressed FB data* (see extra details) */
   bool is_const;                        /**< resource is precompiled (core = true, application = always false, will be dynamically allocated) */

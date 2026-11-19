@@ -16,7 +16,7 @@
  *         kid_context is a server-side random that DIFFERS per responder.
  *
  *         Single unified FIFO ring (ECHO_RING_SIZE, production default 16;
- *         reads the actual compiled KNX_ECHO_RING_SIZE, e.g. 16 on Zephyr):
+ *         reads the actual compiled KNX_ECHO_RING_SIZE):
  *
  *         Anchor slot  (kid_ctx_len == 0)  -- former whitelist role:
  *           one slot per outbound send; carries a REFERENCE to the originating

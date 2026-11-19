@@ -780,7 +780,6 @@ All pure functions are driven on stack-allocated request/response/response_buffe
 | oc_resource_get_acl_for_method | DONE — per method returns acl_scope_mask; NULL→false. |
 | oc_resource_set_periodic_observable / set_properties / reset_properties | DONE — OBSERVABLE+PERIODIC + period; bit set/unset; resetting OBSERVABLE also clears PERIODIC. |
 | oc_resource_set_functional_block_data | DONE — fb_data = (fb<<16)+(inst<<8)+ndp. |
-| oc_resource_set_properties_cbs | DONE — assigns get/set props cb + user_data. |
 | (all mutators) is_const guard | DONE — MutatorsRespectIsConst verifies const resources are not modified. |
 | oc_add_resource | UNTESTABLE in isolation — delegates to `oc_ri_add_resource` (app_resources list + duplicate-URI checks inside the RI singleton). Integration-level. |
 | oc_set_delayed_callback / _ms / oc_remove_delayed_callback | UNTESTABLE in isolation — schedule/cancel RI timed events (`oc_ri_add/remove_timed_event_callback*`); require the running RI event loop. Integration-level. |
