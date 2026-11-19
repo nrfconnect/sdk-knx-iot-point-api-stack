@@ -805,6 +805,8 @@ All pure functions are driven on stack-allocated request/response/response_buffe
 
 Statics reached by compiling the TU into the test (`#include "api/oc_test_control.c"`); there is no const-resource literal so g++ accepts it, and the test object's own `oc_test_control_register` keeps the archive copy from being pulled in (no duplicate symbols).
 
+Excluded from the gcovr report (`--exclude 'api/oc_test_control[.]c'`, CI `unit-coverage-gcc`): it is test infrastructure (library `kisTestControl`, registered only by `tests/common/runtime_test_server.c`), exercised by the runtime and conformance tiers, whose coverage is not measured.
+
 | Function | Status |
 |----------|--------|
 | post_test_trigger (static) | DONE — NULL path→4.00; over-long path (≥64) invokes `g_set_dp_cb` then→4.00 (covered with and without a registered callback). Success path is integration-level (see below). |

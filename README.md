@@ -104,26 +104,77 @@ ctest --preset linux-test-gcc
 
 Replace the preset name with the matching GCC or Linux test preset as needed.
 
-#### Line coverage
+#### Coverage
 
 The `*-coverage-gcc` presets build the same unit suite with gcov instrumentation
 (`--coverage -O0`, CMake option `ENABLE_COVERAGE`). Run it, then let
 [gcovr](https://gcovr.com) (`pip install gcovr`) turn the `.gcda` files into a
 report; the filters restrict it to the stack's own code, leaving out tests,
-fetched dependencies and the vendored `api/c-timestamp` parser:
+fetched dependencies, the vendored `api/c-timestamp` parser and
+`api/oc_test_control.c` (test endpoints of the device used by the runtime and
+conformance tiers, not part of the product):
 
 ```bash
 cmake --preset linux-coverage-gcc          # windows-coverage-gcc on MSYS2/MinGW
 cmake --build --preset linux-coverage-gcc
 ctest --preset linux-coverage-gcc
 gcovr --root . --filter 'api/' --filter 'messaging/' --filter 'security/' --filter 'util/' \
-      --exclude 'api/c-timestamp/.*' --print-summary \
+      --exclude 'api/c-timestamp/.*' --exclude 'api/oc_test_control[.]c' --print-summary \
   --html-medium-threshold 65 --html-high-threshold 85 \
       --html-details build/linux-coverage-gcc/coverage-html/index.html build/linux-coverage-gcc
 ```
 
 In CI the `unit-coverage-gcc` job does this on every push; GitLab shows the function
 percentage on the job and the merge request, and the HTML report is an artifact.
+The summary also prints line and branch coverage. Branches are the figure to
+watch for error paths: an untested `if (len > max) return error;` is a covered
+line but an untaken branch. The job fails below 62 % branch coverage
+(`--fail-under-branch`, just under the current value), so a change that drops
+tested error paths shows up there.
+
+#### Function complexity
+
+`tests/common/tools/lizard_report.py` runs [lizard](https://github.com/terryyin/lizard)
+(`pip install lizard==1.26.0 jinja2`) over the stack's own C code as a statistic: it
+writes an HTML and a CSV report (one row per function), lists the functions over
+a cyclomatic complexity of 15, 150 lines or 7 parameters and prints the summary.
+Fun Rt (share of functions over a threshold) and nloc Rt (share of the code in
+them) are the figures to follow from release to release. It fails nothing; the
+CI job `quality-code` runs it and keeps the reports as artifacts.
+
+```bash
+python3 tests/common/tools/lizard_report.py --out build/lizard
+```
+
+With `--diff [BASE]` (default `origin/main`) it checks only the functions whose
+lines changed since the merge base, uncommitted work included: a new function
+must stay within the thresholds, a changed one already over a threshold must
+not get worse on it. It exits 1 otherwise. A touched function over a
+threshold that got no better is listed as `WARN` with the changed lines, the
+block to extract first; it does not fail. The CI job `quality-code` runs
+the check on every branch against the default branch.
+
+```bash
+python3 tests/common/tools/lizard_report.py --diff origin/main
+```
+
+For deciding where a refactoring pays off first, set the complexity per file
+(the CSV's `ccn` summed per file) against how often the file changes
+(`git log --no-merges --since="2 years ago" --name-only`, without mechanical
+commits such as formatting or license headers): a file that is both complex
+and often changed is a hotspot, a complex file nobody touches is not.
+
+#### Code format
+
+The changed lines must match `.clang-format`; untouched code is not checked.
+The CI job `quality-code` runs this on every branch against the merge base
+with the default branch, with clang-format 22 (`pip install clang-format==22.1.8`);
+a failure prints the diff that fixes it. Locally, before pushing:
+
+```bash
+git clang-format --diff $(git merge-base origin/main HEAD)   # check
+git clang-format $(git merge-base origin/main HEAD)          # fix the working tree
+```
 
 ### Runtime Conformance Tests
 
