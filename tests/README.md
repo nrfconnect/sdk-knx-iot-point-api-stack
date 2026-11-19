@@ -79,6 +79,12 @@ tests/common/tools/run-in-docker.sh --tier runtime --uncommitted
 tests/common/tools/run-in-docker.sh --tier tool        # the tool's own tests, no device
 ```
 
+The DUT is built with the test presets, which set the reset delay
+(`KNX_RESET_DELAY_MILLISECONDS`, 1 ms) and the default echo response delay
+(`KNX_OSCORE_OSN_DELAY_MILLISECONDS`, 10 ms) short: both tools act on the device right
+after a reset or a group message, while a product waits 1 s before a reset and
+up to 1 s before an echo response.
+
 Both wrappers pack the tree with the tool (committed HEAD with the tool at
 the pinned commit, or the working trees with `-IncludeUncommitted` /
 `--uncommitted`), mount the host's cache of KNX's files, start the CI image

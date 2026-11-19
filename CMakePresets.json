@@ -127,8 +127,11 @@
     {
       "name": "test-common-config",
       "hidden": true,
+      "description": "Test builds: the device under test answers the runtime and conformance tools, which act on it without waiting, so the reset and the echo response delays are short.",
       "cacheVariables": {
-        "BUILD_TESTING": true
+        "BUILD_TESTING": true,
+        "KNX_RESET_DELAY_MILLISECONDS": "1",
+        "KNX_OSCORE_OSN_DELAY_MILLISECONDS": "10"
       }
     },
     {

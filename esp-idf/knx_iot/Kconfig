@@ -87,6 +87,19 @@ config KNXIOT_ATT_MAX_ENTRIES
     int "Access Token (AT) table max entries"
     default 20
 
+config KNXIOT_NET_MAX_RX_PENDING
+    int "Received messages waiting for the event loop"
+    default 8
+    range 1 255
+
+config KNXIOT_COAP_MAX_OPEN_TRANSACTIONS
+    int "Maximum number of open CoAP transactions"
+    default 32
+    range 1 255
+    help
+      Every s-mode unicast recipient and every confirmable notification holds
+      one until it is acknowledged, size it for those plus a few responses.
+
 config KNXIOT_CBOR_MAX_DEPTH
     int "Maximum nesting depth of a received CBOR payload"
     default 8
@@ -153,6 +166,10 @@ config KNX_READ_ON_INIT_DELAY_MS
 config KNX_RESET_PROCESS_TIME_S
     int "KNX reset process time (seconds)"
     default 2
+
+config KNX_RESET_DELAY_MS
+    int "KNX reset delay (milliseconds)"
+    default 1000
 
 config KNXIOT_LWIP_MLD6_GROUPS
     int "lwIP IPv6 multicast group memberships (MEMP_NUM_MLD6_GROUP)"

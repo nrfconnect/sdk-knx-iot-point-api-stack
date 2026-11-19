@@ -54,6 +54,14 @@ typedef struct oc_message_s oc_message_t;
 
 struct oc_endpoint_t;
 
+/* Received messages that may wait for the event loop, a message beyond it is dropped. */
+#ifndef KNX_NET_MAX_RX_PENDING
+  #define KNX_NET_MAX_RX_PENDING 8
+#endif
+#if KNX_NET_MAX_RX_PENDING < 1
+  #error "KNX_NET_MAX_RX_PENDING must be at least 1, otherwise every received message is dropped"
+#endif
+
 /**
  * @brief receive network event
  *

@@ -29,6 +29,9 @@ extern "C"
   #define KNX_STORAGE_KEY_GOT_ENTRY "got_e"  // GO table base key
   #define KNX_STORAGE_KEY_GOT_ENTRY_SIZE (sizeof(KNX_STORAGE_KEY_GOT_ENTRY) + 6)
 
+// read on init: polls for a network with at least ULA scope this many times before it gives up
+#define KNX_READ_ON_INIT_MAX_ATTEMPTS 20
+
   /**
    * @brief cflag masks
    *

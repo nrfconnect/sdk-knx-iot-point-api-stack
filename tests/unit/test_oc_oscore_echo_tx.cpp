@@ -1376,6 +1376,18 @@ static void drain_event_queue()
 
 /* A CON request is encrypted into a copy (the transaction keeps the plain one); the copy that
    finds the event queue full is released, a leak here is reported by the AddressSanitizer build. */
+TEST_F(OscoreEngine, OutboundUnicastToFullQueueReleasesEncryptedCopy)
+{
+  oc_message_t* message = make_outbound_request(COAP_TYPE_CON, OSCORE);
+  ASSERT_NE(message, nullptr);
+
+  fill_event_queue();
+  oc_process_post_synch(&oc_oscore_handler, oc_events[OUTBOUND_UC_OSCORE_EVENT], message);
+  drain_event_queue();
+
+  EXPECT_EQ(g_network_send_calls, 0);
+  EXPECT_EQ(oc_process_nevents(), 0);
+}
 
 TEST_F(OscoreEngine, OutboundResponseIsEncryptedAndSent)
 {

@@ -157,3 +157,49 @@ TEST_F(OcEtimer, NextExpirationNonZeroWhenPending)
   oc_etimer_set(&et1, OC_CLOCK_SECOND * 100);
   EXPECT_NE(oc_etimer_next_expiration_time(), 0u);
 }
+
+/* ─── the timer process itself, driven by the scheduler ─────────────────── */
+
+class OcEtimerProcess : public OcEtimer
+{
+protected:
+  void SetUp() override
+  {
+    oc_process_init();
+    oc_process_start(&oc_etimer_process, nullptr);
+    OcEtimer::SetUp();
+  }
+
+  void TearDown() override
+  {
+    OcEtimer::TearDown();
+    oc_process_exit(&oc_etimer_process);
+    while (oc_process_run() > 0)
+    {
+    }
+  }
+
+  int expired_count() const
+  {
+    return oc_etimer_expired(const_cast<oc_etimer*>(&et1)) + oc_etimer_expired(const_cast<oc_etimer*>(&et2)) +
+      oc_etimer_expired(const_cast<oc_etimer*>(&et3));
+  }
+};
+
+TEST_F(OcEtimerProcess, ExpiredTimersArePostedOnePerPassAndAllFire)
+{
+  /* several timers expired at once must not flood the bounded event queue with
+     timer events: one is posted per pass, the others on the following passes */
+  oc_etimer_set(&et1, 0);
+  oc_etimer_set(&et2, 0);
+  oc_etimer_set(&et3, 0);
+
+  oc_process_run();
+  EXPECT_EQ(expired_count(), 1);
+
+  for (int i = 0; i < 10 && oc_process_run() > 0; i++)
+  {
+  }
+  EXPECT_EQ(expired_count(), 3);
+  EXPECT_FALSE(oc_etimer_pending());
+}

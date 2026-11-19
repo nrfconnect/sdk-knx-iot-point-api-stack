@@ -47,25 +47,33 @@ extern "C"
   #define RESET_TO_DEFAULT_STATE (2)  // factory reset
   #define RESET_TO_DEFAULT_WO_IA (7)  // factory reset w/o IA
 
-  /*
-   * KNX-IoT specific SPAKE2+ parameters for the PASE handshake.
-   *
-   * Context string and identity strings are fixed empty strings per KNX-IoT specification.
-   *
-   * Salt and random nonce sizes are KNX-IoT choices - RFC 9383 does not mandate
-   * specific sizes for either.
-   *
-   * The device password is not stored here and is not used by the stack. The
-   * Verifier (device) uses only the precalculated offline registration record
-   * (w0, L, salt) provided via app_get_precalculated_spake_data(), see RFC 9383
-   * sec. 3.2. Per KNX-IoT specification 3/10/5 clause 3.6.6.3 the password is a
-   * string of min 6 and max 32 characters.
-   */
-  #define KNX_IOT_SPAKE2PLUS_CONTEXT       "knxpase"
-  #define KNX_IOT_SPAKE2PLUS_ID_PROVER     ""
-  #define KNX_IOT_SPAKE2PLUS_ID_VERIFIER   ""
-  #define KNX_IOT_SPAKE2PLUS_SALT_LENGTH   (32)
-  #define KNX_IOT_SPAKE2PLUS_RND_LENGTH    (32)
+// delay before a reset wipes the security contexts, so the (OSCORE) response is sent first
+#ifndef KNX_RESET_DELAY_MILLISECONDS
+  #define KNX_RESET_DELAY_MILLISECONDS 1000
+#endif
+#if defined(KNX_RESPONSE_TIME_SECONDS) && (KNX_RESET_DELAY_MILLISECONDS >= KNX_RESPONSE_TIME_SECONDS * 1000)
+  #error "KNX_RESET_DELAY_MILLISECONDS must be less than the reset Process Time KNX_RESPONSE_TIME_SECONDS"
+#endif
+
+/*
+ * KNX-IoT specific SPAKE2+ parameters for the PASE handshake.
+ *
+ * Context string and identity strings are fixed empty strings per KNX-IoT specification.
+ *
+ * Salt and random nonce sizes are KNX-IoT choices - RFC 9383 does not mandate
+ * specific sizes for either.
+ *
+ * The device password is not stored here and is not used by the stack. The
+ * Verifier (device) uses only the precalculated offline registration record
+ * (w0, L, salt) provided via app_get_precalculated_spake_data(), see RFC 9383
+ * sec. 3.2. Per KNX-IoT specification 3/10/5 clause 3.6.6.3 the password is a
+ * string of min 6 and max 32 characters.
+ */
+#define KNX_IOT_SPAKE2PLUS_CONTEXT "knxpase"
+#define KNX_IOT_SPAKE2PLUS_ID_PROVER ""
+#define KNX_IOT_SPAKE2PLUS_ID_VERIFIER ""
+#define KNX_IOT_SPAKE2PLUS_SALT_LENGTH (32)
+#define KNX_IOT_SPAKE2PLUS_RND_LENGTH (32)
 
   /**
    * @brief PASE Resource Object

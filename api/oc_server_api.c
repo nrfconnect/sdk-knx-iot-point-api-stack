@@ -133,7 +133,7 @@ void oc_set_delayed_callback(void* cb_data, oc_trigger_t callback, uint16_t seco
 
 void oc_set_delayed_callback_ms(void* cb_data, oc_trigger_t callback, uint16_t milliseconds)
 {
-  oc_ri_add_timed_event_callback_ticks(cb_data, callback, milliseconds);
+  oc_ri_add_timed_event_callback_ticks(cb_data, callback, OC_CLOCK_MS_TO_TICKS(milliseconds));
 }
 
 void oc_remove_delayed_callback(void* cb_data, oc_trigger_t callback)

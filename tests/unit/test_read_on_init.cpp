@@ -13,12 +13,14 @@
  *
  * Covered:
  *   - the callback is registered with KNX_READ_ON_INIT_DELAY_MILLISECONDS
+ *     converted to clock ticks (OC_CLOCK_MS_TO_TICKS), not the raw ms value
  *   - the s-mode read of an init-flagged group object is sent only once the
  *     IPv6 scope is at least site-local (ULA, 5); global (14) also opens it
  *   - below that (link-local, none) the read is withheld and the callback
  *     reschedules itself
  *   - the read is released when the scope reaches site-local later, and a
  *     drop below it afterwards is tolerated
+ *   - after KNX_READ_ON_INIT_MAX_ATTEMPTS rescheduled attempts the callback
  *     gives up without sending
  *   - a new initialization resets the attempt counter
  *   - a multicast recipient (grpid > 0) gets a multicast read, a unicast one
@@ -170,6 +172,21 @@ protected:
 
 /* ── tests ────────────────────────────────────────────────────────────────── */
 
+// the period is the delay in clock ticks: with the raw ms value a Linux build (OC_CLOCK_SECOND =
+// CLOCKS_PER_SEC = 1e6) would retry every 100 us instead of 100 ms; on a 1000 ticks/s port both agree
+TEST_F(ReadOnInit, CallbackPeriodIsTheDelayInClockTicks)
+{
+  const oc_clock_time_t expected = OC_CLOCK_MS_TO_TICKS(KNX_READ_ON_INIT_DELAY_MILLISECONDS);
+  if (OC_CLOCK_SECOND != 1000)
+  {
+    ASSERT_NE(expected, (oc_clock_time_t)KNX_READ_ON_INIT_DELAY_MILLISECONDS) << "precondition: the conversion must change the value on this port";
+  }
+
+  oc_init_datapoints_at_initialization();
+
+  ASSERT_NE(g_timer_cb, nullptr);
+  EXPECT_EQ(g_timer_ticks, expected);
+}
 
 TEST_F(ReadOnInit, SiteLocalScopeSendsTheRead)
 {
@@ -254,4 +271,37 @@ TEST_F(ReadOnInit, ScopeDropAfterNetworkUpIsTolerated)
   EXPECT_EQ(fire(), OC_EVENT_DONE);
 }
 
+TEST_F(ReadOnInit, GivesUpAfterMaxAttemptsWithoutSiteLocalScope)
+{
+  provision_one_init_go();
+  g_scope = kScopeLinkLocal;
+  oc_init_datapoints_at_initialization();
 
+  for (int i = 1; i <= KNX_READ_ON_INIT_MAX_ATTEMPTS; i++)
+  {
+    EXPECT_EQ(fire(), OC_EVENT_CONTINUE) << "attempt " << i;
+  }
+  EXPECT_EQ(fire(), OC_EVENT_DONE);
+  EXPECT_TRUE(g_sent.empty());
+}
+
+TEST_F(ReadOnInit, NewInitializationResetsTheAttemptCounter)
+{
+  provision_one_init_go();
+  g_scope = kScopeLinkLocal;
+  oc_init_datapoints_at_initialization();
+  for (int i = 0; i < KNX_READ_ON_INIT_MAX_ATTEMPTS; i++)
+  {
+    (void)fire();
+  }
+
+  oc_init_datapoints_at_initialization();
+  for (int i = 1; i <= KNX_READ_ON_INIT_MAX_ATTEMPTS; i++)
+  {
+    EXPECT_EQ(fire(), OC_EVENT_CONTINUE) << "attempt " << i;
+  }
+
+  g_scope = kScopeSiteLocal;
+  EXPECT_EQ(fire(), OC_EVENT_CONTINUE);
+  EXPECT_EQ(g_sent.size(), 1u);
+}

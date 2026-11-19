@@ -47,39 +47,47 @@ extern "C" {
 #endif
 
 /**
- * Initialize the clock library.
+ * Milliseconds in system clock time (the tick rate differs per port, e.g.
+ * 1000 on Zephyr, ESP-IDF and Windows, CLOCKS_PER_SEC on Linux).
  *
- * This function initializes the clock library and should be called
- * from the main() function of the system.
- *
+ * \hideinitializer
  */
-void oc_clock_init(void);
+#define OC_CLOCK_MS_TO_TICKS(ms) ((oc_clock_time_t)(ms) * (oc_clock_time_t)OC_CLOCK_SECOND / 1000u)
 
-/**
- * Get the current clock time.
- *
- * This function returns the current system clock time.
- *
- * \return The current clock time, measured in system ticks.
- */
-oc_clock_time_t oc_clock_time(void);
+  /**
+   * Initialize the clock library.
+   *
+   * This function initializes the clock library and should be called
+   * from the main() function of the system.
+   *
+   */
+  void oc_clock_init(void);
 
-/**
- * Get the current value of the platform seconds.
- *
- * This could be the number of seconds since startup, or
- * since a standard epoch.
- *
- * \return The value.
- */
-unsigned long oc_clock_seconds(void);
+  /**
+   * Get the current clock time.
+   *
+   * This function returns the current system clock time.
+   *
+   * \return The current clock time, measured in system ticks.
+   */
+  oc_clock_time_t oc_clock_time(void);
 
-/**
- * Wait for a given number of ticks.
- * \param t   How many ticks.
- *
- */
-void oc_clock_wait(oc_clock_time_t t);
+  /**
+   * Get the current value of the platform seconds.
+   *
+   * This could be the number of seconds since startup, or
+   * since a standard epoch.
+   *
+   * \return The value.
+   */
+  unsigned long oc_clock_seconds(void);
+
+  /**
+   * Wait for a given number of ticks.
+   * \param t   How many ticks.
+   *
+   */
+  void oc_clock_wait(oc_clock_time_t t);
 
 #ifdef __cplusplus
 }

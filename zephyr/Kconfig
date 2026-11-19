@@ -145,6 +145,27 @@ config KNXIOT_ATT_MAX_ENTRIES
       of management clients (e.g., ETS, MaC tools) that may be
       simultaneously authorised.
 
+config KNXIOT_NET_MAX_RX_PENDING
+    int "Received messages waiting for the event loop"
+    default 8
+    range 1 255
+    help
+      Corresponds to CMake: KNX_NET_MAX_RX_PENDING.
+      Received datagrams that may wait for the event loop. A datagram
+      beyond it is dropped; the sender retransmits.
+
+config KNXIOT_COAP_MAX_OPEN_TRANSACTIONS
+    int "Maximum number of open CoAP transactions"
+    default 32
+    range 1 255
+    help
+      Corresponds to CMake: KNX_COAP_MAX_OPEN_TRANSACTIONS.
+      Requests and responses awaiting send or acknowledgement. A request
+      or response beyond it is not sent. Every s-mode unicast recipient
+      (KNXIOT_GRT_MAX_ENTRIES) and every confirmable notification
+      (KNXIOT_COAP_MAX_OBSERVERS) holds one until it is acknowledged, size it
+      for those plus a few responses.
+
 config KNXIOT_CBOR_MAX_DEPTH
     int "Maximum nesting depth of a received CBOR payload"
     default 8
@@ -250,6 +271,15 @@ config KNX_RESET_PROCESS_TIME_S
       This value is sent in the reset response to management clients
       (e.g., EITT, MaC) so they know how long to wait before issuing
       follow-up requests while the device is resetting locally.
+
+config KNX_RESET_DELAY_MS
+    int "KNX reset delay (milliseconds)"
+    default 1000
+    help
+      Corresponds to CMake: KNX_RESET_DELAY_MILLISECONDS.
+      Delay between the reset request and executing the reset, so the
+      (OSCORE protected) response is sent before the security contexts are
+      wiped. Must be less than KNX_RESET_PROCESS_TIME_S * 1000.
 
 # ── Security ───────────────────────────────────────────────────────────────────
 

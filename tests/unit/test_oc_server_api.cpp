@@ -72,8 +72,13 @@ extern "C" oc_resource_data_t *__wrap_oc_ri_alloc_resource_data(void)
 
 extern "C" void __wrap_oc_ri_add_timed_event_callback_seconds(
   void *, oc_trigger_t, uint16_t) {}
-extern "C" void __wrap_oc_ri_add_timed_event_callback_ticks(
-  void *, oc_trigger_t, oc_clock_time_t) {}
+/* ticks of the last scheduled callback */
+static oc_clock_time_t g_last_ticks;
+extern "C" bool __wrap_oc_ri_add_timed_event_callback_ticks(void*, oc_trigger_t, oc_clock_time_t ticks)
+{
+  g_last_ticks = ticks;
+  return true;
+}
 extern "C" void __wrap_oc_ri_remove_timed_event_callback(void *, oc_trigger_t) {}
 
 } // namespace
@@ -373,6 +378,16 @@ TEST_F(ServerApiResource, DelayedCallbackForwardersCallRiHooks)
   oc_set_delayed_callback_ms(nullptr, nullptr, 1);
   oc_remove_delayed_callback(nullptr, nullptr);
   SUCCEED();
+}
+
+TEST_F(ServerApiResource, DelayedCallbackMsIsConvertedToClockTicks)
+{
+  /* the tick rate is per port (CLOCKS_PER_SEC on Linux), milliseconds are not ticks */
+  g_last_ticks = 0;
+  oc_set_delayed_callback_ms(nullptr, nullptr, 1000);
+  EXPECT_EQ(g_last_ticks, (oc_clock_time_t)OC_CLOCK_SECOND);
+  oc_set_delayed_callback_ms(nullptr, nullptr, 250);
+  EXPECT_EQ(g_last_ticks, (oc_clock_time_t)OC_CLOCK_SECOND / 4);
 }
 
 TEST_F(ServerApiResource, SeparateResponseSetupInitializesHandle)

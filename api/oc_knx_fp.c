@@ -3359,10 +3359,10 @@ static oc_event_callback_retval_t oc_init_read_next(void* data)
         - site local (deprecated, fec0::/10) or unique local address (ULA, fc00::/7, RFC 4193) = 5
         - global = 14
 
-        After 20 attempts stop try to send.
+        After KNX_READ_ON_INIT_MAX_ATTEMPTS attempts stop try to send.
       */
 
-      if (++g_roi.counter > 20)
+      if (++g_roi.counter > KNX_READ_ON_INIT_MAX_ATTEMPTS)
       {
         OC_ERR("network not up with ULA scope, max attempts reached");
         return OC_EVENT_DONE;
@@ -3441,5 +3441,5 @@ void oc_init_datapoints_at_initialization(void)
 
   // start staggered processing from the first GO table entry
   g_roi = (g_roi_t){.got_idx = 0, .counter = 0, .net_up = false};
-  oc_ri_add_timed_event_callback_ticks(NULL, oc_init_read_next, KNX_READ_ON_INIT_DELAY_MILLISECONDS);
+  oc_ri_add_timed_event_callback_ticks(NULL, oc_init_read_next, OC_CLOCK_MS_TO_TICKS(KNX_READ_ON_INIT_DELAY_MILLISECONDS));
 }

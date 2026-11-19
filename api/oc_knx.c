@@ -341,14 +341,14 @@ static void oc_core_knx_post_handler(oc_request_t* request, oc_interface_mask_t 
     // safe 'erase code' value (reset uses a value)
     cached_erase_code_value = erase_code_value;
 
-    // init reset callback with 75 ms (see (1) below)  
-    oc_set_delayed_callback_ms(NULL, reset, 200);
+    // init reset callback (see (1) below)
+    oc_set_delayed_callback_ms(NULL, reset, KNX_RESET_DELAY_MILLISECONDS);
 
     /*
     (1) The device internal time to execute the reset/restart callback must be less than below
         responded Process Time time, moreover, this time must ensure to issue (2) from below.
-        The 200 ms delay ensures the CoAP ACK response is transmitted to the network before
-        the reset executes. The delay must be:
+        The KNX_RESET_DELAY_MILLISECONDS delay ensures the CoAP ACK response is transmitted
+        to the network before the reset executes. The delay must be:
         - Long enough for the response to be sent (network stack processing time)
         - Short enough to complete within the KNX_RESPONSE_TIME_SECONDS promise to the client
 

@@ -22,10 +22,18 @@ extern "C" {
 #endif
 
 
-// the number of concurrent messages that can be stored for retransmission in the transaction layer
+/*
+  the number of CoAP transactions open at the same time: every confirmable message the device
+  sends (s-mode unicast writes, one per recipient, CON notifications, separate responses) holds
+  one until it is acknowledged or its retransmissions run out; a send beyond it fails. Size it for
+  the unicast recipients of the group recipient table plus the observers plus a few responses.
+*/
 #ifndef COAP_MAX_OPEN_TRANSACTIONS
-#define COAP_MAX_OPEN_TRANSACTIONS (OC_MAX_NUM_CONCURRENT_REQUESTS)
-#endif 
+  #define COAP_MAX_OPEN_TRANSACTIONS (32)
+#endif
+#if COAP_MAX_OPEN_TRANSACTIONS < 1
+  #error "COAP_MAX_OPEN_TRANSACTIONS must be at least 1, otherwise no confirmable message is sent"
+#endif
 
 /*
   Three serialization modes, three header budgets.

@@ -40,6 +40,12 @@ void coap_register_as_transaction_handler(void)
 
 coap_transaction_t* coap_new_transaction_with_message(uint16_t mid, const uint8_t* token, uint8_t token_len, oc_message_t* message)
 {
+  if (oc_list_length(transactions_list) >= COAP_MAX_OPEN_TRANSACTIONS)
+  {
+    OC_WRN("transaction limit (%d) reached", COAP_MAX_OPEN_TRANSACTIONS);
+    return NULL;
+  }
+
   coap_transaction_t* t = (coap_transaction_t*)calloc(1, sizeof(coap_transaction_t));
   if (!t)
   {

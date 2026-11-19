@@ -134,6 +134,13 @@ void oc_network_event(oc_message_t* message)
     return;
   }
   oc_network_event_handler_mutex_lock();
+  if (oc_list_length(network_events) >= KNX_NET_MAX_RX_PENDING)
+  {
+    oc_network_event_handler_mutex_unlock();
+    OC_WRN("receive queue full, message dropped");
+    oc_message_unref(message);
+    return;
+  }
   oc_list_add(network_events, message);
   oc_network_event_handler_mutex_unlock();
 

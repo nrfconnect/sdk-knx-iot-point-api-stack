@@ -371,3 +371,26 @@ TEST_F(NetworkEvents, InterfaceEventBurstWithFullQueueDispatchesOnlyTheLast)
   EXPECT_EQ(g_interface_events, 1);
   EXPECT_EQ(g_last_interface_event, NETWORK_INTERFACE_UP);
 }
+
+// Received messages beyond KNX_NET_MAX_RX_PENDING are dropped (unref'd) instead of
+// queued, the ones already queued are still delivered.
+TEST_F(NetworkEvents, MessageBeyondRxPendingLimitIsDropped)
+{
+  g_received_messages = 0;
+  for (int i = 0; i < KNX_NET_MAX_RX_PENDING; i++)
+  {
+    oc_message_t* message = oc_allocate_message();
+    ASSERT_NE(nullptr, message);
+    oc_network_event(message);
+  }
+
+  oc_message_t* extra = oc_allocate_message();
+  ASSERT_NE(nullptr, extra);
+  oc_message_add_ref(extra);
+  oc_network_event(extra);
+  EXPECT_EQ(1U, extra->ref_count);
+  oc_message_unref(extra);
+
+  oc_process_run();
+  EXPECT_EQ(g_received_messages, KNX_NET_MAX_RX_PENDING);
+}

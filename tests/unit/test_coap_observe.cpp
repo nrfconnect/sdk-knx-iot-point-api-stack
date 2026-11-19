@@ -162,6 +162,9 @@ protected:
   }
   void TearDown() override {
     coap_free_all_observers();
+    // notifications leave CON transactions behind, they count against KNX_COAP_MAX_OPEN_TRANSACTIONS
+    coap_free_all_transactions();
+    oc_blockwise_scrub_buffers(true);
     oc_network_event_handler_mutex_destroy();
   }
 };

@@ -93,9 +93,9 @@ static void post_test_factory_reset(oc_request_t *request,
 
   /* Defer the storage reset so the CoAP response is sent first and the heavy
    * table erase runs on the main thread, not in the limited CoAP RX handler
-   * stack. Mirrors the stack's own /.well-known/knx reset (200 ms).
+   * stack. Same delay as the stack's own /.well-known/knx reset.
    */
-  oc_set_delayed_callback_ms(NULL, deferred_factory_reset_cb, 200);
+  oc_set_delayed_callback_ms(NULL, deferred_factory_reset_cb, KNX_RESET_DELAY_MILLISECONDS);
 }
 
 /* ── POST /test/trigger ────────────────────────────────────────────────── */

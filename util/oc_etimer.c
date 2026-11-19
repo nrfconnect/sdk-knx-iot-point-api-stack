@@ -72,8 +72,13 @@ OC_PROCESS_THREAD(oc_etimer_process, ev, data)
       continue;
     }
 
-  again:
-
+    /*
+      One timer event per pass. The owner of the next expired timer gets its event on
+      the next pass (poll requested below), after the event loop has delivered this one.
+      Posting all expired timers at once could fill the bounded event queue
+      (OC_PROCESS_MAX_EVENTS) with timer events, and the timer handlers then find no slot for
+      their own posts, e.g. the CoAP engine's retransmissions of expired transactions.
+    */
     u = NULL;
 
     for (t = timerlist; t != NULL; t = t->next) {
@@ -92,10 +97,19 @@ OC_PROCESS_THREAD(oc_etimer_process, ev, data)
           }
           t->next = NULL;
           update_time();
-          goto again;
+
+          for (t = timerlist; t != NULL; t = t->next)
+          {
+            if (oc_timer_expired(&t->timer))
+            {
+              oc_etimer_request_poll();
+              break;
+            }
+          }
         } else {
           oc_etimer_request_poll();
         }
+        break;
       }
       u = t;
     }
