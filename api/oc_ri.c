@@ -1140,12 +1140,10 @@ bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
   */
   if (error == OC_STATUS_OK)
   {
-    /*
-      check all core resources (from 0...n)
-      - walk the entire chain once from the first one ('next', /.well-known/core is the last, next NULL)
-    */
-    for (const oc_resource_t* tmp_core_res = oc_core_get_core_resource_by_index(0); tmp_core_res; tmp_core_res = tmp_core_res->next)
+    // check all core resources (from 0...n, the registry in oc_core_res.c, a core resource's 'next' stays NULL)
+    for (int i = 0; i < OC_NUM_CORE_RESOURCES; i++)
     {
+      const oc_resource_t* tmp_core_res = oc_core_get_core_resource_by_index(i);
       const size_t tmp_core_res_len = oc_string_len(tmp_core_res->uri);
 
       /*

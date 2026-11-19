@@ -19,29 +19,28 @@
 #include <vector>
 
 extern "C" {
-#include "messaging/coap/observe.h"
-#include "messaging/coap/coap.h"
-#include "messaging/coap/oc_coap.h"
-#include "messaging/coap/transactions.h"
-#include "messaging/coap/constants.h"
-#include "messaging/coap/engine.h"
-#include "port/oc_network_events_mutex.h"
-#include "oc_blockwise.h"
-#include "oc_buffer.h"
-#include "oc_ri.h"
-#include "oc_rep.h"
-#include "api/oc_knx_sec.h"
-#include "util/oc_mmem.h"
-#include "port/oc_random.h"
 #include <stdlib.h>
 #include <string.h>
+#include "api/oc_knx_sec.h"
+#include "messaging/coap/coap.h"
+#include "messaging/coap/constants.h"
+#include "messaging/coap/engine.h"
+#include "messaging/coap/observe.h"
+#include "messaging/coap/oc_coap.h"
+#include "messaging/coap/transactions.h"
+#include "oc_blockwise.h"
+#include "oc_buffer.h"
+#include "oc_rep.h"
+#include "oc_ri.h"
+#include "port/oc_network_events_mutex.h"
+#include "port/oc_random.h"
+#include "util/oc_mmem.h"
 
-/* the /k resource descriptor (api/oc_knx.c) */
-extern const oc_resource_t core_resource_knx_k;
+  /* the /k resource descriptor (api/oc_knx.c) */
+  extern const oc_resource_t core_resource_knx_k;
 
-/* the /auth/at resource descriptor (api/oc_knx_sec.c), its POST handler updates an access token in place */
-extern const oc_resource_t core_resource_knx_auth_at;
-
+  /* the /auth/at resource descriptor (api/oc_knx_sec.c), its POST handler updates an access token in place */
+  extern const oc_resource_t core_resource_knx_auth_at;
 }
 
 /* ---------------- helpers ------------------------------------------------ */

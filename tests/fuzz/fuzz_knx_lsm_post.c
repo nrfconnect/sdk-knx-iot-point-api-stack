@@ -18,6 +18,9 @@
 #include "port/oc_storage.h"
 
 extern const oc_resource_t core_resource_a_lsm;
+extern const oc_resource_t core_resource_knx_fp_g;
+extern const oc_resource_t core_resource_knx_fp_r;
+extern const oc_resource_t core_resource_knx_auth_at;
 
 int
 LLVMFuzzerInitialize(int *argc, char ***argv)

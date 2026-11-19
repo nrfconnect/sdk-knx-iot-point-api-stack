@@ -6,15 +6,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "oc_oscore_context.h"
 #include <inttypes.h>
 #include <stdlib.h>
-#include "oc_oscore_context.h"
 #include "messaging/coap/transactions.h"
 #include "oc_client_state.h"
 #include "oc_oscore_crypto.h"
-#include "api/oc_knx_sec.h"
-#include "api/oc_knx_fp.h"
 #include "port/oc_log.h"
+#include "security/oscore_knx_hooks.h"
 
 OC_LIST(contexts);
 
@@ -204,7 +203,7 @@ oc_oscore_context_t* oc_oscore_find_multicast_context_by_group_address(uint32_t 
         if (ctx->auth_at->ga[i] == group_address)
         {
           // 4.
-          if (!oc_is_unicast_recipient_access_token(oc_string(ctx->auth_at->id), oc_string_len(ctx->auth_at->id)))
+          if (!oscore_knx_is_unicast_recipient_token(oc_string(ctx->auth_at->id), oc_string_len(ctx->auth_at->id)))
           {
             OC_DBG("found access token for given GA %04" PRIX32, group_address);
 
@@ -331,12 +330,9 @@ static void oc_context_print_all(void)
     oc_conv_byte_array_to_hex_string(ctx->recipient_id, ctx->recipient_id_len, rid, &rid_len);
     oc_conv_byte_array_to_hex_string(ctx->id_context, ctx->id_context_len, cid, &cid_len);
 
-    OC_INF("%-9.02" PRId32 " | (%d) %-15.14s | (%d) %-15.14s | (%02d) %-33.32s | %" PRIx32,  
-            get_at_index(ctx->auth_at), 
-            ctx->sender_id_len, ctx->sender_id_len != 0 ? sid : "n/a", 
-            ctx->recipient_id_len, ctx->recipient_id_len != 0 ? rid : "n/a", 
-            ctx->id_context_len, ctx->id_context_len != 0 ? cid : "n/a", 
-            ctx->ssn);
+    OC_INF("%-9.02" PRId32 " | (%d) %-15.14s | (%d) %-15.14s | (%02d) %-33.32s | %" PRIx32, oscore_knx_at_index(ctx->auth_at), ctx->sender_id_len,
+           ctx->sender_id_len != 0 ? sid : "n/a", ctx->recipient_id_len, ctx->recipient_id_len != 0 ? rid : "n/a", ctx->id_context_len,
+           ctx->id_context_len != 0 ? cid : "n/a", ctx->ssn);
 
     ctx = ctx->next;
   }
@@ -469,7 +465,7 @@ oc_oscore_context_t* oc_oscore_add_context(const oc_oscore_context_params_t* par
       ctx->ssn += OSCORE_SSN_WRITE_FREQ_K + OSCORE_SSN_PAD_F;
     }
 
-    oc_write_ssn_to_storage(ctx->auth_at, ctx->ssn);
+    oscore_knx_store_ssn(ctx->auth_at, ctx->ssn);
   }
 
   if (params->id_context && params->id_context_size > 0)
@@ -630,8 +626,8 @@ bool check_and_increment_ssn_in_context(oc_oscore_context_t* ctx, bool increment
 
       // TODO 19 Recipient ID + ID Context also saved ? (to not always on startup issue an echo challenge)
 
-      // uses the 'Sender ID' and 'ID Context' from access token 
-      oc_write_ssn_to_storage(ctx->auth_at, ctx->ssn);
+      // uses the 'Sender ID' and 'ID Context' from access token
+      oscore_knx_store_ssn(ctx->auth_at, ctx->ssn);
     }
   }
 

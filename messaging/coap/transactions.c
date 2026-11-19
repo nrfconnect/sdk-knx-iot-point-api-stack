@@ -11,15 +11,16 @@
  */
 
 #include "transactions.h"
-#include "api/oc_main.h"
-#include "api/oc_knx_fp.h"
-#include "observe.h"
-#include "oc_buffer.h"
-#include "util/oc_list.h"
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
+#include "api/oc_main.h"
+#include "conf.h"
+#include "messaging/coap/coap_knx_hooks.h"
+#include "observe.h"
+#include "oc_buffer.h"
 #include "port/oc_random.h"
+#include "util/oc_list.h"
 
 #include "oc_blockwise.h"
 
@@ -178,21 +179,10 @@ void coap_send_transaction(coap_transaction_t *t)
       #ifdef OC_CLIENT
       oc_ri_free_client_cbs_by_mid(t->mid);
 
-      // s-mode unicast CON: increment missing response counter on timeout
+      // s-mode unicast CON: count the missing response for the address resolution
       if (smode_con_uc && t->recipient)
       {
-        oc_group_table_t* rec = t->recipient;
-        rec->ipv6_res.missing_response_count++;
-
-        OC_WRN("CON s-mode: missing count %d (IA: 0x%04x)", rec->ipv6_res.missing_response_count, (uint16_t)rec->ia);
-
-        if (rec->ipv6_res.missing_response_count >= 4)
-        {
-          rec->ipv6_res.resolve_status = OC_IP_STATUS_UNRESOLVED;
-          rec->ipv6_res.missing_response_count = 0;
-
-          OC_WRN("CON s-mode: 4 consecutive failures, transitioning to UNRESOLVED (IA: 0x%04x)", (uint16_t)rec->ia);
-        }
+        coap_knx_s_mode_unicast_result(t->recipient, false);
       }
       #endif
 
@@ -255,21 +245,10 @@ void coap_send_transaction(coap_transaction_t *t)
       OC_DBG("removing NON s-mode message transaction - timed out (len: %zu , mid %u)", t->message->length, t->mid);
 
       #ifdef OC_CLIENT
-      // s-mode unicast NON: increment missing response counter on timeout
+      // s-mode unicast NON: count the missing response for the address resolution
       if (t->recipient)
       {
-        oc_group_table_t* rec = t->recipient;
-        rec->ipv6_res.missing_response_count++;
-
-        OC_WRN("NON s-mode: missing count %d (IA: 0x%04x)", rec->ipv6_res.missing_response_count, (uint16_t)rec->ia);
-
-        if (rec->ipv6_res.missing_response_count >= 4)
-        {
-          rec->ipv6_res.resolve_status = OC_IP_STATUS_UNRESOLVED;
-          rec->ipv6_res.missing_response_count = 0;
-
-          OC_WRN("NON s-mode: 4 consecutive failures, transitioning to UNRESOLVED (IA: 0x%04x)", (uint16_t)rec->ia);
-        }
+        coap_knx_s_mode_unicast_result(t->recipient, false);
       }
       #endif
 

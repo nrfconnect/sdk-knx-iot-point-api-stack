@@ -44,13 +44,13 @@
 #include "ipadapter.h" // get_ip_context_for_device(): Linux/Windows only
 #endif
 
-#include "dns-sd.h"
 #include "api/oc_main.h" // oc_main_initialized(): no announcement before the device data is loaded
+#include "dns-sd.h"
 #include "oc_api.h"
-#include "oc_core_res.h" // oc_core_get_device_info(): the device host name
 #include "oc_log.h"
-#include "util/oc_list.h" // oc_list_head() for iterating endpoint list
 #include "port/oc_network_events_mutex.h" // the endpoint list is walked under the network event mutex
+#include "port/port_knx_hooks.h"
+#include "util/oc_list.h" // oc_list_head() for iterating endpoint list
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -377,7 +377,7 @@ static int ensure_socket(void)
 */
 static size_t build_hostname(char out[MDNS_HOSTNAME_SIZE])
 {
-  const oc_device_info_t *const device = oc_core_get_device_info();
+  const oc_device_info_t* const device = port_knx_device_info();
   (void)snprintf(out, MDNS_HOSTNAME_SIZE, "%s" HNAME_DOMAIN ".", oc_string_checked(device->iot_hostname));
   return strlen(out);
 }
@@ -749,7 +749,7 @@ static uint16_t update_retry_delay_s = 0;
 static oc_event_callback_retval_t retry_update_service(void *data)
 {
   (void)data;
-  (void)knx_dns_sd_update_service(oc_core_get_device_info());
+  (void)knx_dns_sd_update_service(port_knx_device_info());
   return OC_EVENT_DONE;
 }
 
@@ -1645,7 +1645,7 @@ int knx_dns_sd_update_service(const oc_device_info_t *device)
 
   /*
      The advertisement depends on device data the stack loads from storage during its
-     initialisation (see oc_knx_load_device()). Until then nothing is announced and the
+     initialisation (see oc_knx_load_device). Until then nothing is announced and the
      one-time setup below never sees an unset serial number. The registration at the end of
      oc_main_init() is the first one.
 

@@ -17,19 +17,7 @@
 #include "port/oc_assert.h"
 #include "port/oc_storage.h"
 
-// forward declarations for the resource chain
-extern const oc_resource_t core_resource_knx_swu_hwref;
-extern const oc_resource_t core_resource_knx_swu_method;
-extern const oc_resource_t core_resource_knx_swu_lastupdate;
-extern const oc_resource_t core_resource_knx_swu_result;
-extern const oc_resource_t core_resource_knx_swu_state;
-extern const oc_resource_t core_resource_knx_swu_update;
-extern const oc_resource_t core_resource_knx_swu_pkgv;
-extern const oc_resource_t core_resource_knx_swu_pkgcmd;
-extern const oc_resource_t core_resource_knx_swu_pkgbytes;
-extern const oc_resource_t core_resource_knx_swu_pkgnames;
-extern const oc_resource_t core_resource_knx_swu;
-extern const oc_resource_t core_resource_sub;
+#include "api/oc_core_resources.h"
 
 /*
   - static, but not const, since values are changed at runtime 
@@ -143,7 +131,7 @@ static void oc_knx_swu_protocol_put_handler(oc_request_t* request, oc_interface_
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_swu_protocol_data;
-const oc_resource_t core_resource_knx_swu_protocol = {&core_resource_knx_swu_hwref,
+const oc_resource_t core_resource_knx_swu_protocol = {NULL,
                                                       {NULL, sizeof("/swu/protocol"), "/swu/protocol"},
                                                       {NULL, 0, NULL},
                                                       {NULL, sizeof("urn:knx:dpt.protocols"), "urn:knx:dpt.protocols"},
@@ -342,7 +330,7 @@ static void oc_knx_swu_result_get_handler(oc_request_t* request, oc_interface_ma
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_swu_result_data;
-const oc_resource_t core_resource_knx_swu_result = {&core_resource_knx_swu_state,
+const oc_resource_t core_resource_knx_swu_result = {NULL,
                                                     {NULL, sizeof("/swu/result"), "/swu/result"},
                                                     {NULL, 0, NULL},
                                                     {NULL, sizeof("urn:knx:dpt.updateResult"), "urn:knx:dpt.updateResult"},
@@ -378,7 +366,7 @@ static void oc_knx_swu_state_get_handler(oc_request_t* request, oc_interface_mas
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_swu_state_data;
-const oc_resource_t core_resource_knx_swu_state = {&core_resource_knx_swu_update,
+const oc_resource_t core_resource_knx_swu_state = {NULL,
                                                    {NULL, sizeof("/swu/state"), "/swu/state"},
                                                    {NULL, 0, NULL},
                                                    {NULL, sizeof("urn:knx:dpt.dldState"), "urn:knx:dpt.dldState"},
@@ -394,8 +382,6 @@ const oc_resource_t core_resource_knx_swu_state = {&core_resource_knx_swu_update
                                                    0,
                                                    true,
                                                    &core_resource_knx_swu_state_data};
-
-
 
 
 // PUT handler for /swu/update - MaC triggers the upgrade process if package is fully downloaded
@@ -524,7 +510,7 @@ static void oc_knx_swu_pkg_version_get_handler(oc_request_t* request, oc_interfa
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_swu_pkgv_data;
-const oc_resource_t core_resource_knx_swu_pkgv = {&core_resource_knx_swu_pkgcmd,
+const oc_resource_t core_resource_knx_swu_pkgv = {NULL,
                                                   {NULL, sizeof("/swu/pkgv"), "/swu/pkgv"},
                                                   {NULL, 0, NULL},
                                                   {NULL, sizeof("urn:knx:dpt.version"), "urn:knx:dpt.version"},
@@ -725,7 +711,7 @@ static void oc_knx_swu_a_put_handler(oc_request_t* request, oc_interface_mask_t 
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_swu_pkgcmd_data;
-const oc_resource_t core_resource_knx_swu_pkgcmd = {&core_resource_knx_swu_pkgbytes,
+const oc_resource_t core_resource_knx_swu_pkgcmd = {NULL,
                                                     {NULL, sizeof("/a/swu"), "/a/swu"},
                                                     {NULL, 0, NULL},
                                                     {NULL, sizeof("urn:knx:dpt.file"), "urn:knx:dpt.file"},
@@ -764,7 +750,7 @@ static void oc_knx_swu_bytes_get_handler(oc_request_t* request, oc_interface_mas
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_swu_pkgbytes_data;
-const oc_resource_t core_resource_knx_swu_pkgbytes = {&core_resource_knx_swu_pkgnames,
+const oc_resource_t core_resource_knx_swu_pkgbytes = {NULL,
                                                       {NULL, sizeof("/swu/pkgbytes"), "/swu/pkgbytes"},
                                                       {NULL, 0, NULL},
                                                       {NULL, sizeof("urn:knx:dpt.value4UCount"), "urn:knx:dpt.value4UCount"},
@@ -884,14 +870,11 @@ static void oc_core_knx_swu_get_handler(oc_request_t* request, oc_interface_mask
     more_request_needed = true;
   }
 
-  /*
-    walk the chain once from first_entry (consecutive core resources); by index every lookup walks from the start
-    - the page is the index range already, nothing to skip: no_skip (0) < 0 is never true (the 'skipped' counter is for discovery)
-  */
+  // the page is the index range already, nothing to skip: no_skip (0) < 0 is never true (the 'skipped' counter is for discovery)
   int no_skip = 0;
-  const oc_resource_t* resource = oc_core_get_core_resource_by_index(first_entry);
-  for (int i = first_entry; i < last_entry; i++, resource = resource->next)
+  for (int i = first_entry; i < last_entry; i++)
   {
+    const oc_resource_t* resource = oc_core_get_core_resource_by_index(i);
     if (oc_check_request_from_resource(resource, request, &response_length, &no_skip, 0, true, true))
     {
       query_parameter_kvpair_matches++;
@@ -918,7 +901,7 @@ static void oc_core_knx_swu_get_handler(oc_request_t* request, oc_interface_mask
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_swu_data;
-const oc_resource_t core_resource_knx_swu = {&core_resource_sub,
+const oc_resource_t core_resource_knx_swu = {NULL,
                                              {NULL, sizeof("/swu"), "/swu"},
                                              {NULL, (size_t)1 * 32, (char[1][32]){"urn:knx:fb.swu"}},
                                              {NULL, 0, NULL},

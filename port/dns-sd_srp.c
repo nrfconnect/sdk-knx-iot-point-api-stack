@@ -56,10 +56,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "oc_core_res.h"
 #include "oc_endpoint.h"
 #include "port/dns-sd.h"
 #include "port/oc_log.h"
+#include "port/port_knx_hooks.h"
 
 #include <openthread/dns.h>
 #include <openthread/instance.h>
@@ -495,7 +495,7 @@ int knx_dns_sd_update_service(const oc_device_info_t *device)
 
     /*
        The advertisement depends on device data the stack loads from storage during its
-       initialisation (see oc_knx_load_device()). Until then nothing is announced and the
+       initialisation (see oc_knx_load_device). Until then nothing is announced and the
        one-time setup below never sees an unset serial number. The registration at the end of
        oc_main_init() is the first one.
 

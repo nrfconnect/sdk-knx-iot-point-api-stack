@@ -16,8 +16,7 @@
 #include "oc_api.h"
 #include "messaging/coap/observe.h"
 
-// forward declaration for the resource chain (core_resource_knx_auth_o_replwdo is defined in oc_knx_sec.c)
-extern const oc_resource_t core_resource_knx_auth_o_replwdo;
+#include "api/oc_core_resources.h"
 
 static void oc_core_sub_delete_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {

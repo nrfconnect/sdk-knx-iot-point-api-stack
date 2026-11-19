@@ -18,13 +18,7 @@
 #define __STDC_FORMAT_MACROS // defined to use format specifiers also in C++
 #include "oc_knx_client.h"
 
-// forward declarations for the resource chain
-extern const oc_resource_t core_resource_knx_fp_g_x;
-extern const oc_resource_t core_resource_knx_fp_p;
-extern const oc_resource_t core_resource_knx_fp_p_x;
-extern const oc_resource_t core_resource_knx_fp_r;
-extern const oc_resource_t core_resource_knx_fp_r_x;
-extern const oc_resource_t core_resource_knx_p;
+#include "api/oc_core_resources.h"
 
 // PUB/RCV/GOT storage data: see the KNX_STORAGE_KEY_*_ENTRY keys in oc_knx_fp.h
 
@@ -847,7 +841,7 @@ static void oc_core_fp_g_post_handler(oc_request_t* request, oc_interface_mask_t
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_fp_g_data;
-const oc_resource_t core_resource_knx_fp_g = {&core_resource_knx_fp_g_x,
+const oc_resource_t core_resource_knx_fp_g = {NULL,
                                               {NULL, sizeof("/fp/g"), "/fp/g"},
                                               {NULL, 0, NULL},
                                               {NULL, 0, NULL},
@@ -950,7 +944,7 @@ static void oc_core_fp_g_x_del_handler(oc_request_t* request, oc_interface_mask_
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_fp_g_x_data;
-const oc_resource_t core_resource_knx_fp_g_x = {&core_resource_knx_fp_p,
+const oc_resource_t core_resource_knx_fp_g_x = {NULL,
                                                 {NULL, sizeof("/fp/g/*"), "/fp/g/*"},
                                                 {NULL, 0, NULL},
                                                 {NULL, 0, NULL},
@@ -970,7 +964,7 @@ const oc_resource_t core_resource_knx_fp_g_x = {&core_resource_knx_fp_p,
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_fp_g_x_data;
-const oc_resource_t core_resource_knx_fp_g_x = {&core_resource_knx_fp_r,
+const oc_resource_t core_resource_knx_fp_g_x = {NULL,
                                                 {NULL, sizeof("/fp/g/*"), "/fp/g/*"},
                                                 {NULL, 0, NULL},
                                                 {NULL, 0, NULL},
@@ -1513,7 +1507,7 @@ static void oc_core_fp_p_post_handler(oc_request_t* request, oc_interface_mask_t
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_fp_p_data;
-const oc_resource_t core_resource_knx_fp_p = {&core_resource_knx_fp_p_x,
+const oc_resource_t core_resource_knx_fp_p = {NULL,
                                               {NULL, sizeof("/fp/p"), "/fp/p"},
                                               {NULL, 0, NULL},
                                               {NULL, 0, NULL},
@@ -1646,7 +1640,7 @@ static void oc_core_fp_p_x_del_handler(oc_request_t* request, oc_interface_mask_
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_fp_p_x_data;
-const oc_resource_t core_resource_knx_fp_p_x = {&core_resource_knx_fp_r,
+const oc_resource_t core_resource_knx_fp_p_x = {NULL,
                                                 {NULL, sizeof("/fp/p/*"), "/fp/p/*"},
                                                 {NULL, 0, NULL},
                                                 {NULL, 0, NULL},
@@ -2186,7 +2180,7 @@ static void oc_core_fp_r_post_handler(oc_request_t* request, oc_interface_mask_t
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_fp_r_data;
-const oc_resource_t core_resource_knx_fp_r = {&core_resource_knx_fp_r_x,
+const oc_resource_t core_resource_knx_fp_r = {NULL,
                                               {NULL, sizeof("/fp/r"), "/fp/r"},
                                               {NULL, 0, NULL},
                                               {NULL, 0, NULL},
@@ -2320,7 +2314,7 @@ static void oc_core_fp_r_x_del_handler(oc_request_t* request, oc_interface_mask_
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_fp_r_x_data;
-const oc_resource_t core_resource_knx_fp_r_x = {&core_resource_knx_p,
+const oc_resource_t core_resource_knx_fp_r_x = {NULL,
                                                 {NULL, sizeof("/fp/r/*"), "/fp/r/*"},
                                                 {NULL, 0, NULL},
                                                 {NULL, 0, NULL},

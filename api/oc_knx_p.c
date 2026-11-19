@@ -13,8 +13,7 @@
 #include "oc_core_res.h"
 #include "oc_discovery.h"
 
-// forward declaration for the resource chain (core_resource_knx_f is defined in oc_knx_fb.c)
-extern const oc_resource_t core_resource_knx_f;
+#include "api/oc_core_resources.h"
 
 // add application datapoint's to the response
 static bool oc_was_adding_data_points_to_response(const oc_resource_t* resource, size_t* response_length,
@@ -291,7 +290,7 @@ static void oc_core_p_post_handler(oc_request_t* request, oc_interface_mask_t if
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_p_data;
-const oc_resource_t core_resource_knx_p = {&core_resource_knx_f,
+const oc_resource_t core_resource_knx_p = {NULL,
                                            {NULL, sizeof("/p"), "/p"},
                                            {NULL, 0, NULL},
                                            {NULL, 0, NULL},

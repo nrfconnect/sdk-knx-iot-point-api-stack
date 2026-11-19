@@ -6,18 +6,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "oc_discovery.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <stdlib.h>
-#include "oc_client_state.h"
+#include "api/oc_core_resources.h"
 #include "oc_api.h"
-#include "oc_discovery.h"
-#include "oc_knx_fb.h"
-#include "oc_knx_fp.h"
+#include "oc_client_state.h"
 #include "oc_core_res.h"
 #include "oc_endpoint.h"
-#include "oc_knx_helpers.h"
 #include "oc_knx_dev.h"
+#include "oc_knx_fb.h"
+#include "oc_knx_fp.h"
+#include "oc_knx_helpers.h"
 
 /*
   -  below first 4 resources (aka Functional Blocks) SHALL be in the uc/mc response for well-known/core (see clause 2.5.4),
@@ -383,10 +384,10 @@ void oc_well_known_core_discovery_handler(oc_request_t* request, oc_interface_ma
 	bool current_page_is_full = false;							// true if response page is full, no more resources can be added
 	bool query_parameter_key_match = false;					// true if at least one query parameter KEY was found
 
-	if (!oc_accept_header_is_ok(request, APPLICATION_LINK_FORMAT))
-	{
-		return;
-	}
+  if (!oc_accept_header_is_ok(request, APPLICATION_LINK_FORMAT))
+  {
+    return;
+  }
 
 	oc_init_query_iterator();
 	while (oc_iterate_query(request, &key, &key_len, &value, &value_len) > 0)
@@ -797,4 +798,3 @@ const oc_resource_t core_resource_well_known_core =																					 		// th
 	true,																																											 		// is static precompiled resource
 	&core_resource_well_known_core_data																												 		// ptr to user runtime data
 };
-

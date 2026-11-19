@@ -13,21 +13,18 @@
 
 #define __STDC_FORMAT_MACROS  // defined to use format specifiers also in C++
 
-#include <string.h>
+#include "engine.h"
 #include <stdlib.h>
+#include <string.h>
+#include "api/c-timestamp/timestamp.h"
 #include "api/oc_events.h"
 #include "api/oc_main.h"
 #include "api/oc_replay.h"
-#include "api/oc_knx_sec.h"
-#include "api/oc_knx_fp.h"
-#include "api/oc_knx_client.h"
-#include "oc_core_res.h"
-#include "oc_buffer.h"
-#include "observe.h"
-#include "engine.h"
 #include "conf.h"
+#include "messaging/coap/coap_knx_hooks.h"
+#include "observe.h"
+#include "oc_buffer.h"
 #include "oscore.h"
-#include "timestamp.h"
 #include "port/oc_random.h"
 
 #include "oc_blockwise.h"
@@ -94,14 +91,14 @@ void oc_coap_clear_request_history(void)
 #define OC_RESPONSE_CACHE_SIZE (4) // MUST use only values of 2 power n
 #endif
 
-/*
-  The retransmissions use binary exponential backoff: 
-  ~2-3s, ~4-6s, ~8-12s, ~16-24s (4 retries total). 
+  /*
+    The retransmissions use binary exponential backoff:
+    ~2-3s, ~4-6s, ~8-12s, ~16-24s (4 retries total).
 
-  The last retransmit arrives at most 45 seconds after the original 
-  which is why the cache TTL is set to 45 * OC_CLOCK_CONF_TICKS_PER_SECOND
-*/
-#define OC_RESPONSE_CACHE_TTL (45 * OC_CLOCK_CONF_TICKS_PER_SECOND)
+    The last retransmit arrives at most 45 seconds after the original
+    which is why the cache TTL is set to 45 * OC_CLOCK_CONF_TICKS_PER_SECOND
+  */
+  #define OC_RESPONSE_CACHE_TTL (45 * OC_CLOCK_CONF_TICKS_PER_SECOND)
 
 typedef struct
 {
@@ -415,7 +412,7 @@ static void coap_send_response_with_empty_application_payload_with_delay(const c
     - adjust between 0 and up to max configured delay, note 0 means no delay and the response will be sent soon on next callback check
     - unicast, no delay
   */
-  const uint16_t max_delay_ms = oc_core_get_device_info()->osn_delay;
+  const uint16_t max_delay_ms = coap_knx_echo_max_delay_ms();
   const bool is_multicast = src_ctx->endpoint.flags & MULTICAST;
   const uint16_t delay_ms = is_multicast && max_delay_ms > 0 ? (uint16_t)(oc_random_value() % max_delay_ms) : 0;
 
@@ -1251,7 +1248,7 @@ void coap_receive(oc_message_t* incoming_message)
               gives the original s-mode send, so a regenerated payload can never exceed what the sender could emit
             */
             uint8_t* const regenerated = source_msg->data + COAP_MAX_HEADER_SIZE;
-            const int size = oc_create_s_mode_payload_for_go(anchor.go, anchor.service_type, regenerated);
+            const int size = coap_knx_regenerate_echo_payload(anchor.go, anchor.service_type, regenerated);
 
             if (size <= 0)
             {
@@ -1453,9 +1450,7 @@ void coap_receive(oc_message_t* incoming_message)
             && transaction->message->endpoint.flags & (S_MODE_CON_REQUEST | S_MODE_NON_REQUEST)
             && !(transaction->message->endpoint.flags & MULTICAST))
         {
-          oc_group_table_t* recipient = (oc_group_table_t*)transaction->recipient;
-          recipient->ipv6_res.missing_response_count = 0;
-          OC_DBG("CON/NON s-mode unicast: 2.04 received, reset missing count (IA: 0x%04x)", (uint16_t)recipient->ia);
+          coap_knx_s_mode_unicast_result(transaction->recipient, true);
         }
       }
       else if (is_reset)
@@ -1558,8 +1553,6 @@ void coap_receive(oc_message_t* incoming_message)
               coap_set_header_uri_query(outbound_coap_pkt, oc_string(client_cb->query));
             }
 
-            // coap_set_header_accept(response, APPLICATION_CBOR);
-            // coap_set_header_content_format(response, APPLICATION_CBOR);
             request_buffer->mid = response_mid;
             goto send_message;
           }
@@ -1627,11 +1620,6 @@ void coap_receive(oc_message_t* incoming_message)
               coap_udp_init_message(outbound_coap_pkt, COAP_TYPE_CON, client_cb->method, response_mid);
               response_buffer->mid = response_mid;
               client_cb->mid = response_mid;
-              /*
-                TODO 11 This is still wrong - this code is likely to break down when responding to long requests with type
-                application/link-format - the responses are gonna become application/cbor partway through
-              */
-              coap_set_header_accept(outbound_coap_pkt, APPLICATION_CBOR);
               coap_set_header_block2(outbound_coap_pkt, block2_num + 1, 0, block2_size);
               coap_set_header_uri_path(outbound_coap_pkt, oc_string(client_cb->uri), oc_string_len(client_cb->uri));
               if (oc_string_len(client_cb->query) > 0)

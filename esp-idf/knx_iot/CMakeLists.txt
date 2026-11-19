@@ -36,6 +36,7 @@ set(API_SOURCES
     ${STACK_ROOT}/api/oc_knx_fb.c
     ${STACK_ROOT}/api/oc_knx_fp.c
     ${STACK_ROOT}/api/oc_knx_helpers.c
+    ${STACK_ROOT}/api/oc_knx_hooks.c
     ${STACK_ROOT}/api/oc_knx_p.c
     ${STACK_ROOT}/api/oc_knx_sec.c
     ${STACK_ROOT}/api/oc_knx_swu.c
@@ -141,6 +142,8 @@ idf_component_register(
         "${STACK_ROOT}"
         "${STACK_ROOT}/include"
         "${STACK_ROOT}/port/freertos_esp32"
+        "${STACK_ROOT}/api"
+    PRIV_INCLUDE_DIRS
         "${STACK_ROOT}/security"
         "${STACK_ROOT}/messaging/coap"
         "${STACK_ROOT}/api/c-timestamp"

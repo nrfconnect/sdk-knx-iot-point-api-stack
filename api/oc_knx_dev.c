@@ -9,22 +9,23 @@
  */
 
 #define __STDC_FORMAT_MACROS // defined to use format specifiers also in C++
-#include <stdio.h>
-#include <inttypes.h>
-#include "oc_api.h"
 #include "oc_knx_dev.h"
+#include <inttypes.h>
+#include <stdio.h>
+#include "api/oc_core_resources.h"
 #include "messaging/coap/engine.h"
 #include "messaging/coap/observe.h"
+#include "oc_api.h"
+#include "oc_core_res.h"
+#include "oc_discovery.h"
 #include "oc_helpers.h"
-#include "oc_knx_fp.h"
 #include "oc_knx_client.h"
+#include "oc_knx_fp.h"
 #include "oc_knx_helpers.h"
 #include "oc_knx_sec.h"
 #include "oc_main.h"
 #include "port/dns-sd.h"
 #include "port/oc_storage.h"
-#include "oc_core_res.h"
-#include "oc_discovery.h"
 
 static void oc_core_dev_sn_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data) 
 {
@@ -44,26 +45,6 @@ static void oc_core_dev_sn_get_handler(oc_request_t* request, oc_interface_mask_
 
   oc_prepare_cbor_response(request, OC_STATUS_OK);
 }
-
-// forward declarations for the resource chain (each resource references the next one, defined later in this file)
-extern const oc_resource_t core_resource_dev_hwv;
-extern const oc_resource_t core_resource_dev_fwv;
-extern const oc_resource_t core_resource_dev_hwt;
-extern const oc_resource_t core_resource_dev_order_number;
-extern const oc_resource_t core_resource_dev_hostname;
-extern const oc_resource_t core_resource_dev_iid;
-extern const oc_resource_t core_resource_dev_pm;
-extern const oc_resource_t core_resource_dev_ipv6;
-extern const oc_resource_t core_resource_dev_sna;
-extern const oc_resource_t core_resource_dev_da;
-extern const oc_resource_t core_resource_dev_fid;
-extern const oc_resource_t core_resource_dev_port;
-extern const oc_resource_t core_resource_dev_mport;
-extern const oc_resource_t core_resource_dev_mid;
-extern const oc_resource_t core_resource_dev;
-extern const oc_resource_t core_resource_app;
-extern const oc_resource_t core_resource_app_pv;
-extern const oc_resource_t core_resource_a_lsm;
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_dev_sn_data;
@@ -585,14 +566,11 @@ static void oc_core_dev_dev_get_handler(oc_request_t* request, oc_interface_mask
     more_request_needed = true;
   }
 
-  /*
-    walk the chain once from first_entry (consecutive core resources); by index every lookup walks from the start
-    - the page is the index range already, nothing to skip: no_skip (0) < 0 is never true (the 'skipped' counter is for discovery)
-  */
+  // the page is the index range already, nothing to skip: no_skip (0) < 0 is never true (the 'skipped' counter is for discovery)
   int no_skip = 0;
-  const oc_resource_t* resource = oc_core_get_core_resource_by_index(first_entry);
-  for (int i = first_entry; i < last_entry; i++, resource = resource->next)
+  for (int i = first_entry; i < last_entry; i++)
   {
+    const oc_resource_t* resource = oc_core_get_core_resource_by_index(i);
     if (oc_check_request_from_resource(resource, request, &response_length, &no_skip, 0, true, false))
     {
       query_parameter_kvpair_matches++;
@@ -972,14 +950,11 @@ static void oc_core_ap_get_handler(oc_request_t* request, oc_interface_mask_t if
     more_request_needed = true;
   }
 
-  /*
-    walk the chain once from first_entry (consecutive core resources); by index every lookup walks from the start
-    - the page is the index range already, nothing to skip: no_skip (0) < 0 is never true (the 'skipped' counter is for discovery)
-  */
+  // the page is the index range already, nothing to skip: no_skip (0) < 0 is never true (the 'skipped' counter is for discovery)
   int no_skip = 0;
-  const oc_resource_t* resource = oc_core_get_core_resource_by_index(first_entry);
-  for (int i = first_entry; i < last_entry; i++, resource = resource->next)
+  for (int i = first_entry; i < last_entry; i++)
   {
+    const oc_resource_t* resource = oc_core_get_core_resource_by_index(i);
     if (oc_check_request_from_resource(resource, request, &response_length, &no_skip, 0, true, true))
     {
       query_parameter_kvpair_matches++;

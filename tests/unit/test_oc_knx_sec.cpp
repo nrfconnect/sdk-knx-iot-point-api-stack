@@ -12,31 +12,31 @@
  * Copyright 2026 KNXA (to the extent protectable under applicable law)
  */
 
-#include <gtest/gtest.h>
 #include <cerrno>
 #include <cstring>
+#include <gtest/gtest.h>
 #include <vector>
 
 extern "C" {
+#include <string.h>
 #include "api/oc_knx_dev.h"
 #include "api/oc_knx_sec.h"
-#include "oc_core_res.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/constants.h"
+#include "messaging/coap/observe.h"
 #include "messaging/coap/oc_coap.h" /* full def of oc_response_buffer_s */
+#include "oc_core_res.h"
 #include "oc_endpoint.h"
 #include "oc_helpers.h"
 #include "oc_rep.h"
 #include "oc_ri.h"
-#include "port/oc_storage.h"
-#include "util/oc_mmem.h"
-#include "messaging/coap/observe.h"
 #include "port/oc_network_events_mutex.h"
+#include "port/oc_storage.h"
 #include "security/oc_oscore_context.h"
-#include <string.h>
+#include "util/oc_mmem.h"
 
-/* the /k resource descriptor (api/oc_knx.c) */
-extern const oc_resource_t core_resource_knx_k;
+  /* the /k resource descriptor (api/oc_knx.c) */
+  extern const oc_resource_t core_resource_knx_k;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -2155,23 +2155,25 @@ TEST_F(SecAcl, GaScopeSiaWithGaBearingNonSMapObjectDenied)
 
 
 /*
-  the /auth/o and /auth list GETs walk the core resource chain once: one lookup by index, then 'next'
+  the /auth/o and /auth list GETs look up each listed core resource by index (a core resource has no next)
   - each list holds its first entry and the one after it, 2.05 link format
 */
-TEST_F(SecHandlers, AuthOListWalksTheCoreChainOnce)
+TEST_F(SecHandlers, AuthOListLooksUpEachEntryByIndex)
 {
+  const char* second = oc_string(oc_core_get_core_resource_by_index(OC_KNX_AUTH_O_REPLWDO + 1)->uri);
   g_core_by_index_calls = 0;
   EXPECT_EQ(get(core_resource_knx_auth_o, APPLICATION_LINK_FORMAT), oc_status_code(OC_STATUS_OK));
   EXPECT_TRUE(list_contains(buf, sizeof(buf), oc_string(core_resource_knx_auth_o_replwdo.uri)));
-  EXPECT_TRUE(list_contains(buf, sizeof(buf), oc_string(core_resource_knx_auth_o_replwdo.next->uri)));
-  EXPECT_EQ(g_core_by_index_calls, 1);
+  EXPECT_TRUE(list_contains(buf, sizeof(buf), second));
+  EXPECT_EQ(g_core_by_index_calls, OC_KNX_AUTH_O - OC_KNX_AUTH_O_REPLWDO);
 }
 
-TEST_F(SecHandlers, AuthListWalksTheCoreChainOnce)
+TEST_F(SecHandlers, AuthListLooksUpEachEntryByIndex)
 {
+  const char* second = oc_string(oc_core_get_core_resource_by_index(OC_KNX_AUTH_O + 1)->uri);
   g_core_by_index_calls = 0;
   EXPECT_EQ(get(core_resource_knx_auth, APPLICATION_LINK_FORMAT), oc_status_code(OC_STATUS_OK));
   EXPECT_TRUE(list_contains(buf, sizeof(buf), oc_string(core_resource_knx_auth_o.uri)));
-  EXPECT_TRUE(list_contains(buf, sizeof(buf), oc_string(core_resource_knx_auth_o.next->uri)));
-  EXPECT_EQ(g_core_by_index_calls, 1);
+  EXPECT_TRUE(list_contains(buf, sizeof(buf), second));
+  EXPECT_EQ(g_core_by_index_calls, OC_KNX_AUTH_AT_X - OC_KNX_AUTH_O);
 }

@@ -15,17 +15,17 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include "messaging/coap/observe.h"
+#include <string.h>
 #include "messaging/coap/coap.h"
 #include "messaging/coap/constants.h"
+#include "messaging/coap/observe.h"
 #include "messaging/coap/oc_coap.h" /* full def of oc_response_buffer_s */
-#include "port/oc_network_events_mutex.h"
 #include "oc_ri.h"
-#include <string.h>
+#include "port/oc_network_events_mutex.h"
 
-/* Resource definition lives in api/oc_knx_sub.c; the static delete handler is
- * reachable through its function pointer. */
-extern const oc_resource_t core_resource_sub;
+  /* Resource definition lives in api/oc_knx_sub.c; the static delete handler is
+   * reachable through its function pointer. */
+  extern const oc_resource_t core_resource_sub;
 }
 
 /* Convenience wrapper that calls the (static) DELETE handler through the

@@ -311,75 +311,75 @@ void oc_print_acl_scopes(oc_acl_mask_t scope);
 /**
  * @brief core resource numbers
  *
- * @note
+ * @note numbering rules:
  *
- * - the numbered order of resources is used to create the 'linked' list
- *   of resources, hence the pointer to a specific resource matches
- *   the number in this enum (used for get 'resource by index' functions)
+ * - the number is the index into the core resource registry
+ *   (oc_core_res.c), used by the 'resource by index' functions
  *
- * - if inserting a new resource, add them in the enum in that place where
- *	 as the linked list linkage is defined
+ * - if inserting a new resource, add its enum value here, its declaration
+ *   in api/oc_core_resources.h and its entry in the registry
  *
  * - some enums are used to calculate the number of resources, such as
  *   OC_DEV - OC_DEV_SN (all device resources)
  *
  */
-typedef enum {
-  OC_DEV_SN = 0,                       /**< Device serial number */
-  OC_DEV_HWV,                          /**< Hardware version */
-  OC_DEV_FWV,                          /**< Firmware version */
-  OC_DEV_HWT,                          /**< The hardware type is a manufacture specific id for a device type (MaC uses this id for compatibility checks) */
-  OC_DEV_ORDER_NUMBER,                 /**< Device order number (former device model) */
-  OC_DEV_HOSTNAME,                     /**< Device host name for DNS resolution. */
-  OC_DEV_IID,                          /**< KNX installation ID */
-  OC_DEV_PM,                           /**< Programming Mode */
-  OC_DEV_IPV6,                         /**< IPV6 */
-  OC_DEV_SA,                           /**< /dev/sa subnet address */
-  OC_DEV_DA,                           /**< /dev/da device address */
-  OC_DEV_FID,                          /**< /dev/fid the fabric ID */
-  OC_DEV_PORT,                         /**< /dev/port the coap port number */
-  OC_DEV_MPORT,                        /**< /dev/mport the multicast port number */
-  OC_DEV_MID,                          /**< /dev/mid the manufacturer ID */
-  OC_DEV,                              /**< core link */
-  OC_APP,                              /**< application ID (list) */
-  OC_APP_PV,                           /**< application program version */
-  OC_A_LSM,                            /**< load state machine */
-  OC_KNX_SPAKE,                        /**< spake */
-  OC_KNX_K,                            /**< k */
-  OC_KNX_FINGERPRINT,                  /**< FINGERPRINT value of loaded contents */
-  OC_KNX_IA,                           /**< .well-known / knx / ia */
-  OC_KNX,                              /**< .well-known / knx */
-  OC_KNX_FP_G,                         /**< FP/G */
-  OC_KNX_FP_G_X,                       /**< FP/G/X */
+typedef enum
+{
+  OC_DEV_SN = 0,       /**< Device serial number */
+  OC_DEV_HWV,          /**< Hardware version */
+  OC_DEV_FWV,          /**< Firmware version */
+  OC_DEV_HWT,          /**< The hardware type is a manufacture specific id for a device type (MaC uses this id for compatibility checks) */
+  OC_DEV_ORDER_NUMBER, /**< Device order number (former device model) */
+  OC_DEV_HOSTNAME,     /**< Device host name for DNS resolution. */
+  OC_DEV_IID,          /**< KNX installation ID */
+  OC_DEV_PM,           /**< Programming Mode */
+  OC_DEV_IPV6,         /**< IPV6 */
+  OC_DEV_SA,           /**< /dev/sna subnet address */
+  OC_DEV_DA,           /**< /dev/da device address */
+  OC_DEV_FID,          /**< /dev/fid the fabric ID */
+  OC_DEV_PORT,         /**< /dev/port the coap port number */
+  OC_DEV_MPORT,        /**< /dev/mport the multicast port number */
+  OC_DEV_MID,          /**< /dev/mid the manufacturer ID */
+  OC_DEV,              /**< core link */
+  OC_APP,              /**< application ID (list) */
+  OC_APP_PV,           /**< application program version */
+  OC_A_LSM,            /**< load state machine */
+  OC_KNX_SPAKE,        /**< spake */
+  OC_KNX_K,            /**< k */
+  OC_KNX_FINGERPRINT,  /**< FINGERPRINT value of loaded contents */
+  OC_KNX_IA,           /**< .well-known / knx / ia */
+  OC_KNX,              /**< .well-known / knx */
+  OC_KNX_FP_G,         /**< FP/G */
+  OC_KNX_FP_G_X,       /**< FP/G/X */
   #ifdef OC_PUBLISHER_TABLE            /** read the notes above on the enum order! */
   OC_KNX_FP_P,                         /**< FP/P */
   OC_KNX_FP_P_X,                       /**< FP/P/X */
   #endif
-  OC_KNX_FP_R,                         /**< FP/R */
-  OC_KNX_FP_R_X,                       /**< FP/R/X */
-  OC_KNX_P,                            /**< P */
-  OC_KNX_F,                            /**< f */
-  OC_KNX_F_X,                          /**< f/X */
-  OC_KNX_SWU_PROTOCOL,                 /**< software update protocol */
-  OC_KNX_SWU_HWREF,                    /**< swu hwref */
-  OC_KNX_SWU_METHOD,                   /**< swu method */
-  OC_KNX_SWU_LASTUPDATE,               /**< swu last update */
-  OC_KNX_SWU_RESULT,                   /**< swu result */
-  OC_KNX_SWU_STATE,                    /**< swu state */
-  OC_KNX_SWU_UPDATE,                   /**< swu update */
-  OC_KNX_SWU_PKGV,                     /**< swu package version */
-  OC_KNX_SWU_PKGCMD,                   /**< swu package command , a/swu*/
-  OC_KNX_SWU_PKGBYTES,                 /**< swu package bytes*/
-  OC_KNX_SWU_PKGNAMES,                 /**< swu package names*/
-  OC_KNX_SWU,                          /**< swu top level */
-  OC_KNX_SUB,                          /**< delete all device subscriptions */
-  OC_KNX_AUTH_O_REPLWDO,               /**< oscore replay window*/
-  OC_KNX_AUTH_O_OSNDELAY,              /**< oscore osn delay*/
-  OC_KNX_AUTH_O,                       /**< auth/o oscore functional block properties list*/
-  OC_KNX_AUTH_AT,                      /**< auth/at resource listing auth/at/X */
-  OC_KNX_AUTH_AT_X,                    /**< auth/at/X resources */
-  OC_KNX_AUTH,                         /**< auth list all sub resources */
-  WELLKNOWNCORE,                       /**< well-known/core resource, is the last resource in the list  */
+  OC_KNX_FP_R,            /**< FP/R */
+  OC_KNX_FP_R_X,          /**< FP/R/X */
+  OC_KNX_P,               /**< P */
+  OC_KNX_F,               /**< f */
+  OC_KNX_F_X,             /**< f/X */
+  OC_KNX_SWU_PROTOCOL,    /**< software update protocol */
+  OC_KNX_SWU_HWREF,       /**< swu hwref */
+  OC_KNX_SWU_METHOD,      /**< swu method */
+  OC_KNX_SWU_LASTUPDATE,  /**< swu last update */
+  OC_KNX_SWU_RESULT,      /**< swu result */
+  OC_KNX_SWU_STATE,       /**< swu state */
+  OC_KNX_SWU_UPDATE,      /**< swu update */
+  OC_KNX_SWU_PKGV,        /**< swu package version */
+  OC_KNX_SWU_PKGCMD,      /**< swu package command , a/swu*/
+  OC_KNX_SWU_PKGBYTES,    /**< swu package bytes*/
+  OC_KNX_SWU_PKGNAMES,    /**< swu package names*/
+  OC_KNX_SWU,             /**< swu top level */
+  OC_KNX_SUB,             /**< delete all device subscriptions */
+  OC_KNX_AUTH_O_REPLWDO,  /**< oscore replay window*/
+  OC_KNX_AUTH_O_OSNDELAY, /**< oscore osn delay*/
+  OC_KNX_AUTH_O,          /**< auth/o oscore functional block properties list*/
+  OC_KNX_AUTH_AT,         /**< auth/at resource listing auth/at/X */
+  OC_KNX_AUTH_AT_X,       /**< auth/at/X resources */
+  OC_KNX_AUTH,            /**< auth list all sub resources */
+  WELLKNOWNCORE,          /**< well-known/core resource, is the last resource in the list  */
 } oc_core_resource_t;
 
 #define OC_NUM_CORE_RESOURCES (1 + WELLKNOWNCORE) // number of core resources, note that first resource index is "0" 

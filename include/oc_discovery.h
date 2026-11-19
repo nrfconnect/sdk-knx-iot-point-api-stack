@@ -10,7 +10,10 @@
 */
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
+
+#include "oc_ri.h"
 
 #ifdef __cplusplus
 extern "C" {

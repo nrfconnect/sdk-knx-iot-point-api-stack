@@ -65,6 +65,7 @@ function(kis_add_test TEST_NAME TEST_SOURCE)
         ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_SOURCE_DIR}/port
         ${PROJECT_SOURCE_DIR}/api
+        ${KNX_PRIVATE_INCLUDE_DIRS}
     )
 
     target_link_libraries(${TEST_NAME} PRIVATE
@@ -88,6 +89,7 @@ endfunction()
 
 # ── Test targets ───────────────────────────────────────────────────────────────
 # Pure-function tests (no platform/network dependencies)
+kis_add_test(test_oc_knx_hooks test_oc_knx_hooks.cpp)
 kis_add_test(test_oc_base64  test_oc_base64.cpp)
 kis_add_test(test_oc_uuid    test_oc_uuid.cpp)
 kis_add_test(test_oc_list    test_oc_list.cpp)

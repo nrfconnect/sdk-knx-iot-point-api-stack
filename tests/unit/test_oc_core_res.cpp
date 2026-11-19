@@ -455,8 +455,8 @@ TEST(CoreResourceByIndex, FirstIndexReturnsResource)
 }
 
 /*
-  every oc_core_resource_t value must name the resource at that position in the linked list,
-  the lookup walks 'next' pointers by index, a missing or reordered link shifts all later resources
+  every oc_core_resource_t value must name the resource at that position in the registry,
+  a missing or misplaced registry entry returns NULL or the wrong resource for that index
 */
 static const struct {
   oc_core_resource_t index;
@@ -527,7 +527,7 @@ TEST(CoreResourceByIndex, TableCoversEveryEnumValue)
   }
 }
 
-TEST(CoreResourceByIndex, EnumMatchesLinkedListUri)
+TEST(CoreResourceByIndex, EnumMatchesRegistryUri)
 {
   for (const auto &entry : core_resource_order) {
     const oc_resource_t *r = oc_core_get_core_resource_by_index(entry.index);
@@ -536,12 +536,15 @@ TEST(CoreResourceByIndex, EnumMatchesLinkedListUri)
   }
 }
 
-TEST(CoreResourceByIndex, ListEndsAfterWellKnownCore)
+TEST(CoreResourceByIndex, CoreResourcesAreNotLinked)
 {
-  /* no resource past WELLKNOWNCORE, else the walk never reaches the extra ones */
-  const oc_resource_t *last = oc_core_get_core_resource_by_index(WELLKNOWNCORE);
-  ASSERT_NE(last, nullptr);
-  EXPECT_EQ(last->next, nullptr);
+  /* the registry orders the core resources, 'next' links only application resources */
+  for (int i = 0; i < OC_NUM_CORE_RESOURCES; i++)
+  {
+    const oc_resource_t* r = oc_core_get_core_resource_by_index(i);
+    ASSERT_NE(r, nullptr) << "index " << i;
+    EXPECT_EQ(r->next, nullptr) << "index " << i;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

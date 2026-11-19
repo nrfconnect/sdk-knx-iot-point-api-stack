@@ -9,24 +9,25 @@
  * Copyright 2026 KNXA (to the extent protectable under applicable law)
  */
 
+#include "oc_core_res.h"
 #include <errno.h>
 #include <stdarg.h>
 #include <stdlib.h>
-#include "oc_core_res.h"
-#include "oc_api.h"
+#include "api/oc_core_resources.h"
 #include "messaging/coap/oc_coap.h"
+#include "oc_api.h"
 #include "oc_discovery.h"
-#include "oc_rep.h"
 #include "oc_knx.h"
 #include "oc_knx_dev.h"
 #include "oc_knx_fb.h"
 #include "oc_knx_fp.h"
 #include "oc_knx_helpers.h"
 #include "oc_knx_p.h"
-#include "oc_knx_swu.h"
 #include "oc_knx_sec.h"
 #include "oc_knx_sub.h"
+#include "oc_knx_swu.h"
 #include "oc_main.h"
+#include "oc_rep.h"
 #include "port/dns-sd.h"
 #include "port/oc_assert.h"
 #include "port/oc_storage.h"
@@ -354,6 +355,69 @@ oc_device_info_t* oc_core_get_device_info(void)
 }
 
 
+/*
+  core resource registry, indexed by oc_core_resource_t
+  - one entry per enum value, a missing entry is NULL and fails the unit test on the registry
+  - a new core resource: add its enum value (oc_ri.h), its declaration (oc_core_resources.h) and its entry here
+*/
+static const oc_resource_t* const core_resources[OC_NUM_CORE_RESOURCES] = {
+  [OC_DEV_SN] = &core_resource_dev_sn,
+  [OC_DEV_HWV] = &core_resource_dev_hwv,
+  [OC_DEV_FWV] = &core_resource_dev_fwv,
+  [OC_DEV_HWT] = &core_resource_dev_hwt,
+  [OC_DEV_ORDER_NUMBER] = &core_resource_dev_order_number,
+  [OC_DEV_HOSTNAME] = &core_resource_dev_hostname,
+  [OC_DEV_IID] = &core_resource_dev_iid,
+  [OC_DEV_PM] = &core_resource_dev_pm,
+  [OC_DEV_IPV6] = &core_resource_dev_ipv6,
+  [OC_DEV_SA] = &core_resource_dev_sna,
+  [OC_DEV_DA] = &core_resource_dev_da,
+  [OC_DEV_FID] = &core_resource_dev_fid,
+  [OC_DEV_PORT] = &core_resource_dev_port,
+  [OC_DEV_MPORT] = &core_resource_dev_mport,
+  [OC_DEV_MID] = &core_resource_dev_mid,
+  [OC_DEV] = &core_resource_dev,
+  [OC_APP] = &core_resource_app,
+  [OC_APP_PV] = &core_resource_app_pv,
+  [OC_A_LSM] = &core_resource_a_lsm,
+  [OC_KNX_SPAKE] = &core_resource_knx_spake,
+  [OC_KNX_K] = &core_resource_knx_k,
+  [OC_KNX_FINGERPRINT] = &core_resource_knx_fingerprint,
+  [OC_KNX_IA] = &core_resource_knx_ia,
+  [OC_KNX] = &core_resource_knx,
+  [OC_KNX_FP_G] = &core_resource_knx_fp_g,
+  [OC_KNX_FP_G_X] = &core_resource_knx_fp_g_x,
+#ifdef OC_PUBLISHER_TABLE
+  [OC_KNX_FP_P] = &core_resource_knx_fp_p,
+  [OC_KNX_FP_P_X] = &core_resource_knx_fp_p_x,
+#endif
+  [OC_KNX_FP_R] = &core_resource_knx_fp_r,
+  [OC_KNX_FP_R_X] = &core_resource_knx_fp_r_x,
+  [OC_KNX_P] = &core_resource_knx_p,
+  [OC_KNX_F] = &core_resource_knx_f,
+  [OC_KNX_F_X] = &core_resource_knx_f_x,
+  [OC_KNX_SWU_PROTOCOL] = &core_resource_knx_swu_protocol,
+  [OC_KNX_SWU_HWREF] = &core_resource_knx_swu_hwref,
+  [OC_KNX_SWU_METHOD] = &core_resource_knx_swu_method,
+  [OC_KNX_SWU_LASTUPDATE] = &core_resource_knx_swu_lastupdate,
+  [OC_KNX_SWU_RESULT] = &core_resource_knx_swu_result,
+  [OC_KNX_SWU_STATE] = &core_resource_knx_swu_state,
+  [OC_KNX_SWU_UPDATE] = &core_resource_knx_swu_update,
+  [OC_KNX_SWU_PKGV] = &core_resource_knx_swu_pkgv,
+  [OC_KNX_SWU_PKGCMD] = &core_resource_knx_swu_pkgcmd,
+  [OC_KNX_SWU_PKGBYTES] = &core_resource_knx_swu_pkgbytes,
+  [OC_KNX_SWU_PKGNAMES] = &core_resource_knx_swu_pkgnames,
+  [OC_KNX_SWU] = &core_resource_knx_swu,
+  [OC_KNX_SUB] = &core_resource_sub,
+  [OC_KNX_AUTH_O_REPLWDO] = &core_resource_knx_auth_o_replwdo,
+  [OC_KNX_AUTH_O_OSNDELAY] = &core_resource_knx_auth_o_osndelay,
+  [OC_KNX_AUTH_O] = &core_resource_knx_auth_o,
+  [OC_KNX_AUTH_AT] = &core_resource_knx_auth_at,
+  [OC_KNX_AUTH_AT_X] = &core_resource_knx_auth_at_x,
+  [OC_KNX_AUTH] = &core_resource_knx_auth,
+  [WELLKNOWNCORE] = &core_resource_well_known_core,
+};
+
 const oc_resource_t* oc_core_get_core_resource_by_index(int index)
 {
 	// check index first, first resource index starts with 0 
@@ -362,23 +426,7 @@ const oc_resource_t* oc_core_get_core_resource_by_index(int index)
 		return NULL;
 	}
 
-	// start of the chain
-	extern const oc_resource_t core_resource_dev_sn; 
-	const oc_resource_t* resource = &core_resource_dev_sn;
-
-	/*
-	 * walk the linked list to the specified index, less readable, optimized, often used
-	 * - ptr cannot be NULL since all (OC_NUM_CORE_RESOURCES) resources are linked in code
-	 * - index 0 = dev_sn,
-	 * - index 1 = dev_hwv,
-	 * - ...
-	 * - index WELLKNOWNCORE = well-known (e.g. 52)
-	 *
-	 */
-	while (index--) 
-    resource = resource->next;
-
-	return resource;
+  return core_resources[index];
 }
 
 bool oc_check_request_query_value_on_urn_knx(oc_request_t* request)

@@ -30,11 +30,11 @@ extern "C"
 #include "port/oc_storage.h"
 #include "util/oc_mmem.h"
 
-/* static handlers are reachable via these non-static const resource literals */
-extern const oc_resource_t core_resource_knx;
-extern const oc_resource_t core_resource_a_lsm;
-extern const oc_resource_t core_resource_knx_k;
-extern const oc_resource_t core_resource_knx_fingerprint;
+  /* static handlers are reachable via these non-static const resource literals */
+  extern const oc_resource_t core_resource_knx;
+  extern const oc_resource_t core_resource_a_lsm;
+  extern const oc_resource_t core_resource_knx_k;
+  extern const oc_resource_t core_resource_knx_fingerprint;
   extern const oc_resource_t core_resource_knx_spake;
 }
 

@@ -16,7 +16,6 @@
 #include "oc_ri.h"
 #include "messaging/coap/oc_coap.h"
 
-extern const oc_resource_t core_resource_knx_auth_at_x;
 
 int
 LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)

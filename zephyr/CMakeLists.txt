@@ -167,6 +167,7 @@ set(API_SOURCES
     ${STACK_ROOT}/api/oc_knx_fb.c
     ${STACK_ROOT}/api/oc_knx_fp.c
     ${STACK_ROOT}/api/oc_knx_helpers.c
+    ${STACK_ROOT}/api/oc_knx_hooks.c
     ${STACK_ROOT}/api/oc_knx_p.c
     ${STACK_ROOT}/api/oc_knx_sec.c
     ${STACK_ROOT}/api/oc_knx_swu.c
@@ -307,16 +308,18 @@ target_include_directories(knx_iot_stack SYSTEM PRIVATE
 )
 
 # ── Include directories ────────────────────────────────────────────────────────
-# Mirrors KNX_INCLUDE_DIRS from the stack's top-level CMakeLists.txt.
-# Note: some are marked TODO in the stack as not intended to be public.
+# Mirrors KNX_INCLUDE_DIRS (public, also for the application) and
+# KNX_PRIVATE_INCLUDE_DIRS (stack library only) of the stack's top-level CMakeLists.txt.
 zephyr_include_directories(
     ${STACK_ROOT}
     ${STACK_ROOT}/include
     ${STACK_ROOT}/port/zephyr        # provides oc_config.h for this platform
-    ${STACK_ROOT}/security           # TODO: should not be public
-    ${STACK_ROOT}/messaging/coap     # TODO: should not be public
-    ${STACK_ROOT}/api                # TODO: should not be public
-    ${STACK_ROOT}/api/c-timestamp    # TODO: should not be public
+    ${STACK_ROOT}/api
+)
+zephyr_library_include_directories(
+    ${STACK_ROOT}/security
+    ${STACK_ROOT}/messaging/coap
+    ${STACK_ROOT}/api/c-timestamp
 )
 
 # ── Compile definitions ────────────────────────────────────────────────────────

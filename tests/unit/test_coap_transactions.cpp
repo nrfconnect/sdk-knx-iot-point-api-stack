@@ -18,12 +18,13 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include "messaging/coap/transactions.h"
-#include "messaging/coap/engine.h"
-#include "messaging/coap/coap.h"
-#include "port/oc_network_events_mutex.h"
-#include "oc_buffer.h"
 #include <string.h>
+#include "messaging/coap/coap.h"
+#include "messaging/coap/conf.h"
+#include "messaging/coap/engine.h"
+#include "messaging/coap/transactions.h"
+#include "oc_buffer.h"
+#include "port/oc_network_events_mutex.h"
 }
 
 /* ---------------- helpers ------------------------------------------------ */

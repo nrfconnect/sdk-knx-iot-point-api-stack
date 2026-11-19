@@ -30,16 +30,15 @@
 
 #include "ipadapter.h"
 #include "ipcontext.h"
-#include "oc_config.h"
 #include "oc_buffer.h"
-#include "oc_core_res.h"
+#include "oc_config.h"
 #include "oc_endpoint.h"
-#include "api/oc_knx_fp.h"
 #include "oc_network_monitor.h"
 #include "port/dns-sd.h"
 #include "port/oc_assert.h"
 #include "port/oc_connectivity.h"
 #include "port/oc_network_interface.h"
+#include "port/port_knx_hooks.h"
 
 // Some outdated toolchains do not define IFA_FLAGS.
 // Note:
@@ -1215,13 +1214,13 @@ void handle_network_interface_event_callback(oc_interface_event_t event) {
 
 static void network_interface_event_handler(oc_interface_event_t event) {
   if (event == NETWORK_INTERFACE_UP) {
-    oc_register_group_multicasts();
-    knx_dns_sd_update_service(oc_core_get_device_info());
+    port_knx_join_group_multicasts();
+    knx_dns_sd_update_service(port_knx_device_info());
   } else if (event == NETWORK_INTERFACE_DOWN) {
     /* Send the DNS-SD goodbye while the interface is still up, before
      * leaving the multicast groups. */
     knx_dns_sd_stop();
-    oc_unregister_group_multicasts();
+    port_knx_leave_group_multicasts();
   }
 }
 

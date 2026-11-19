@@ -21,7 +21,6 @@
 #include "util/oc_mmem.h"
 #include "psa/crypto.h"
 
-extern const oc_resource_t core_resource_knx_auth_at;
 
 /* The response buffer has a fixed size, so it is allocated once rather than on
  * every input. */

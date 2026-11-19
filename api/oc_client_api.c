@@ -8,8 +8,8 @@
 
 #include <stdlib.h>
 #include "messaging/coap/coap.h"
+#include "messaging/coap/conf.h"
 #include "oc_api.h"
-#include "conf.h"
 #include "port/oc_random.h"
 
 #ifdef OC_CLIENT

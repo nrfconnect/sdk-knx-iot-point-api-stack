@@ -9,27 +9,27 @@
  * Copyright 2026 KNXA (to the extent protectable under applicable law)
  */
 
+#include "oc_main.h"
 #include <stdint.h>
 #include <stdio.h>
-#include "oc_config.h"
-#include "port/oc_assert.h"
-#include "port/oc_connectivity.h"
-#include "port/oc_network_interface.h"
-#include "port/dns-sd.h"
-#include "util/oc_etimer.h"
-#include "util/oc_process.h"
+#include <stdlib.h>
+#include "messaging/coap/conf.h"
+#include "messaging/coap/oscore.h"
 #include "oc_api.h"
+#include "oc_config.h"
 #include "oc_core_res.h"
 #include "oc_knx.h"
 #include "oc_knx_dev.h"
 #include "oc_knx_fp.h"
 #include "oc_knx_sec.h"
 #include "oc_replay.h"
+#include "port/dns-sd.h"
+#include "port/oc_assert.h"
+#include "port/oc_connectivity.h"
+#include "port/oc_network_interface.h"
 #include "security/oc_oscore_context.h"
-#include "messaging/coap/oscore.h"
-#include "conf.h"
-#include "oc_main.h"
-#include <stdlib.h>
+#include "util/oc_etimer.h"
+#include "util/oc_process.h"
 
 // marker if init was done, to handle a shutdown without init
 static bool initialized = false;  

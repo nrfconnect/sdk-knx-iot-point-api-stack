@@ -48,10 +48,10 @@ extern "C" {
 #include "port/oc_random.h"
 #include "util/oc_mmem.h"
 
-extern int __real_coap_remove_observer_by_resource(const oc_resource_t* resource);
-extern void __real_oc_etimer_set(struct oc_etimer* et, oc_clock_time_t interval);
-extern void __real_oc_etimer_stop(struct oc_etimer* et);
-extern const oc_resource_t* __real_oc_core_get_core_resource_by_index(int index);
+  extern int __real_coap_remove_observer_by_resource(const oc_resource_t* resource);
+  extern void __real_oc_etimer_set(struct oc_etimer* et, oc_clock_time_t interval);
+  extern void __real_oc_etimer_stop(struct oc_etimer* et);
+  extern const oc_resource_t* __real_oc_core_get_core_resource_by_index(int index);
 }
 
 static int g_removed_observer_resources;
@@ -1344,11 +1344,10 @@ TEST(RiEntityHandlerOrder, PayloadBeyondMaxDepthIsBadRequestAndNotDispatched)
 }
 
 /*
-  the core resource lookup walks the core resource chain once, not once per index
-  - a request to an application resource (/unit) checks every core resource first
-  - only the chain start is looked up by index (index 0); a lookup per index walks the chain from the start each time
+  the core resources are looked up by index, not by walking a chain (a core resource has no next)
+  - a request to an application resource (/unit) checks every core resource first, one lookup per index
 */
-TEST(RiEntityHandlerPaths, CoreLookupWalksTheChainOnce)
+TEST(RiEntityHandlerPaths, CoreLookupIsByIndex)
 {
   RiEntityResource fixture;
   g_ri_get_calls = 0;
@@ -1357,24 +1356,7 @@ TEST(RiEntityHandlerPaths, CoreLookupWalksTheChainOnce)
   EXPECT_TRUE(invoke_entity(fixture.resource, &fixture.endpoint, COAP_GET, nullptr, 0, CONTENT_NONE, &response_code));
   EXPECT_EQ(response_code, CONTENT_2_05);
   EXPECT_EQ(g_ri_get_calls, 1);
-  EXPECT_EQ(g_core_by_index_calls, 1);
-}
-
-// the walk stops at the end of the chain: OC_NUM_CORE_RESOURCES entries, the last is /.well-known/core with next NULL
-TEST(RiEntityHandlerPaths, CoreChainEndsWithWellKnownCore)
-{
-  int count = 0;
-  const oc_resource_t* last = nullptr;
-  for (const oc_resource_t* r = oc_core_get_core_resource_by_index(0); r != nullptr && count <= OC_NUM_CORE_RESOURCES; r = r->next)
-  {
-    last = r;
-    count++;
-  }
-  EXPECT_EQ(count, OC_NUM_CORE_RESOURCES);
-  ASSERT_NE(last, nullptr);
-  EXPECT_STREQ(oc_string(last->uri), "/.well-known/core");
-  EXPECT_EQ(last->next, nullptr);
-  EXPECT_EQ(last, oc_core_get_core_resource_by_index(WELLKNOWNCORE));
+  EXPECT_EQ(g_core_by_index_calls, OC_NUM_CORE_RESOURCES);
 }
 
 // no core or application resource for the path: 4.04, the handler is not called

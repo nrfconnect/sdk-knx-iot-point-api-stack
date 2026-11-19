@@ -9,18 +9,17 @@
  */
 #include <inttypes.h>
 #include <stdlib.h>
-#include "psa/crypto.h"
 #include "api/oc_events.h"
-#include "api/oc_knx_sec.h"
-#include "api/oc_knx_fp.h"
+#include "messaging/coap/conf.h"
 #include "messaging/coap/engine.h"
 #include "messaging/coap/transactions.h"
-#include "port/oc_storage.h"
 #include "oc_client_state.h"
 #include "oc_oscore_context.h"
 #include "oc_oscore_crypto.h"
 #include "port/oc_clock.h"
-#include "conf.h"
+#include "port/oc_storage.h"
+#include "psa/crypto.h"
+#include "security/oscore_knx_hooks.h"
 
 #include "util/oc_process.h"
 
@@ -297,7 +296,7 @@ typedef struct
 {
   struct
   {
-    const oc_group_object_table_t* go;
+    const struct oc_group_object_table_t* go;
     uint32_t      ssn;
     uint8_t       token[COAP_TOKEN_LEN];
     uint8_t       kid[OSCORE_SENDER_ID_LEN];
@@ -726,7 +725,7 @@ static void oc_oscore_receive_message(oc_message_t* msg)
       oscore_ctx = oc_oscore_find_context_by_kid_and_kid_context(coap_pkt->kid, coap_pkt->kid_len, coap_pkt->kid_ctx, coap_pkt->kid_ctx_len);
 
       // token of the cached context, or the auth/at entry with the 'kid' from the inbound message
-      const oc_auth_at_t* at_entry = oscore_ctx ? oscore_ctx->auth_at : oc_core_find_at_entry_by_osc_id(coap_pkt);
+      const oc_auth_at_t* at_entry = oscore_ctx ? oscore_ctx->auth_at : oscore_knx_find_at_entry(coap_pkt);
 
       /*
         (a) 'kid' from 'request' not found as part of my own contexts, the inbound sender is not known to the server
@@ -852,7 +851,7 @@ static void oc_oscore_receive_message(oc_message_t* msg)
     { // kid_ctx = 10
 
       // find auth/at entry with corresponding 'kid' from inbound message
-      const oc_auth_at_t* at_entry = oc_core_find_at_entry_by_osc_id(coap_pkt);
+      const oc_auth_at_t* at_entry = oscore_knx_find_at_entry(coap_pkt);
       if (!at_entry)
       {
         /*

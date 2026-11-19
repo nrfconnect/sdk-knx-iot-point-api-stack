@@ -179,14 +179,24 @@ set(KNX_READ_ON_INIT_DELAY_MILLISECONDS "100" CACHE STRING "KNX read on init del
 # KNX reset "Process Time" in seconds
 set(KNX_RESPONSE_TIME_SECONDS "2" CACHE STRING "KNX reset Process Time in seconds")
 
+# KNX reset delay in ms, lets the reset response be sent before the security contexts are wiped (< Process Time)
+
+# default of the OSCORE echo response delay (/auth/o/osndelay, ms): a 4.01 + Echo to a multicast is delayed by a random
+# 0 ... osn delay; the test presets set it (and the reset delay) short, the test tools act on the device without waiting
+
 ### KNX-IoT Stack ###
+# public: the root (the public headers include "messaging/coap/...", "port/...", "util/..."), include/ and api/,
+# whose KNX headers (oc_knx_fp.h, oc_knx_dev.h, ...) the applications include by name
 set(KNX_INCLUDE_DIRS 
     ${PROJECT_SOURCE_DIR}/
     ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_SOURCE_DIR}/security		# TODO this should not be PUBLIC
-    ${PROJECT_SOURCE_DIR}/messaging/coap/	# TODO this should not be PUBLIC
-    ${PROJECT_SOURCE_DIR}/api			# TODO this should not be PUBLIC
-    ${PROJECT_SOURCE_DIR}/api/c-timestamp	# TODO this should not be PUBLIC
+    ${PROJECT_SOURCE_DIR}/api
+)
+# stack internal, also used by the tests that call into the internals
+set(KNX_PRIVATE_INCLUDE_DIRS
+    ${PROJECT_SOURCE_DIR}/security
+    ${PROJECT_SOURCE_DIR}/messaging/coap
+    ${PROJECT_SOURCE_DIR}/api/c-timestamp
 )
 
 set(API_SOURCES
@@ -212,6 +222,7 @@ set(API_SOURCES
     ${PROJECT_SOURCE_DIR}/api/oc_knx_fb.c
     ${PROJECT_SOURCE_DIR}/api/oc_knx_fp.c
     ${PROJECT_SOURCE_DIR}/api/oc_knx_helpers.c
+    ${PROJECT_SOURCE_DIR}/api/oc_knx_hooks.c
     ${PROJECT_SOURCE_DIR}/api/oc_knx_p.c
     ${PROJECT_SOURCE_DIR}/api/oc_knx_sec.c
     ${PROJECT_SOURCE_DIR}/api/oc_knx_swu.c
@@ -325,7 +336,7 @@ add_library(kisClientServer ${CORE_SOURCES} ${COAP_SOURCES} ${API_SOURCES})
 target_compile_definitions(kisClientServer PUBLIC OC_CLIENT OC_SERVER)                   
 
 # Specifies include directories to use when compiling a given target
-target_include_directories(kisClientServer PUBLIC ${KNX_INCLUDE_DIRS})
+target_include_directories(kisClientServer PUBLIC ${KNX_INCLUDE_DIRS} PRIVATE ${KNX_PRIVATE_INCLUDE_DIRS})
 
 ## KNX-IoT Stack Options (2) ##
 target_link_libraries(kisClientServer PUBLIC kis-common)

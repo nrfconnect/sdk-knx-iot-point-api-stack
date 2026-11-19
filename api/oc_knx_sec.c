@@ -27,13 +27,7 @@
 #include "port/oc_storage.h"
 #include "security/oc_oscore_context.h"
 
-// forward declarations for the resource chain
-extern const oc_resource_t core_resource_knx_auth_o;
-extern const oc_resource_t core_resource_knx_auth_o_replwdo;
-extern const oc_resource_t core_resource_knx_auth_at;
-extern const oc_resource_t core_resource_knx_auth_at_x;
-extern const oc_resource_t core_resource_knx_auth;
-extern const oc_resource_t core_resource_well_known_core;
+#include "api/oc_core_resources.h"
 
 // AT and SSN storage data
 // See the KNX_STORAGE_KEY_ATT_ENTRY and KNX_STORAGE_KEY_SSNT_ENTRY keys in oc_knx_sec.h
@@ -341,14 +335,11 @@ static void oc_core_knx_auth_o_get_handler(oc_request_t* request, oc_interface_m
     more_request_needed = true;
   }
 
-  /*
-    walk the chain once from first_entry (consecutive core resources); by index every lookup walks from the start
-    - the page is the index range already, nothing to skip: no_skip (0) < 0 is never true (the 'skipped' counter is for discovery)
-  */
+  // the page is the index range already, nothing to skip: no_skip (0) < 0 is never true (the 'skipped' counter is for discovery)
   int no_skip = 0;
-  const oc_resource_t* resource = oc_core_get_core_resource_by_index(first_entry);
-  for (int i = first_entry; i < last_entry; i++, resource = resource->next)
+  for (int i = first_entry; i < last_entry; i++)
   {
+    const oc_resource_t* resource = oc_core_get_core_resource_by_index(i);
     if (oc_check_request_from_resource(resource, request, &response_length, &no_skip, 0, true, true))
     {
       query_parameter_kvpair_matches++;
@@ -1608,14 +1599,11 @@ static void oc_core_knx_auth_get_handler(oc_request_t* request, oc_interface_mas
     more_request_needed = true;
   }
 
-  /*
-    walk the chain once from first_entry (consecutive core resources); by index every lookup walks from the start
-    - the page is the index range already, nothing to skip: no_skip (0) < 0 is never true (the 'skipped' counter is for discovery)
-  */
+  // the page is the index range already, nothing to skip: no_skip (0) < 0 is never true (the 'skipped' counter is for discovery)
   int no_skip = 0;
-  const oc_resource_t* resource = oc_core_get_core_resource_by_index(first_entry);
-  for (int i = first_entry; i < last_entry; i++, resource = resource->next)
+  for (int i = first_entry; i < last_entry; i++)
   {
+    const oc_resource_t* resource = oc_core_get_core_resource_by_index(i);
     if (oc_check_request_from_resource(resource, request, &response_length, &no_skip, 0, true, true))
     {
       query_parameter_kvpair_matches++;
@@ -1746,13 +1734,6 @@ int oc_delete_at_table_entry(oc_auth_at_t* entry)
 
   if (index != -1)
   {
-    /*
-      subscriptions made with this token end with it
-      - token rotation (spec 3.5.4.1): the new token is configured first, the old one deleted, also while 'loaded'
-      - an observer keeps a pointer to this slot, a later token in the same slot would otherwise inherit it
-    */
-    coap_remove_observers_by_access_token(entry);
-
     // OSCORE contexts of this token (they point to this slot, a later token in the same slot would inherit them)
     oc_oscore_free_contexts_at_id(entry);
 

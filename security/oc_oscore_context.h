@@ -8,9 +8,10 @@
 
 #pragma once
 
-#include "messaging/coap/oscore_constants.h"
-#include "api/oc_knx_sec.h"
 #include <stdbool.h>
+#include "messaging/coap/coap.h"
+#include "messaging/coap/oscore_constants.h"
+#include "security/oc_auth_at.h"
 
 #ifdef __cplusplus
 extern "C" {
