@@ -1,8 +1,8 @@
 # KNX IoT Point API Stack - Test Catalog
 
 > **1913 unit tests** on `linux-test-asan` (63 files in `tests/unit/`, counted by CTest on 2026-11-09, including the
-> `test_dns_sd_mdns.cpp` cases registered under `if(UNIX)` only) and **293 runtime tests** (20 files in `tests/runtime/`, collected
-> on 2026-11-09).
+> `test_dns_sd_mdns.cpp` cases registered under `if(UNIX)` only) and **297 runtime tests** (20 files in `tests/runtime/`, collected
+> on 2026-11-11).
 > The conformance tier is not listed here: the test tool
 > (`tests/iot-test-tool/`) generates it from KNX's conformance-test template,
 > one item per template sequence, with this stack's override files in
@@ -318,7 +318,7 @@ OSCORE Option (48 tests)
 
 ---
 
-### test_oc_oscore_context.cpp — OSCORE Context (39 tests)
+### test_oc_oscore_context.cpp — OSCORE Context (40 tests)
 
 **Source:** `security/oc_oscore_context.c`
 
@@ -326,12 +326,12 @@ OSCORE Option (48 tests)
 |-------|-------|----------------|
 | `ContextDeriveParam` | 4 | HKDF key derivation (sender key, IV, with context, uniqueness) |
 | `OscoreContextTest` | 16 | Add/find/free contexts, bad params, kid_context, find-by-group-address (sender/recipient), LRU recipient eviction, free-by-AT-id, and the recipient/sender context builders that take their ID from the access token |
-| `OscoreContextByToken` | 5 | `oc_oscore_find_context_by_token_mid`: match by token (returns the request PIV), MID fallback, optional out-parameters, unknown transaction → NULL, transaction without an access token → NULL |
+| `OscoreContextByToken` | 6 | `oc_oscore_find_context_by_token_mid`: match by token (returns the request PIV), MID fallback, optional out-parameters, unknown transaction → NULL, transaction without an access token → NULL; the response to an own request is matched to the SENDER context of the token (fixture: a sender context), also when a cached recipient context of the token comes first in the list |
 | Access token and multicast lookup | 3 | multicast lookup skips the `at` of a unicast recipient (spec 6.3.2.1); `oc_oscore_find_context_by_access_token` with `sender_only` true/false; NULL or unknown token -> NULL |
 
 ---
 
-### test_oc_knx_sec.cpp — Security Credentials (99 tests)
+### test_oc_knx_sec.cpp — Security Credentials (108 tests)
 
 **Source:** `api/oc_knx_sec.c`; linked with `-Wl,--wrap=oc_core_get_core_resource_by_index` (counts the lookups of the list GETs, pass through)
 
@@ -345,7 +345,7 @@ OSCORE Option (48 tests)
 | `AtSsnStorage` | 2 | SSN persistence round-trip; entry outside the table is skipped |
 | `SecHandlers` | 24 | CoAP handlers of `/auth`, `/auth/o`, `/auth/o/osndelay`, `/auth/o/replwdo`, `/auth/at`, `/auth/at/*`: `DELETE /auth/at/{id}` ends the token's `/k` subscriptions (`AtEntryDeleteRemovesTheTokensObservers`); wrong-Accept rejection, invalid paging (`ps=0`, `pn=-1`), CBOR GET payloads, OSN-delay PUT (no payload → 4.00, valid → 4.04 CHANGED), AT-table DELETE, wildcard entry lookup (missing/unknown token → 4.00); the `/auth/o` and `/auth` list GETs (`AuthOListWalksTheCoreChainOnce`, `AuthListWalksTheCoreChainOnce`) answer 2.05 with their first entry and the one after it and walk the core resource chain once (one lookup by index) |
 | `SecAcl` | 29 | `oc_knx_sec_check_acl`, the authorization gate, each case with its exact status (`OC_STATUS_OK`, 4.01 `UNAUTHORIZED` not decrypted, 4.03 `FORBIDDEN` scope / ga not covered, 4.05 `METHOD_NOT_ALLOWED` no handler slot): NULL resource and unsupported method → 4.05; per-method handler scope resolution (GET/POST/PUT/DELETE); OSCORE requirement (`OSCORE` alone and `OSCORE_DECRYPTED` alone both denied); scope matching (disjoint → deny, partial overlap → allow, missing access token → deny); `<ga>` per-group-address authorization incl. empty/NULL ga list, absent ga in payload, non-object payload, first/last list entry, broadcast address, and the F-026 regression (a foreign ga anywhere in the payload denies, in either order) |
-| `SecAtPost` | 20 | `/auth/at` rejects incomplete or malformed credentials: id + one scope, repeated mandatory property, short/all-zero master secret, and sender ID longer than the OSCORE limit; `cnf:osc:alg` 10 creates the token, any other value is rejected and not stored; a rejected scope update (`["if.unknown"]`) leaves an existing `<ga>` token unchanged; a `<ga>`-only update (2.04) keeps the OSCORE contexts (same context, SSN unchanged); an id-only delete in a scope-only request frees the deleted token's context; a profile + scope update re-initializes the contexts; deleting an entry (device reset path) frees its sender and recipient contexts; an update rejected after a valid `<ga>` scope or a valid master secret leaves the token unchanged; a repeated master secret in a full-token overwrite keeps the last one; a repeated scope `<ga>` then string frees both ga arrays (request and live); a full-token overwrite with a new master secret frees the token's cached recipient context, one with the same key keeps it (the response of a request protected with this token still gets encrypted); a partial update carrying `cnf` is rejected with 4.00 (spec 2.6.7.3) and keeps the old key and context; a scope-only update keeps the cached recipient context |
+| `SecAtPost` | 29 | `/auth/at` rejects incomplete or malformed credentials: id + one scope, repeated mandatory property, short/all-zero master secret, and sender ID longer than the OSCORE limit; `cnf:osc:alg` 10 creates the token, any other value is rejected and not stored; a rejected scope update (`["if.unknown"]`) leaves an existing `<ga>` token unchanged; a `<ga>`-only update (2.04) keeps the OSCORE contexts (same context, SSN unchanged); an id-only delete in a scope-only request frees the deleted token's context; a profile + scope update re-initializes the contexts; deleting an entry (device reset path) frees its sender and recipient contexts; an update rejected after a valid `<ga>` scope or a valid master secret leaves the token unchanged; a repeated master secret in a full-token overwrite keeps the last one; a repeated scope `<ga>` then string frees both ga arrays (request and live); a full-token overwrite with a new master secret frees the token's cached recipient context, one with the same key keeps it (the response of a request protected with this token still gets encrypted); a partial update carrying `cnf` is rejected with 4.00 (spec 2.6.7.3) and keeps the old key and context; a scope-only update keeps the cached recipient context; a collection is atomic: one rejected later entry leaves the earlier token, its key and its sender context unchanged; more than 10 entries -> 4.13 (spec 2.6.3.3.2), 10 new tokens in one request land in 10 slots; the same id twice in one request (also delete and re-create) -> 4.00, nothing changed (spec 2.6.7.2, 3.5.4.1); a full token re-POSTed without salt and contextId leaves both empty, not the old values (spec 2.6.7.3, 3.6.2); a member of an unexpected type (CBOR null) or an empty scope array on an existing token -> 4.00, the token stays (only the id alone deletes, spec 2.6.7.2 / 3.5.4.2); an update carrying only an optional member (`sub`) is not "id only", 2.04 and the token stays |
 | `AtTable` access token lookup | 2 | `oc_core_find_at_entry_by_access_token`: match, miss, prefix/longer id; empty or NULL id never matches an unused slot |
 
 ---
@@ -374,7 +374,7 @@ Replay Protection (14 tests)
 ---
 
 
-OSCORE Engine Security (65 tests)
+OSCORE Engine Security (67 tests)
 
 **Source:** `security/oc_oscore_engine.c` (unified anchor/seen-responder echo ring and inbound OSCORE process path)
 
@@ -425,6 +425,7 @@ OSCORE Engine Security (65 tests)
 | `OutboundUnicastRequestIsEncryptedAndSent` | Sender context encrypts a unicast request, advances SSN and dispatches the OSCORE frame |
 | `OutboundMulticastRequestIsEncryptedAndSent` | Sender context encrypts a multicast NON request, advances SSN and dispatches the OSCORE frame |
 | `OutboundResponseIsEncryptedAndSent` | Recipient context encrypts a normal response without consuming a sender SSN |
+| `ResponseToARequestThatReKeyedItsOwnTokenIsDropped` | A POST /auth/at that changes the key of the token protecting it is applied but gets no 2.04: its contexts freed, only the sender context rebuilt, no recipient context for the response (RFC 8613 8.3); key rotation per spec 3.5.4.1 uses a new token |
 | `EmptyDecryptedPayloadReceivesBadRequest` | Authenticated request with an empty inner plaintext receives 4.00 |
 | `OutboundAckRequestIsDropped` | ACK carrying a request code is dropped on the outbound path |
 | `OutboundMulticastWithoutSModeFlagIsDropped` | Multicast message without the S-mode flag is dropped |
@@ -438,7 +439,8 @@ OSCORE Engine Security (65 tests)
 | `OutboundResponseNotSharedIsEncryptedInPlace` | Response with `ref_count` 1 is encrypted in place and sent |
 | `OutboundUnicastConRequestSharedIsClonedAndStaysPlaintext` | Shared unicast CON request (`ref_count` 2, the CON transaction) is cloned; the original stays plaintext, only the engine's reference is released |
 | `OutboundMulticastRequestSharedIsClonedAndStaysPlaintext` | Shared multicast request is cloned; the original stays plaintext |
-| `MulticastRequestWithTokenWithoutGroupAddressIsSilentlyDropped` | A multicast OSCORE request whose token has no group addresses is discarded before decryption and context creation, no reply (spec 2.6.9.1 + 2.5.9.6) |
+| `MulticastRequestWithTokenWithoutGroupAddressIsSilentlyDropped` | A multicast OSCORE request whose token has no group rights (an `if.p` token: no group addresses, no `if.g.s`) is discarded before decryption and context creation, no reply (spec 2.6.9.1 + 2.5.9.6) |
+| `MulticastRequestWithIfGsTokenIsDecrypted` | A multicast OSCORE request with an `if.g.s` token (no group address list, but all group addresses, spec 3.5.3) is decrypted and queued for RI, no echo; the `/k` ACL decides |
 | `MulticastEchoResponseEncryptFailureFreesTheTemporaryContext` | An encrypt error frees the temporary 'Response Sender Context' of a multicast caused echo response (`--wrap=oc_oscore_encrypt`) |
 | `InboundRequestWithFullQueueReleasesTheMessage` | decrypted inbound request, the hand-over to the CoAP engine is rejected (queue full): the message is released |
 | `OutboundMulticastWithFullQueueReleasesTheMessage` | outbound multicast (encrypted in place), the hand-over for sending is rejected: handed to `oc_message_post` and released there (`--wrap=oc_message_post`) |
@@ -522,7 +524,7 @@ OSCORE Engine Security (65 tests)
 
 ---
 
-### test_oc_knx_fp.cpp — Group Object & FP Tables (89 tests)
+### test_oc_knx_fp.cpp — Group Object & FP Tables (106 tests)
 
 **Source:** `api/oc_knx_fp.c`
 
@@ -537,7 +539,7 @@ OSCORE Engine Security (65 tests)
 | `GoTableHref` | 7 | href getter + find-first/next by href, sending-GA lookup |
 | `RecipientTable` | 1 | Recipient index-from-id match/miss |
 | `BelongsHref` | 3 | href ownership check, non-discoverable skipped |
-| `FpHandlers` | 30 | CoAP handlers of `/fp/g`, `/fp/p`, `/fp/r` and their `/*` entry resources: wrong-Accept rejection, empty table → 2.05, invalid paging (`ps`/`pn`) → 4.00, populated link-format listing incl. comma separator and next-page indicator, entry GET (unknown id → 4.04, known id → 2.05 CBOR), entry DELETE outside loading state → 4.00; POST (loading state) with a repeated ga key keeps the last one: `/fp/p` and `/fp/r` `[1]` then `[]` → empty ga, `/fp/g` `[1]` then `[2]` → `[2]` |
+| `FpHandlers` | 49 | CoAP handlers of `/fp/g`, `/fp/p`, `/fp/r` and their `/*` entry resources: wrong-Accept rejection, empty table → 2.05, invalid paging (`ps`/`pn`) → 4.00, populated link-format listing incl. comma separator and next-page indicator, entry GET (unknown id → 4.04, known id → 2.05 CBOR), entry DELETE outside loading state → 4.00; POST (loading state) with a repeated ga key keeps the last one: `/fp/p` and `/fp/r` `[1]` then `[]` → empty ga, `/fp/g` `[1]` then `[2]` → `[2]`; an empty array on a key other than ga (`{0: 1, 11: []}`) on an existing entry → 4.00, the entry unchanged, in all three tables (only the id alone deletes, spec 2.5.7.4.1); an update carrying only an unknown member (`{0: 1, 99: 5}`) is not "id only", 2.04 and the entry stays, in all three tables; `/fp/p` and `/fp/r`: `ia` and `grpid` in one request → 4.00 (a1), an update with only `ia` on a multicast entry switches it to unicast (`grpid` cleared), only `grpid` on a unicast entry switches it to multicast (`ia` and the stale `at` cleared, spec 2.5.7.4.2 Table 21, 6.3.2.1); a collection is atomic: one rejected later entry stores nothing, in all three tables; more than 10 entries (`KNX_POST_MAX_ENTRIES`, shared with `/auth/at`) → 4.13, with `/fp/g` and `/fp/p` confirming no entries were stored (spec 2.6.3.3.2); the same id twice in one request → 4.00; two new entries in one request land in two slots |
 | `GroupTableStorage` | 7 | Recipient/publisher entry encode-decode round-trip (NON flag as boolean, empty/multiple GA arrays, absent-NON default) |
 | `RecipientAccessToken` | 5 | `oc_is_unicast_recipient_access_token`: unicast entry naming the token -> true; multicast entry with `at`, unused slot, other/prefix/longer id, empty or NULL id -> false |
 
@@ -1636,7 +1638,7 @@ Measured link-format sizes at `KNX_PAYLOAD_SIZE` 768 (512-byte blocks):
 
 ---
 
-### test_group_comm.py — Group Communication (34 tests, 39 collected)
+### test_group_comm.py — Group Communication (36 tests, 41 collected)
 
 | Class | Test | Overlaps | What it checks |
 |-------|------|----------|----------------|
@@ -1658,6 +1660,8 @@ Measured link-format sizes at `KNX_PAYLOAD_SIZE` 768 (512-byte blocks):
 |  | `test_read_on_init_released_after_network_up` |  | Network down from the start, then up after ~600 ms -> read fires. |
 |  | `test_read_on_init_abandoned_after_max_retries` |  | Network never comes up -> read is abandoned after the 20-cycle cap. |
 | **TestMulticastResponseUpdateOnly** | `test_answer_updates_update_only_go` |  | Set /p/1=true via /p, then multicast answer (st="a") false on a u-only GO. |
+| **TestMulticastWriteWithIfGsToken** | `test_multicast_write_with_if_g_s_token_is_applied` |  | Multicast write true to ga 65535 protected with an `if.g.s` token (no ga list, all ga, spec 3.5.3 / 2.5.9.6) -> /p/1 becomes true. |
+| **TestMulticastWriteWithoutGroupRights** | `test_multicast_write_without_group_rights_is_dropped` |  | Control: the same write with an `if.p` only token (no group rights) is discarded, /p/1 stays false. |
 | **TestOwnGroupObjectUpdate** | `test_self_update_on_transmit` | 5.4.1.12 | Trigger sensor → DUT sends multicast write for ga=65535, DUT also updates /p/1 (receiving GO with ga=65535). |
 | **TestLongGASend** | `test_sends_long_ga` | 5.4.1.14 | Trigger sensor → DUT sends multicast with ga=4294967295. |
 | **TestUnicastConfirmable** | `test_unicast_sends_con` | 5.4.1.15 | Trigger sensor → DUT resolves PEER_IA via discovery, then sends CON POST /k (unicast to test host). |
@@ -1743,7 +1747,7 @@ Measured link-format sizes at `KNX_PAYLOAD_SIZE` 768 (512-byte blocks):
 
 ---
 
-### test_security.py — Security & OSCORE (72 tests, 79 collected)
+### test_security.py — Security & OSCORE (74 tests, 81 collected)
 
 | Class | Test | Overlaps | What it checks |
 |-------|------|----------|----------------|
@@ -1754,6 +1758,8 @@ Measured link-format sizes at `KNX_PAYLOAD_SIZE` 768 (512-byte blocks):
 |  | `test_overwrite_existing_at` | 5.3.8.4 | POST /auth/at with same id but new scope overwrites entry. |
 |  | `test_create_multiple_ats_single_write` | 5.3.8.5 | POST /auth/at with array of 2 ATs → 2.01. |
 |  | `test_update_multiple_ats` | 5.3.8.6 | POST /auth/at to update 2 existing ATs → 2.04. |
+| **TestWriteAccessTokenEntryLimit** | `test_more_than_ten_tokens_in_one_post_returns_413` |  | POST /auth/at with 11 ATs (payload below one block) -> 4.13 from the handler (spec 2.6.3.3.2), none of them stored. |
+|  | `test_ten_tokens_in_one_post_are_accepted` |  | POST /auth/at with 10 ATs (the limit) -> 2.01, all 10 stored. |
 | **TestWriteAccessTokenMandatoryProperties** | `test_at_mandatory_create_with_id_only_rejected` |  | POST /auth/at with only the id -> 4.00, no entry created. |
 |  | `test_at_mandatory_create_without_scope_rejected` |  | POST /auth/at without scope (9) -> 4.00, no entry created. |
 |  | `test_at_mandatory_create_without_sender_id_rejected` |  | POST /auth/at without cnf:osc:id (8:4:0) -> 4.00, no entry. |

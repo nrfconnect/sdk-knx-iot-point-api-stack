@@ -740,8 +740,8 @@ TEST_F(SecHandlers, AtEntryDeleteRemovesTheTokensObservers)
 
 /*
   An AT entry may only be CREATED once all five mandatory properties are
-  present (id, profile, scope, cnf:osc:id, cnf:osc:ms). The handler counts them
-  in `at_properties_seen`.
+  present (id, profile, scope, cnf:osc:id, cnf:osc:ms). The handler records them
+  in the AT_SEEN_* bits of `member_flags`.
 
   The payloads are hand-encoded because the point of the second test is a
   repeated map key, which no CBOR writer will emit from a dictionary.
@@ -804,6 +804,25 @@ protected:
       cbor.push_back(0x04);                  /* cnf:osc:alg */
       cbor.push_back((uint8_t)alg);
     }
+    return cbor;
+  }
+
+  // { 0: entry, 1: entry, ... } from single-entry payloads { 0: entry } (up to 23 entries)
+  static std::vector<uint8_t> make_collection(const std::vector<std::vector<uint8_t>>& singles)
+  {
+    std::vector<uint8_t> cbor = { (uint8_t)(0xa0 + singles.size()) };
+    for (size_t i = 0; i < singles.size(); ++i) {
+      cbor.push_back((uint8_t)i);
+      cbor.insert(cbor.end(), singles[i].begin() + 2, singles[i].end());
+    }
+    return cbor;
+  }
+
+  // full token as make_complete_at_payload(16, false, 1, 10) with the id "to<last>"
+  static std::vector<uint8_t> make_token(char last)
+  {
+    std::vector<uint8_t> cbor = make_complete_at_payload(16, false, 1, 10);
+    cbor[7] = (uint8_t)last;
     return cbor;
   }
 };
@@ -935,6 +954,135 @@ TEST_F(SecAtPost, RejectedScopeUpdateKeepsTheGaScope)
   EXPECT_EQ(e->ga[0], 1u);
 
   /* the created entry was also stored, keep storage clean for the following tests */
+  oc_delete_at_table();
+}
+
+/*
+  a full token replaces the whole key, an optional osc member it does not carry is empty afterwards
+  - token "tok" created with salt h'5a5a' and contextId h'c1c2'
+  - the same full token POSTed again without salt and contextId -> 2.04
+  - salt and contextId are empty (spec 2.6.7.3: cnf is not updatable in parts; spec 3.6.2: absent = none)
+*/
+TEST_F(SecAtPost, FullTokenWithoutSaltAndContextIdClearsTheOldOnes)
+{
+  std::vector<uint8_t> create = make_complete_at_payload(16, false, 1, 10);
+  create[23] = 0xa5; /* osc map: id, ms, alg + salt, contextId */
+  const uint8_t salt_and_context_id[] = { 0x05, 0x42, 0x5a, 0x5a, 0x06, 0x42, 0xc1, 0xc2 };
+  create.insert(create.end(), std::begin(salt_and_context_id), std::end(salt_and_context_id));
+  ASSERT_EQ(post_at(create.data(), create.size()), oc_status_code(OC_STATUS_CREATED));
+  oc_free_rep(payload);
+  payload = nullptr;
+
+  oc_auth_at_t* e = oc_core_find_at_entry_by_access_token("tok", 3);
+  ASSERT_NE(e, nullptr);
+  ASSERT_EQ(oc_byte_string_len(e->osc_salt), 2u);
+  ASSERT_EQ(oc_byte_string_len(e->osc_contextid), 2u);
+
+  const std::vector<uint8_t> full = make_complete_at_payload(16, false, 1, 10);
+  EXPECT_EQ(post_at(full.data(), full.size()), oc_status_code(OC_STATUS_CHANGED));
+
+  EXPECT_EQ(oc_byte_string_len(e->osc_salt), 0u);
+  EXPECT_EQ(oc_byte_string_len(e->osc_contextid), 0u);
+
+  /* the entry was also stored, keep storage clean for the following tests */
+  oc_delete_at_table();
+}
+
+/*
+  a member of an unexpected type is rejected, it is not an id-only delete
+  - token "tok" created
+  - POST { 0: { 0: "tok", 9: null } } -> 4.00 (CBOR null is OC_REP_NULL, not an empty array)
+  - the token still exists with its key (spec 2.6.7.2: only the id alone deletes a token)
+*/
+TEST_F(SecAtPost, NullMemberIsRejectedAndDoesNotDeleteTheToken)
+{
+  const std::vector<uint8_t> create = make_complete_at_payload(16, false, 1, 10);
+  ASSERT_EQ(post_at(create.data(), create.size()), oc_status_code(OC_STATUS_CREATED));
+  oc_free_rep(payload);
+  payload = nullptr;
+
+  oc_auth_at_t* e = oc_core_find_at_entry_by_access_token("tok", 3);
+  ASSERT_NE(e, nullptr);
+
+  /* { 0: { 0: "tok", 9: null } } */
+  const uint8_t cbor[] = {
+    0xa1, 0x00,
+    0xa2,
+    0x00, 0x63, 't', 'o', 'k',
+    0x09, 0xf6
+  };
+  EXPECT_EQ(post_at(cbor, sizeof(cbor)), oc_status_code(OC_STATUS_BAD_REQUEST));
+
+  EXPECT_EQ(oc_core_find_at_entry_by_access_token("tok", 3), e);
+  EXPECT_EQ(oc_byte_string_len(e->osc_ms), 16u);
+
+  /* the entry was also stored, keep storage clean for the following tests */
+  oc_delete_at_table();
+}
+
+/*
+  an update carrying only an optional member is not "id only"
+  - token "tok" created
+  - POST { 0: { 0: "tok", 2: "sub" } } -> 2.04 ('sub' sets no own seen bit, only AT_SEEN_OTHER)
+  - the token still exists (only the id alone deletes, spec 2.6.7.2)
+*/
+TEST_F(SecAtPost, UpdateWithOnlyAnOptionalMemberKeepsTheToken)
+{
+  const std::vector<uint8_t> create = make_complete_at_payload(16, false, 1, 10);
+  ASSERT_EQ(post_at(create.data(), create.size()), oc_status_code(OC_STATUS_CREATED));
+  oc_free_rep(payload);
+  payload = nullptr;
+
+  oc_auth_at_t* e = oc_core_find_at_entry_by_access_token("tok", 3);
+  ASSERT_NE(e, nullptr);
+
+  /* { 0: { 0: "tok", 2: "sub" } } */
+  const uint8_t cbor[] = {
+    0xa1, 0x00,
+    0xa2,
+    0x00, 0x63, 't', 'o', 'k',
+    0x02, 0x63, 's', 'u', 'b'
+  };
+  EXPECT_EQ(post_at(cbor, sizeof(cbor)), oc_status_code(OC_STATUS_CHANGED));
+
+  EXPECT_EQ(oc_core_find_at_entry_by_access_token("tok", 3), e);
+  EXPECT_EQ(oc_byte_string_len(e->osc_ms), 16u);
+
+  /* the entry was also stored, keep storage clean for the following tests */
+  oc_delete_at_table();
+}
+
+/*
+  an empty scope array on an existing token is rejected, not answered 2.04 without a change
+  - token "tok" created with scope ["if.sec"]
+  - POST { 0: { 0: "tok", 9: [] } } -> 4.00 (an empty array is no valid scope, spec 3.5.4.2)
+  - the token still exists with its scope
+*/
+TEST_F(SecAtPost, EmptyScopeArrayUpdateIsRejectedAndKeepsTheToken)
+{
+  const std::vector<uint8_t> create = make_complete_at_payload(16, false, 1, 10);
+  ASSERT_EQ(post_at(create.data(), create.size()), oc_status_code(OC_STATUS_CREATED));
+  oc_free_rep(payload);
+  payload = nullptr;
+
+  oc_auth_at_t* e = oc_core_find_at_entry_by_access_token("tok", 3);
+  ASSERT_NE(e, nullptr);
+  const oc_acl_mask_t scope = e->scope;
+  ASSERT_NE(scope, OC_ACL_NONE);
+
+  /* { 0: { 0: "tok", 9: [] } } */
+  const uint8_t cbor[] = {
+    0xa1, 0x00,
+    0xa2,
+    0x00, 0x63, 't', 'o', 'k',
+    0x09, 0x80
+  };
+  EXPECT_EQ(post_at(cbor, sizeof(cbor)), oc_status_code(OC_STATUS_BAD_REQUEST));
+
+  EXPECT_EQ(oc_core_find_at_entry_by_access_token("tok", 3), e);
+  EXPECT_EQ(e->scope, scope);
+
+  /* the entry was also stored, keep storage clean for the following tests */
   oc_delete_at_table();
 }
 
@@ -1396,6 +1544,129 @@ TEST_F(SecAtPost, ScopeOnlyUpdateKeepsTheCachedRecipientContext)
 
   uint8_t kid[] = { 0x01 };
   EXPECT_EQ(oc_oscore_find_context_by_kid_and_kid_context(kid, sizeof(kid), nullptr, 0), recipient);
+
+  // the created entry was also stored, keep storage clean for the following tests
+  oc_delete_at_table();
+}
+
+/*
+  a request is applied all or nothing: a later entry that fails leaves an earlier one unchanged
+  - token "tok" with its sender context
+  - POST { tok with a new master secret, new token "tol" with a too short master secret } -> 4.00
+  - "tok" keeps its old master secret and its sender context (the first entry was committed and its contexts freed,
+    the re-initialization at the end was skipped -> the token could not send)
+*/
+TEST_F(SecAtPost, CollectionRejectedAtALaterEntryKeepsTheEarlierTokenAndItsContexts)
+{
+  const std::vector<uint8_t> create = make_complete_at_payload(16, false, 1, 10);
+  ASSERT_EQ(post_at(create.data(), create.size()), oc_status_code(OC_STATUS_CREATED));
+  oc_free_rep(payload);
+  payload = nullptr;
+
+  oc_auth_at_t* e = oc_core_find_at_entry_by_access_token("tok", 3);
+  ASSERT_NE(e, nullptr);
+  ASSERT_NE(oc_oscore_find_context_by_access_token(e, true), nullptr);
+
+  // the 16 ms bytes sit right before cnf:osc:alg (last 2 bytes)
+  std::vector<uint8_t> new_key = make_complete_at_payload(16, false, 1, 10);
+  for (size_t i = new_key.size() - 18; i < new_key.size() - 2; ++i) {
+    new_key[i] = (uint8_t)(new_key[i] + 0x20);
+  }
+  std::vector<uint8_t> short_ms = make_complete_at_payload(15, false);
+  short_ms[7] = 'l';
+
+  const std::vector<uint8_t> cbor = make_collection({ new_key, short_ms });
+  EXPECT_EQ(post_at(cbor.data(), cbor.size()), oc_status_code(OC_STATUS_BAD_REQUEST));
+
+  EXPECT_EQ(oc_core_items_used_in_auth_at_table(), 1);
+  ASSERT_EQ(oc_core_find_at_entry_by_access_token("tok", 3), e);
+  ASSERT_EQ(oc_byte_string_len(e->osc_ms), 16u);
+  EXPECT_EQ((uint8_t)oc_string(e->osc_ms)[0], 0x01);
+  EXPECT_NE(oc_oscore_find_context_by_access_token(e, true), nullptr);
+
+  // the created entry was also stored, keep storage clean for the following tests
+  oc_delete_at_table();
+}
+
+// more than 10 entries in one request -> 4.13 (spec 2.6.3.3.2), every entry counts, nothing is changed
+TEST_F(SecAtPost, CollectionWithMoreThanTenEntriesIsRejectedWith413)
+{
+  std::vector<std::vector<uint8_t>> singles;
+  for (char c = 'a'; c <= 'k'; ++c) {
+    singles.push_back(make_token(c));
+  }
+
+  const std::vector<uint8_t> cbor = make_collection(singles);
+  EXPECT_EQ(post_at(cbor.data(), cbor.size()), oc_status_code(OC_STATUS_REQUEST_ENTITY_TOO_LARGE));
+  EXPECT_EQ(oc_core_items_used_in_auth_at_table(), 0);
+}
+
+// 10 new tokens in one request: each claims its own empty slot (the ids are written only on commit)
+TEST_F(SecAtPost, TenNewTokensInOneRequestAreCreatedInTenSlots)
+{
+  std::vector<std::vector<uint8_t>> singles;
+  for (char c = 'a'; c <= 'j'; ++c) {
+    singles.push_back(make_token(c));
+  }
+
+  const std::vector<uint8_t> cbor = make_collection(singles);
+  EXPECT_EQ(post_at(cbor.data(), cbor.size()), oc_status_code(OC_STATUS_CREATED));
+  EXPECT_EQ(oc_core_items_used_in_auth_at_table(), 10);
+  for (char c = 'a'; c <= 'j'; ++c) {
+    const char id[] = { 't', 'o', c };
+    EXPECT_NE(oc_core_find_at_entry_by_access_token(id, sizeof(id)), nullptr) << c;
+  }
+
+  // the created entries were also stored, keep storage clean for the following tests
+  oc_delete_at_table();
+}
+
+/*
+  the same id twice in one request -> 4.00 (spec 2.6.7.2: the id is unique), nothing is changed
+  - token "tok" exists; POST { tok with a new master secret, { 0: "tok", 9: [2] } }
+  - "tok" keeps its old master secret and its string scope
+*/
+TEST_F(SecAtPost, SameIdTwiceInOneRequestIsRejected)
+{
+  const std::vector<uint8_t> create = make_complete_at_payload(16, false, 1, 10);
+  ASSERT_EQ(post_at(create.data(), create.size()), oc_status_code(OC_STATUS_CREATED));
+  oc_free_rep(payload);
+  payload = nullptr;
+
+  std::vector<uint8_t> new_key = make_complete_at_payload(16, false, 1, 10);
+  for (size_t i = new_key.size() - 18; i < new_key.size() - 2; ++i) {
+    new_key[i] = (uint8_t)(new_key[i] + 0x20);
+  }
+  const std::vector<uint8_t> scope_ga = { 0xa1, 0x00, 0xa2, 0x00, 0x63, 't', 'o', 'k', 0x09, 0x81, 0x02 };
+
+  const std::vector<uint8_t> cbor = make_collection({ new_key, scope_ga });
+  EXPECT_EQ(post_at(cbor.data(), cbor.size()), oc_status_code(OC_STATUS_BAD_REQUEST));
+
+  EXPECT_EQ(oc_core_items_used_in_auth_at_table(), 1);
+  const oc_auth_at_t* e = oc_core_find_at_entry_by_access_token("tok", 3);
+  ASSERT_NE(e, nullptr);
+  EXPECT_NE(e->scope, OC_ACL_GA);
+  EXPECT_EQ(e->ga_len, 0);
+  ASSERT_EQ(oc_byte_string_len(e->osc_ms), 16u);
+  EXPECT_EQ((uint8_t)oc_string(e->osc_ms)[0], 0x01);
+
+  // the created entry was also stored, keep storage clean for the following tests
+  oc_delete_at_table();
+}
+
+// delete and re-create of the same id in one request -> 4.00 (spec 3.5.4.1: separate requests), the token stays
+TEST_F(SecAtPost, DeleteAndRecreateInOneRequestIsRejected)
+{
+  const std::vector<uint8_t> create = make_complete_at_payload(16, false, 1, 10);
+  ASSERT_EQ(post_at(create.data(), create.size()), oc_status_code(OC_STATUS_CREATED));
+  oc_free_rep(payload);
+  payload = nullptr;
+
+  const std::vector<uint8_t> delete_tok = { 0xa1, 0x00, 0xa1, 0x00, 0x63, 't', 'o', 'k' };
+  const std::vector<uint8_t> cbor = make_collection({ delete_tok, create });
+  EXPECT_EQ(post_at(cbor.data(), cbor.size()), oc_status_code(OC_STATUS_BAD_REQUEST));
+  EXPECT_EQ(oc_core_items_used_in_auth_at_table(), 1);
+  EXPECT_NE(oc_core_find_at_entry_by_access_token("tok", 3), nullptr);
 
   // the created entry was also stored, keep storage clean for the following tests
   oc_delete_at_table();

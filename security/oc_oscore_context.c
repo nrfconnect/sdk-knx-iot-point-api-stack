@@ -149,8 +149,13 @@ oc_oscore_context_t* oc_oscore_find_context_by_token_mid(const coap_packet_t* pk
     (b) own unicast s-mode NON request (header-only transaction): as (a), matched by token only, a NON response carries
         a mid of the peer that may collide with a pending CON transaction
 
-    (c) any other transaction (no s-mode flag), e.g. an outbound message to an inbound request or an 'echo re-request'
-        (its s-mode flags are cleared) -> the first context of its access token
+    (c) any other transaction (no s-mode flag), e.g. an 'echo re-request' (its s-mode flags are cleared) or an
+        OBSERVE request -> the SENDER context of its access token
+        - the inbound response answers an OWN request, which was protected with a sender context (uc-b)
+        - a recipient context of the same token (cached for the peer's requests) has an empty sender id and keys of
+          the other direction, the response would not decrypt
+        - not the first context of the token: oc_init_oscore_from_storage() (POST /auth/at) re-adds the sender
+          contexts at the END of the list, behind a cached recipient context of the same token
 
     Note, own multicast s-mode NON pops up not here, its transaction is cleared right after sending (coap_send_transaction)
 
@@ -158,7 +163,7 @@ oc_oscore_context_t* oc_oscore_find_context_by_token_mid(const coap_packet_t* pk
     |-----+------------------------------------+-----------------------+--------------------+-------------------------------
     |(a)  |own unicast s-mode CON              | outbound: recipient's | S_MODE_CON_REQUEST | sender context of the token
     |(b)  |own unicast s-mode NON (header-only)| outbound: recipient's | S_MODE_NON_REQUEST | sender context of the token
-    |(c)  |any other                           | inbound or outbound   | none               | first context of the token
+    |(c)  |any other                           | inbound or outbound   | none               | sender context of the token
   */
   if (t->message->endpoint.flags & (S_MODE_NON_REQUEST | S_MODE_CON_REQUEST))
   { // (a) && (b)
@@ -171,7 +176,7 @@ oc_oscore_context_t* oc_oscore_find_context_by_token_mid(const coap_packet_t* pk
   }
 
   // (c)
-  return oc_oscore_find_context_by_access_token(t->message->endpoint.access_token.inbound, false);
+  return oc_oscore_find_context_by_access_token(t->message->endpoint.access_token.inbound, true);
 }
 
 /*

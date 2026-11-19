@@ -350,12 +350,15 @@ int oc_main_init(const oc_handler_t* handler)
     app_callbacks->requests_entry();
   }
 
-  // check and send on i-flags
+  // check and send on i-flags, messages are send out delayed, so first is NOT send out immediately
   oc_init_datapoints_at_initialization();
   #endif
 
-  // set before the DNS-SD update: knx_dns_sd_update_service() guards on oc_main_initialized()
-  // to skip early NETWORK_INTERFACE_UP calls; the flag must be true for the end-of-init call
+  /* 
+     set before the DNS-SD update 
+     - knx_dns_sd_update_service() guards on oc_main_initialized() to skip early NETWORK_INTERFACE_UP calls
+     - the flag must be true for the end-of-init call
+  */
   OC_DBG("Stack initialized ...");
   initialized = true;
 

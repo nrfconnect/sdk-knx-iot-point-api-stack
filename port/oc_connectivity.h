@@ -113,7 +113,7 @@ oc_endpoint_t *oc_connectivity_get_endpoints(void);
 int oc_connectivity_get_new_port(void);
 
 /**
- * @brief the callback function for an network change
+ * @brief the callback function for a network change
  *
  * @param event the network event
  */

@@ -28,22 +28,136 @@ extern const oc_resource_t core_resource_knx_p;
 
 // PUB/RCV/GOT storage data: see the KNX_STORAGE_KEY_*_ENTRY keys in oc_knx_fp.h
 
-#define GO_HREF (1 << 0)        // identifier for go table href ref property
-#define TABLE_AT_REF (GO_HREF)  // identifier for pub/rcp table access token ref property
-#define TABLE_GAS (1 << 1)      // identifier for pub/rcp/go table ga list ref property
-
 /*
-  properties seen in one go/pub/rcp table entry of a POST, a bitmask, not a counter (as for auth/at)
-  - a repeated CBOR key survives oc_parse_rep() as a separate rep
+  member flags of ONE go/pub/rcp table entry of a POST: MF_SEEN_*, TBL_SEEN_*, TBL_ALLOC_* (layout in oc_knx_helpers.h)
   - a repeated key -> last wins (as on auth/at), the allocation of an earlier ga/href/at in the same request is released
 */
-#define TBL_PROP_ID    (1u << 0)  // id (0), scanned before the key loop, a missing id is a 4.00 before
-#define TBL_PROP_GA    (1u << 1)  // ga (7)
-#define TBL_PROP_CFLAG (1u << 2)  // cflag (8), go table
-#define TBL_PROP_HREF  (1u << 3)  // href (11), go table
-#define TBL_PROP_IA    (1u << 4)  // ia (12), pub/rcp table
-#define TBL_PROP_GRPID (1u << 5)  // grpid (13), pub/rcp table
-#define TBL_PROP_AT    (1u << 6)  // at (14), pub/rcp table
+
+static void oc_free_allocated_group_object_table_elements(oc_group_object_table_t* entry, uint16_t member_flags);
+static void oc_free_allocated_group_table_elements(oc_group_table_t* entry, uint16_t member_flags);
+
+/*
+  mode switch of a PUB/RCP entry by an update: the mode member of the request wins, the members of the other mode are cleared
+  - an entry is either uc (ia, at) or mc (grpid), spec 2.5.7.4.2 table 21; ia and grpid in one request were rejected before (a1)
+  - an update keeps the members it does not carry (partial update, as the conformance template expects), so without the
+    switch an entry could hold both:
+    - mc -> uc (ia in the request) : grpid cleared -> the send path tests grpid > 0 first, else it would stay mc
+    - uc -> mc (grpid in the request): ia cleared, the ia resolver reset, a stale at cleared (unless the request carries one)
+      -> an at on a grpid entry is not a unicast 'at' any more, a stale one would be usable for mc (spec 6.3.2.1)
+  - the cleared at is released from the live entry on commit (TBL_ALLOC_AT set)
+*/
+static void tbl_switch_mode(oc_group_table_t* tmp, uint16_t* member_flags)
+{
+  if ((*member_flags & TBL_SEEN_IA) && tmp->grpid > 0)
+  {
+    tmp->grpid = 0;
+  }
+
+  if ((*member_flags & TBL_SEEN_GRPID) && tmp->ia > -1)
+  {
+    tmp->ia = -1;
+    tmp->ipv6_res.resolve_status = OC_IP_STATUS_UNRESOLVED;
+    tmp->ipv6_res.callback = NULL;
+    memset(&tmp->ipv6_adr, 0, sizeof(oc_ipv6_adr_t));
+
+    if (!(*member_flags & TBL_SEEN_AT))
+    {
+      // still the live at (shared), the commit releases it
+      memset(&tmp->at, 0, sizeof(oc_string_t));
+      *member_flags |= TBL_ALLOC_AT;
+    }
+  }
+}
+
+/*
+  POST /fp/g, /fp/p, /fp/r: a collection is atomic (as POST /auth/at)
+  - check pass: each entry is checked into its own shadow copy, kept in a local array on the stack
+  - commit pass: only when ALL entries passed, each copy is committed and stored in request order
+  - the first error frees all copies and answers the error, the tables stay unchanged
+  - more than KNX_POST_MAX_ENTRIES entries -> 4.13 (spec 2.6.3.3.2, RFC 7252 5.9.2.9), the MaC splits the collection
+  - the limit and its stack cost: see KNX_POST_MAX_ENTRIES (oc_knx_helpers.h)
+*/
+
+/*
+  one checked entry of a POST /fp/g, /fp/p or /fp/r request, committed only when ALL entries of the request passed
+  - tmp: the shadow copy with the new values, 'go' on /fp/g, 'gt' on /fp/p and /fp/r (tmp id also on a deletion, for the duplicate check)
+  - both table structs start with 'int32_t id' (common initial sequence, C11 6.5.2.3) -> tmp.go.id reads the id of both
+    -> 'id' MUST stay the first member of oc_group_object_table_t and oc_group_table_t
+  - the union is as large as oc_group_table_t, the same size for all three tables (the size /fp/p and /fp/r need anyway)
+*/
+typedef struct
+{
+  union
+  {
+    oc_group_object_table_t go; // /fp/g
+    oc_group_table_t gt;        // /fp/p, /fp/r
+  } tmp;
+  int index;                    // table index: the existing entry, or the empty slot claimed for a new one
+  uint16_t member_flags;        // TBL_SEEN_* / TBL_ALLOC_* of 'tmp' (TBL_ALLOC_* elements are owned by 'tmp')
+  bool delete_entry;            // case c: id only on an existing entry
+} tbl_post_entry_t;
+
+// true if the id is already in an entry checked before (tmp.go.id reads the id of both union members, see above)
+static bool tbl_post_has_id(const tbl_post_entry_t* entries, int entry_count, int32_t id)
+{
+  for (const tbl_post_entry_t* entry = entries; entry < entries + entry_count; entry++)
+  {
+    if (entry->tmp.go.id == id)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+/*
+  a rejected POST /fp/g changes nothing
+  - releases the current entry (tmp, NULL if none yet) and the shadow copies of all older entries checked before, responds the error
+*/
+static void go_post_reject(oc_request_t* request, tbl_post_entry_t* entries, int entry_count, oc_group_object_table_t* tmp, uint16_t member_flags,
+                           oc_status_t error)
+{
+  if (tmp)
+  { // current
+    oc_free_allocated_group_object_table_elements(tmp, member_flags);
+  }
+
+  for (tbl_post_entry_t* older = entries; older < entries + entry_count; older++)
+  {
+    oc_free_allocated_group_object_table_elements(&older->tmp.go, older->member_flags);
+  }
+  oc_prepare_no_format_response_no_payload(request, error);
+}
+
+// a rejected POST /fp/p or /fp/r changes nothing (as go_post_reject)
+static void gt_post_reject(oc_request_t* request, tbl_post_entry_t* entries, int entry_count, oc_group_table_t* tmp, uint16_t member_flags,
+                           oc_status_t error)
+{
+  if (tmp)
+  { // current
+    oc_free_allocated_group_table_elements(tmp, member_flags);
+  }
+
+  for (tbl_post_entry_t* older = entries; older < entries + entry_count; older++)
+  {
+    oc_free_allocated_group_table_elements(&older->tmp.gt, older->member_flags);
+  }
+  oc_prepare_no_format_response_no_payload(request, error);
+}
+
+// number of entries (objects) of a POST collection
+static int tbl_post_entry_count(const oc_rep_t* rep)
+{
+  int count = 0;
+  for (; rep != NULL; rep = rep->next)
+  {
+    if (rep->type == OC_REP_OBJECT)
+    {
+      count++;
+    }
+  }
+  return count;
+}
 
 // true if a property of 'all_of' is missing or (if 'one_of' is not 0) none of 'one_of' is present
 static bool tbl_mandatory_missing(unsigned int seen, unsigned int all_of, unsigned int one_of)
@@ -71,7 +185,7 @@ static int oc_delete_group_table_entry(int entry, char* store, oc_group_table_t*
 
 static int oc_core_find_index_in_table_from_id(int id, oc_group_table_t* table, int max_size);
 
-static int find_empty_slot_in_table(const oc_group_table_t* table, int max_size);
+static int find_empty_slot_in_table(const oc_group_table_t* table, int max_size, int skip);
 
 static oc_group_table_t* oc_find_table_entry_from_ga(oc_group_table_t* table, int max_size, uint32_t group_address);
 
@@ -107,16 +221,22 @@ int32_t oc_table_find_id_from_payload_and_check_if_in_16_bit_range(const oc_rep_
   return -1;
 }
 
-int find_empty_slot_in_group_object_table(void)
+// skip: number of free slots to skip, the nth new entry of a POST /fp/g collection gets the nth free slot
+static int find_empty_go_slot(int skip)
 {
   for (int i = 0; i < KNX_GOT_MAX_ENTRIES; i++)
   {
-    if (g_got[i].id == -1)
+    if (g_got[i].id == -1 && skip-- == 0)
     { // empty slot is defined as 'not initialized'
       return i;
     }
   }
   return -1;
+}
+
+int find_empty_slot_in_group_object_table(void)
+{
+  return find_empty_go_slot(0);
 }
 
 int oc_core_get_group_object_table_total_size(void) { return KNX_GOT_MAX_ENTRIES; }
@@ -411,11 +531,20 @@ static void oc_core_fp_g_post_handler(oc_request_t* request, oc_interface_mask_t
   oc_print_rep_as_json(request->request_payload, true);
 
   /*
-    A GO collection is checked per entry, the last return code wins (created/changed).
-    Note that on a 4.00 / 5.00 the previously written entries - from
-    a collection - are not restored (currently to complicate). This is for sure not
-    a problem if a MaC writes only one entry per request.
+    A GO collection is atomic (see KNX_POST_MAX_ENTRIES): all entries are checked first, committed only when ALL passed,
+    the last return code wins (created/changed)
   */
+  const int entries_in_request = tbl_post_entry_count(request->request_payload);
+  if (entries_in_request > KNX_POST_MAX_ENTRIES)
+  {
+    OC_ERR("%d entries in one request, max %d", entries_in_request, KNX_POST_MAX_ENTRIES);
+    oc_prepare_no_format_response_no_payload(request, OC_STATUS_REQUEST_ENTITY_TOO_LARGE);
+    return;
+  }
+
+  tbl_post_entry_t entries[KNX_POST_MAX_ENTRIES];
+  int entry_count = 0;
+  int new_entries = 0; // empty slots claimed by new entries of this request
 
   // set ptr to collection of 1...n GOs in payload
   const oc_rep_t* rep = request->request_payload;
@@ -436,7 +565,15 @@ static void oc_core_fp_g_post_handler(oc_request_t* request, oc_interface_mask_t
         if (id < 0)
         {
           OC_ERR("GO table mandatory id not found in request OR id not in range 0 ... 65535");
-          oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+          go_post_reject(request, entries, entry_count, NULL, 0, OC_STATUS_BAD_REQUEST);
+          return;
+        }
+
+        // the same id twice in one request -> 4.00 (the id is unique in the table), nothing is changed
+        if (tbl_post_has_id(entries, entry_count, id))
+        {
+          OC_ERR("GO id %d twice in the same request", (int)id);
+          go_post_reject(request, entries, entry_count, NULL, 0, OC_STATUS_BAD_REQUEST);
           return;
         }
 
@@ -452,23 +589,19 @@ static void oc_core_fp_g_post_handler(oc_request_t* request, oc_interface_mask_t
           return_status = OC_STATUS_CREATED;
 
           // returns a valid index, if not -1
-          entry = find_empty_slot_in_group_object_table();
+          entry = find_empty_go_slot(new_entries++);
           if (entry == -1)
           {
             OC_ERR("GO table has no empty slot to add a new GO entry");
-            oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+            go_post_reject(request, entries, entry_count, NULL, 0, OC_STATUS_BAD_REQUEST);
             return;
           }
         }
 
         // id, ga array (filled or empty), cflags and href must be present
-        #define MANDATORY_GO_PROPERTIES (TBL_PROP_ID | TBL_PROP_GA | TBL_PROP_CFLAG | TBL_PROP_HREF)
-
-        // used to delete the GO table entry
-        bool id_only = true;
+        #define MANDATORY_GO_PROPERTIES (MF_SEEN_ID | TBL_SEEN_GA | TBL_SEEN_CFLAG | TBL_SEEN_HREF)
 
         // identify which 'string' memory resource are allocated during the post
-        uint8_t allocator = 0;
 
         // fill with live GO (from a present entry or from an empty entry)
         oc_group_object_table_t tmp_go_entry = g_got[entry];
@@ -476,8 +609,8 @@ static void oc_core_fp_g_post_handler(oc_request_t* request, oc_interface_mask_t
         // set GO id
         tmp_go_entry.id = id;
 
-        // id (0) was already scanned/assigned, see TBL_PROP_xxx
-        unsigned int go_properties_seen = TBL_PROP_ID;
+        // id (0) was already scanned/assigned, see TBL_SEEN_*
+        uint16_t member_flags = MF_SEEN_ID;
 
         while (object)
         {
@@ -490,13 +623,13 @@ static void oc_core_fp_g_post_handler(oc_request_t* request, oc_interface_mask_t
             {
               // NOT id (0), for sure from now on a not 'ID only' case,
               // note that id (0) was already scanned/assigned
-              id_only = false;
+              member_flags |= MF_SEEN_OTHER;
             }
 
             // cflags (8)
             if (object->iname == 8)
             {
-              go_properties_seen |= TBL_PROP_CFLAG;
+              member_flags |= TBL_SEEN_CFLAG;
 
               // set flags in tmp copy
               tmp_go_entry.cflags = (oc_cflag_mask_t)object->value.integer;
@@ -506,19 +639,17 @@ static void oc_core_fp_g_post_handler(oc_request_t* request, oc_interface_mask_t
           case OC_REP_STRING:
 
             // any extra element - even if not valid - causes a "not an id only"
-            id_only = false;
+            member_flags |= MF_SEEN_OTHER;
 
             // href (11)
             if (object->iname == 11)
             {
-              go_properties_seen |= TBL_PROP_HREF;
-
               /*
                 repeated key -> last wins
                 - release the href of an earlier (same) key in THIS request
                 - don't release the href if it was NOT a repeated key, so the ptr from org table entry remains untouched
               */
-              if (allocator & GO_HREF)
+              if (member_flags & TBL_ALLOC_HREF)
               {
                 oc_free_string(&tmp_go_entry.href);
               }
@@ -526,20 +657,18 @@ static void oc_core_fp_g_post_handler(oc_request_t* request, oc_interface_mask_t
               // set (new) href in tmp copy (org ptr still valid)
               oc_new_string(&tmp_go_entry.href, oc_string(object->value.string), oc_string_len(object->value.string));
 
-              allocator |= GO_HREF;
+              member_flags |= TBL_SEEN_HREF | TBL_ALLOC_HREF;
             }
 
             break;
           case OC_REP_INT_ARRAY:
 
             // any extra element - even if not valid - causes a "not an id only"
-            id_only = false;
+            member_flags |= MF_SEEN_OTHER;
 
             // ga array (7)
             if (object->iname == 7)
             {
-              go_properties_seen |= TBL_PROP_GA;
-
               // a post request does NOT append items to an (existing) array, it overwrites them
               const int64_t* array = oc_int_array(object->value.array);
               const uint16_t array_size = oc_int_array_size(object->value.array);
@@ -550,9 +679,7 @@ static void oc_core_fp_g_post_handler(oc_request_t* request, oc_interface_mask_t
                 OC_ERR("empty ga array not allowed");
 
                 // on error: free GO tmp entry (all heap allocations)
-                oc_free_allocated_group_object_table_elements(&tmp_go_entry, allocator);
-
-                oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+                go_post_reject(request, entries, entry_count, &tmp_go_entry, member_flags, OC_STATUS_BAD_REQUEST);
                 return;
               }
 
@@ -572,7 +699,7 @@ static void oc_core_fp_g_post_handler(oc_request_t* request, oc_interface_mask_t
                   - release the array of an earlier (same) key in THIS request
                   - don't release the array if it was NOT a repeated key, so the ptr from org table entry remains untouched
                 */
-                if (allocator & TABLE_GAS)
+                if (member_flags & TBL_ALLOC_GA)
                 {
                   free(tmp_go_entry.ga);
                 }
@@ -581,46 +708,31 @@ static void oc_core_fp_g_post_handler(oc_request_t* request, oc_interface_mask_t
                 tmp_go_entry.ga_len = array_size;
                 tmp_go_entry.ga = new_array;
 
-                allocator |= TABLE_GAS; // GOT1 (see below)
+                member_flags |= TBL_SEEN_GA | TBL_ALLOC_GA; // GOT1 (see below)
               }
               else
               {
                 OC_ERR("out of stack memory");
 
                 // on error: free GO tmp entry (all heap allocations)
-                oc_free_allocated_group_object_table_elements(&tmp_go_entry, allocator);
-
-                oc_prepare_no_format_response_no_payload(request, OC_STATUS_INTERNAL_SERVER_ERROR);
+                go_post_reject(request, entries, entry_count, &tmp_go_entry, member_flags, OC_STATUS_INTERNAL_SERVER_ERROR);
                 return;
               }
             }
 
             break;
-          case OC_REP_NIL:
-
-            if (object->iname != 7)
-            {
-              break;
-            }
-
-            // specification request, not allowed empty ga array (7) for mc, coded in current CBOR with "OC_REP_NIL"
-
-            /*
-             - GOT1, see above: release a beforehand assigned ga array (2 x in the request would be wrong)
-             - DON'T release HERE a present assigned ga array from the org. ptr (will NOT happen on error)
-             - free ignores NULL ptr
-            */
-
-            // fall through ...
           default:
 
-            // any other invalid type returns a 4.00
-            OC_ERR("invalid object type detected");
+            /*
+              any other type returns a 4.00, nothing changed
+              - an empty array (OC_REP_NIL) on ANY key: a GO needs at least one ga (7), no other member is an array;
+                it is never "id only" (it used to set no MF_SEEN_OTHER on a key other than 7 -> {0: 1, 11: []} deleted the entry)
+              - null / undefined (OC_REP_NULL), a type the parser does not map (OC_REP_UNSUPPORTED), bool, ...
+            */
+            OC_ERR("invalid object type %d (key %d) detected", (int)object->type, (int)object->iname);
 
             // on error: free GO tmp entry (all heap allocations)
-            oc_free_allocated_group_object_table_elements(&tmp_go_entry, allocator);
-
-            oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+            go_post_reject(request, entries, entry_count, &tmp_go_entry, member_flags, OC_STATUS_BAD_REQUEST);
             return;
           }
 
@@ -635,25 +747,23 @@ static void oc_core_fp_g_post_handler(oc_request_t* request, oc_interface_mask_t
 
         */
 
-        if (return_status == OC_STATUS_CHANGED && id_only)
+        if (return_status == OC_STATUS_CHANGED && mf_is_id_only(member_flags))
         { // c
 
           // no tmp elements allocated ...
           OC_INF("only found id in request, deleting entry at index: %d", entry);
-          oc_delete_group_object_table_entry(entry);
+          entries[entry_count++] = (tbl_post_entry_t){ .tmp.go.id = id, .index = entry, .delete_entry = true }; // deleted on commit
           break; // next entry
         }
 
-        if (return_status == OC_STATUS_CREATED && tbl_mandatory_missing(go_properties_seen, MANDATORY_GO_PROPERTIES, 0))
+        if (return_status == OC_STATUS_CREATED && tbl_mandatory_missing(member_flags, MANDATORY_GO_PROPERTIES, 0))
         { // a
 
           // id + ga + cflags + href must be present, see MANDATORY_GO_PROPERTIES
           OC_ERR("mandatory items missing, no entry created at index: %d", entry);
 
           // on error: free GO tmp entry (all heap allocations)
-          oc_free_allocated_group_object_table_elements(&tmp_go_entry, allocator);
-
-          oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+          go_post_reject(request, entries, entry_count, &tmp_go_entry, member_flags, OC_STATUS_BAD_REQUEST);
           return;
         }
 
@@ -687,30 +797,15 @@ static void oc_core_fp_g_post_handler(oc_request_t* request, oc_interface_mask_t
         if (!do_save)
         {
           // on error: free GO tmp entry (all heap allocations)
-          oc_free_allocated_group_object_table_elements(&tmp_go_entry, allocator);
-
-          oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+          go_post_reject(request, entries, entry_count, &tmp_go_entry, member_flags, OC_STATUS_BAD_REQUEST);
           return;
         }
 
         // here all ok, set new GO entry
         OC_INF("storing GO table entry at %d", entry);
 
-        /*
-          Free - on stack allocated -  live GO table entry elements that will be overwritten next.
-          - created : 2 elements (GAs, HREF)
-          - changed : 1..2 elements (GAs, HREF) - 0 not possible, would be to delete a GO entry
-        */
-        oc_free_allocated_group_object_table_elements(&g_got[entry], allocator);
-
-        // assign GO table entry with tmp GO (all elements) and increase number of used GO's
-        g_got[entry] = tmp_go_entry;
-
-        // debugging
-        oc_print_group_object_table_entry(entry);
-
-        // store (includes here an overwrite)
-        oc_store_group_object_table_entry(entry);
+        // committed after ALL entries passed
+        entries[entry_count++] = (tbl_post_entry_t){ .tmp.go = tmp_go_entry, .index = entry, .member_flags = member_flags };
 
         break;
       }
@@ -721,6 +816,27 @@ static void oc_core_fp_g_post_handler(oc_request_t* request, oc_interface_mask_t
 
     // next GO entry
     rep = rep->next;
+  }
+
+  // all entries passed -> commit them in request order, nothing can fail from here on
+  for (tbl_post_entry_t* pending = entries; pending < entries + entry_count; pending++)
+  {
+    if (pending->delete_entry)
+    {
+      oc_delete_group_object_table_entry(pending->index);
+    }
+    else
+    {
+      // release the replaced values of the live entry, then take over the shadow copy
+      oc_free_allocated_group_object_table_elements(&g_got[pending->index], pending->member_flags);
+      g_got[pending->index] = pending->tmp.go;
+
+      // debugging
+      oc_print_group_object_table_entry(pending->index);
+
+      // store (includes here an overwrite)
+      oc_store_group_object_table_entry(pending->index);
+    }
   }
 
   // the last return status from a collection with 'n' POST elements is responded (CREATED/CHANGED)
@@ -1050,11 +1166,20 @@ static void oc_core_fp_p_post_handler(oc_request_t* request, oc_interface_mask_t
   oc_print_rep_as_json(request->request_payload, true);
 
   /*
-    A PUB collection is checked per entry, the last return code wins (created/changed).
-    Note that on a 4.00 / 5.00 the previously written entries - from
-    a collection - are not restored (currently to complicate). This is for sure not
-    a problem if a MaC writes only one entry per request.
+    A PUB collection is atomic (see KNX_POST_MAX_ENTRIES): all entries are checked first, committed only when ALL passed,
+    the last return code wins (created/changed)
   */
+  const int entries_in_request = tbl_post_entry_count(request->request_payload);
+  if (entries_in_request > KNX_POST_MAX_ENTRIES)
+  {
+    OC_ERR("%d entries in one request, max %d", entries_in_request, KNX_POST_MAX_ENTRIES);
+    oc_prepare_no_format_response_no_payload(request, OC_STATUS_REQUEST_ENTITY_TOO_LARGE);
+    return;
+  }
+
+  tbl_post_entry_t entries[KNX_POST_MAX_ENTRIES];
+  int entry_count = 0;
+  int new_entries = 0; // empty slots claimed by new entries of this request
 
   // set ptr to collection of 1...n PUB entries in payload
   const oc_rep_t* rep = request->request_payload;
@@ -1076,7 +1201,15 @@ static void oc_core_fp_p_post_handler(oc_request_t* request, oc_interface_mask_t
       if (id < 0)
       {
         OC_ERR("PUB table mandatory id not found in request OR id not in range 0 ... 65535");
-        oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+        gt_post_reject(request, entries, entry_count, NULL, 0, OC_STATUS_BAD_REQUEST);
+        return;
+      }
+
+      // the same id twice in one request -> 4.00 (the id is unique in the table), nothing is changed
+      if (tbl_post_has_id(entries, entry_count, id))
+      {
+        OC_ERR("PUB id %d twice in the same request", (int)id);
+        gt_post_reject(request, entries, entry_count, NULL, 0, OC_STATUS_BAD_REQUEST);
         return;
       }
 
@@ -1093,24 +1226,20 @@ static void oc_core_fp_p_post_handler(oc_request_t* request, oc_interface_mask_t
         return_status = OC_STATUS_CREATED;
 
         // no index, so we will create one (default)
-        index = find_empty_slot_in_table(g_gpt, KNX_GPT_MAX_ENTRIES);
+        index = find_empty_slot_in_table(g_gpt, KNX_GPT_MAX_ENTRIES, new_entries++);
         if (index == -1)
         {
           OC_ERR("PUB table has no empty slot to add a new entry");
-          oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+          gt_post_reject(request, entries, entry_count, NULL, 0, OC_STATUS_BAD_REQUEST);
           return;
         }
       }
 
-      // id + ga array (filled or empty) must be present, plus exactly one of ia OR grpid (see a1), see TBL_PROP_xxx
-      #define MANDATORY_GPT_PROPERTIES (TBL_PROP_ID | TBL_PROP_GA)
-      #define TARGET_GPT_PROPERTIES    (TBL_PROP_IA | TBL_PROP_GRPID)
-
-      // to delete a PUB table entry
-      bool id_only = true;
+      // id + ga array (filled or empty) must be present, plus exactly one of ia OR grpid (see a1), see TBL_SEEN_*
+      #define MANDATORY_GPT_PROPERTIES (MF_SEEN_ID | TBL_SEEN_GA)
+      #define TARGET_GPT_PROPERTIES    (TBL_SEEN_IA | TBL_SEEN_GRPID)
 
       // identify which 'string' memory resource are allocated during the post
-      uint8_t allocator = 0;
 
       // fill with live PUB entry (from a present/empty entry)
       oc_group_table_t tmp_gpt_entry = g_gpt[index];
@@ -1118,8 +1247,8 @@ static void oc_core_fp_p_post_handler(oc_request_t* request, oc_interface_mask_t
       // set table id
       tmp_gpt_entry.id = id;
 
-      // id (0) was already scanned/assigned, see TBL_PROP_xxx
-      unsigned int gpt_properties_seen = TBL_PROP_ID;
+      // id (0) was already scanned/assigned, see TBL_SEEN_*
+      uint16_t member_flags = MF_SEEN_ID;
 
       while (object)
       {
@@ -1130,20 +1259,20 @@ static void oc_core_fp_p_post_handler(oc_request_t* request, oc_interface_mask_t
           if (object->iname != 0)
           {
             // NOT an id (0), for sure from now on a not 'ID only' case
-            id_only = false;
+            member_flags |= MF_SEEN_OTHER;
           }
 
           // ia (12) - used on unicast
           if (object->iname == 12)
           {
-            gpt_properties_seen |= TBL_PROP_IA;
+            member_flags |= TBL_SEEN_IA;
 
             tmp_gpt_entry.ia = (int)object->value.integer;
           }
           // grpid (13) - used on multicast
           else if (object->iname == 13)
           {
-            gpt_properties_seen |= TBL_PROP_GRPID;
+            member_flags |= TBL_SEEN_GRPID;
 
             tmp_gpt_entry.grpid = (uint32_t)object->value.integer;
           }
@@ -1162,19 +1291,17 @@ static void oc_core_fp_p_post_handler(oc_request_t* request, oc_interface_mask_t
         case OC_REP_STRING:
 
           // any extra element - even if not valid - causes a "not an id only"
-          id_only = false;
+          member_flags |= MF_SEEN_OTHER;
 
           // at (14) - used on unicast
           if (object->iname == 14)
           {
-            gpt_properties_seen |= TBL_PROP_AT;
-
             /*
               repeated key -> last wins
               - release the at of an earlier (same) key in THIS request
               - don't release the at if it was NOT a repeated key, so the ptr from org table entry remains untouched
             */
-            if (allocator & TABLE_AT_REF)
+            if (member_flags & TBL_ALLOC_AT)
             {
               oc_free_string(&tmp_gpt_entry.at);
             }
@@ -1182,20 +1309,18 @@ static void oc_core_fp_p_post_handler(oc_request_t* request, oc_interface_mask_t
             // set (new) at in tmp copy (org ptr still valid)
             oc_new_string(&tmp_gpt_entry.at, oc_string(object->value.string), oc_string_len(object->value.string));
 
-            allocator |= TABLE_AT_REF;
+            member_flags |= TBL_SEEN_AT | TBL_ALLOC_AT;
           }
 
           break;
         case OC_REP_INT_ARRAY:
 
           // any extra element - even if not valid - causes a "not an id only"
-          id_only = false;
+          member_flags |= MF_SEEN_OTHER;
 
           // ga array (7)
           if (object->iname == 7)
           {
-            gpt_properties_seen |= TBL_PROP_GA;
-
             // a post request does NOT append items to an (existing) array, it overwrites them
             const int64_t* array = oc_int_array(object->value.array);
             const uint16_t array_size = oc_int_array_size(object->value.array);
@@ -1203,14 +1328,14 @@ static void oc_core_fp_p_post_handler(oc_request_t* request, oc_interface_mask_t
             // an empty array never reaches malloc(0), it is an empty ga (same as OC_REP_NIL below)
             if (array_size == 0)
             {
-              if (allocator & TABLE_GAS)
+              if (member_flags & TBL_ALLOC_GA)
               {
                 free(tmp_gpt_entry.ga);
               }
 
               tmp_gpt_entry.ga_len = 0;
               tmp_gpt_entry.ga = NULL;
-              allocator |= TABLE_GAS;
+              member_flags |= TBL_SEEN_GA | TBL_ALLOC_GA;
               break;
             }
 
@@ -1230,7 +1355,7 @@ static void oc_core_fp_p_post_handler(oc_request_t* request, oc_interface_mask_t
                 - release the array of an earlier (same) key in THIS request
                 - don't release the array if it was NOT a repeated key, so the ptr from org table entry remains untouched
               */
-              if (allocator & TABLE_GAS)
+              if (member_flags & TBL_ALLOC_GA)
               {
                 free(tmp_gpt_entry.ga);
               }
@@ -1239,16 +1364,14 @@ static void oc_core_fp_p_post_handler(oc_request_t* request, oc_interface_mask_t
               tmp_gpt_entry.ga_len = array_size;
               tmp_gpt_entry.ga = new_array;
 
-              allocator |= TABLE_GAS; // GPT1 (see below)
+              member_flags |= TBL_SEEN_GA | TBL_ALLOC_GA; // GPT1 (see below)
             }
             else
             {
               OC_ERR("out of stack memory");
 
               // on error: free PUB tmp entry (all heap allocations)
-              oc_free_allocated_group_table_elements(&tmp_gpt_entry, allocator);
-
-              oc_prepare_no_format_response_no_payload(request, OC_STATUS_INTERNAL_SERVER_ERROR);
+              gt_post_reject(request, entries, entry_count, &tmp_gpt_entry, member_flags, OC_STATUS_INTERNAL_SERVER_ERROR);
               return;
             }
           }
@@ -1256,30 +1379,33 @@ static void oc_core_fp_p_post_handler(oc_request_t* request, oc_interface_mask_t
           break;
         case OC_REP_NIL:
 
-          // any extra element - even if not valid - causes a "not an id only"
-          id_only = false;
-
-          // specification request, allowed empty ga array (7) for mc, coded in current CBOR with "OC_REP_NIL"
-          if (object->iname == 7)
+          // an empty array is only valid as the empty ga array (7) for mc (specification request), any other key -> 4.00, nothing changed
+          if (object->iname != 7)
           {
-            gpt_properties_seen |= TBL_PROP_GA;
-
-            /*
-             - GPT1, see above: release a beforehand assigned ga array (2 x in the request would be wrong)
-             - DON'T release HERE a present assigned ga array from the org. ptr (will happen later on no error)
-             - free ignores NULL ptr
-            */
-            if (allocator & TABLE_GAS)
-            {
-              free(tmp_gpt_entry.ga);
-            } 
-
-            tmp_gpt_entry.ga_len = 0;
-            tmp_gpt_entry.ga = NULL;
-
-            // also on empty ga array satisfies the items number
-            allocator |= TABLE_GAS;
+            OC_ERR("empty array for key %d detected", (int)object->iname);
+            gt_post_reject(request, entries, entry_count, &tmp_gpt_entry, member_flags, OC_STATUS_BAD_REQUEST);
+            return;
           }
+
+          // any extra element causes a "not an id only"
+          member_flags |= MF_SEEN_OTHER;
+
+          /*
+            empty ga array (7) for mc, coded in current CBOR with "OC_REP_NIL"
+           - GPT1, see above: release a beforehand assigned ga array (2 x in the request would be wrong)
+           - DON'T release HERE a present assigned ga array from the org. ptr (will happen later on no error)
+           - free ignores NULL ptr
+          */
+          if (member_flags & TBL_ALLOC_GA)
+          {
+            free(tmp_gpt_entry.ga);
+          }
+
+          tmp_gpt_entry.ga_len = 0;
+          tmp_gpt_entry.ga = NULL;
+
+          // also on empty ga array satisfies the items number
+          member_flags |= TBL_SEEN_GA | TBL_ALLOC_GA;
 
           break;
         default:
@@ -1288,9 +1414,7 @@ static void oc_core_fp_p_post_handler(oc_request_t* request, oc_interface_mask_t
           OC_ERR("invalid object type detected");
 
           // on error: free PUB tmp entry (all heap allocations)
-          oc_free_allocated_group_table_elements(&tmp_gpt_entry, allocator);
-
-          oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+          gt_post_reject(request, entries, entry_count, &tmp_gpt_entry, member_flags, OC_STATUS_BAD_REQUEST);
           return;
         }
 
@@ -1309,59 +1433,45 @@ static void oc_core_fp_p_post_handler(oc_request_t* request, oc_interface_mask_t
 
       */
 
-      if (return_status == OC_STATUS_CHANGED && id_only)
+      if (return_status == OC_STATUS_CHANGED && mf_is_id_only(member_flags))
       { // c
 
         // no tmp elements will be allocated ...
         OC_INF("only found id in request, deleting entry at index: %d", index);
-        oc_delete_group_table_entry(index, KNX_STORAGE_KEY_GPT_ENTRY, g_gpt, KNX_GPT_MAX_ENTRIES);
+        entries[entry_count++] = (tbl_post_entry_t){ .tmp.gt.id = id, .index = index, .delete_entry = true }; // deleted on commit
         break; // next entry
       }
 
-      if (return_status == OC_STATUS_CREATED && tbl_mandatory_missing(gpt_properties_seen, MANDATORY_GPT_PROPERTIES, TARGET_GPT_PROPERTIES))
+      if (return_status == OC_STATUS_CREATED && tbl_mandatory_missing(member_flags, MANDATORY_GPT_PROPERTIES, TARGET_GPT_PROPERTIES))
       { // a0
 
         // see details on constant
         OC_ERR("mandatory items missing, no entry created at index: %d", index);
 
         // on error: free PUB tmp entry (all heap allocations)
-        oc_free_allocated_group_table_elements(&tmp_gpt_entry, allocator);
-
-        oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+        gt_post_reject(request, entries, entry_count, &tmp_gpt_entry, member_flags, OC_STATUS_BAD_REQUEST);
         return;
       }
 
-      if ((gpt_properties_seen & TARGET_GPT_PROPERTIES) == TARGET_GPT_PROPERTIES)
+      // a1: an entry is either uc (ia) or mc (grpid), spec 2.5.7.4.2 table 21 -> ia and grpid in the same request -> 4.00
+      if ((member_flags & TARGET_GPT_PROPERTIES) == TARGET_GPT_PROPERTIES)
       { // a1
 
-        // see details on constant
-        OC_ERR("ia and grpid cannot be in the same table entry, no entry created at index: %d", index);
+        OC_ERR("ia and grpid cannot be in the same table entry, no entry stored at index: %d", index);
 
         // on error: free PUB tmp entry (all heap allocations)
-        oc_free_allocated_group_table_elements(&tmp_gpt_entry, allocator);
-
-        oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+        gt_post_reject(request, entries, entry_count, &tmp_gpt_entry, member_flags, OC_STATUS_BAD_REQUEST);
         return;
       }
+
+      // an update with ia on a stored mc entry (or grpid on a stored uc entry) switches the mode
+      tbl_switch_mode(&tmp_gpt_entry, &member_flags);
 
       // b + d, here all ok, set new PUB entry
       OC_INF("storing PUB table at %d", index);
 
-      /*
-        Free - on stack allocated -  live PUB table entry elements that will be overwritten next.
-        - created : 2 elements (GAs, AT)
-        - changed : 1..2 elements (GAs, AT) - 0 not possible, would be to delete a PUB entry
-      */
-      oc_free_allocated_group_table_elements(&g_gpt[index], allocator);
-
-      // assign PUB table entry with tmp PUB (all elements)
-      g_gpt[index] = tmp_gpt_entry;
-
-      // debugging
-      oc_print_group_table_entry(index, KNX_STORAGE_KEY_GPT_ENTRY, g_gpt);
-
-      // store (includes here an overwrite)
-      oc_store_group_table_entry(index, KNX_STORAGE_KEY_GPT_ENTRY, g_gpt);
+      // committed after ALL entries passed
+      entries[entry_count++] = (tbl_post_entry_t){ .tmp.gt = tmp_gpt_entry, .index = index, .member_flags = member_flags };
 
       break;
     }
@@ -1372,6 +1482,27 @@ static void oc_core_fp_p_post_handler(oc_request_t* request, oc_interface_mask_t
 
     // next PUB entry
     rep = rep->next;
+  }
+
+  // all entries passed -> commit them in request order, nothing can fail from here on
+  for (tbl_post_entry_t* pending = entries; pending < entries + entry_count; pending++)
+  {
+    if (pending->delete_entry)
+    {
+      oc_delete_group_table_entry(pending->index, KNX_STORAGE_KEY_GPT_ENTRY, g_gpt, KNX_GPT_MAX_ENTRIES);
+    }
+    else
+    {
+      // release the replaced values of the live entry, then take over the shadow copy
+      oc_free_allocated_group_table_elements(&g_gpt[pending->index], pending->member_flags);
+      g_gpt[pending->index] = pending->tmp.gt;
+
+      // debugging
+      oc_print_group_table_entry(pending->index, KNX_STORAGE_KEY_GPT_ENTRY, g_gpt);
+
+      // store (includes here an overwrite)
+      oc_store_group_table_entry(pending->index, KNX_STORAGE_KEY_GPT_ENTRY, g_gpt);
+    }
   }
 
   // the last (positive) return status from a collection with 'n' POST elements is responded (CREATED/CHANGED)
@@ -1652,11 +1783,20 @@ static void oc_core_fp_r_post_handler(oc_request_t* request, oc_interface_mask_t
   oc_print_rep_as_json(request->request_payload, true);
 
   /*
-    An RCP collection is checked per entry, the last return code wins (created/changed).
-    Note that on a 4.00 / 5.00 the previously written entries - from
-    a collection - are not restored (currently to complicate). This is for sure not
-    a problem if a MaC writes only one entry per request.
+    A RCP collection is atomic (see KNX_POST_MAX_ENTRIES): all entries are checked first, committed only when ALL passed,
+    the last return code wins (created/changed)
   */
+  const int entries_in_request = tbl_post_entry_count(request->request_payload);
+  if (entries_in_request > KNX_POST_MAX_ENTRIES)
+  {
+    OC_ERR("%d entries in one request, max %d", entries_in_request, KNX_POST_MAX_ENTRIES);
+    oc_prepare_no_format_response_no_payload(request, OC_STATUS_REQUEST_ENTITY_TOO_LARGE);
+    return;
+  }
+
+  tbl_post_entry_t entries[KNX_POST_MAX_ENTRIES];
+  int entry_count = 0;
+  int new_entries = 0; // empty slots claimed by new entries of this request
 
   // set ptr to collection of 1...n RCP entries in payload
   const oc_rep_t* rep = request->request_payload;
@@ -1677,7 +1817,15 @@ static void oc_core_fp_r_post_handler(oc_request_t* request, oc_interface_mask_t
       if (id < 0)
       {
         OC_ERR("RCP table mandatory id not found in request OR id not in range 0 ... 65535");
-        oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+        gt_post_reject(request, entries, entry_count, NULL, 0, OC_STATUS_BAD_REQUEST);
+        return;
+      }
+
+      // the same id twice in one request -> 4.00 (the id is unique in the table), nothing is changed
+      if (tbl_post_has_id(entries, entry_count, id))
+      {
+        OC_ERR("RCP id %d twice in the same request", (int)id);
+        gt_post_reject(request, entries, entry_count, NULL, 0, OC_STATUS_BAD_REQUEST);
         return;
       }
 
@@ -1694,26 +1842,22 @@ static void oc_core_fp_r_post_handler(oc_request_t* request, oc_interface_mask_t
         return_status = OC_STATUS_CREATED;
 
         // no index, so we will create one (default)
-        index = find_empty_slot_in_table(g_grt, KNX_GRT_MAX_ENTRIES);
+        index = find_empty_slot_in_table(g_grt, KNX_GRT_MAX_ENTRIES, new_entries++);
         if (index == -1)
         {
           OC_ERR("RCP table has no empty slot to add a new entry");
-          oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+          gt_post_reject(request, entries, entry_count, NULL, 0, OC_STATUS_BAD_REQUEST);
           return;
         }
 
         // non-confirmable flag for a new entry is init to false ONLY once on creation (not on a possible 'changed' update)
       }
 
-      // id + ga array (filled or empty) must be present, plus exactly one of ia OR grpid (see a1), see TBL_PROP_xxx
-      #define MANDATORY_GRT_PROPERTIES (TBL_PROP_ID | TBL_PROP_GA)
-      #define TARGET_GRT_PROPERTIES    (TBL_PROP_IA | TBL_PROP_GRPID)
-
-      // used to delete the RCP table entry
-      bool id_only = true;
+      // id + ga array (filled or empty) must be present, plus exactly one of ia OR grpid (see a1), see TBL_SEEN_*
+      #define MANDATORY_GRT_PROPERTIES (MF_SEEN_ID | TBL_SEEN_GA)
+      #define TARGET_GRT_PROPERTIES    (TBL_SEEN_IA | TBL_SEEN_GRPID)
 
       // identify which "stack" memory resource are allocated during the post
-      uint8_t allocator = 0;
 
       // fill with live RCP entry (from a present/empty entry)
       oc_group_table_t tmp_grt_entry = g_grt[index];
@@ -1721,8 +1865,8 @@ static void oc_core_fp_r_post_handler(oc_request_t* request, oc_interface_mask_t
       // set table id
       tmp_grt_entry.id = id;
 
-      // id (0) was already scanned/assigned, see TBL_PROP_xxx
-      unsigned int grt_properties_seen = TBL_PROP_ID;
+      // id (0) was already scanned/assigned, see TBL_SEEN_*
+      uint16_t member_flags = MF_SEEN_ID;
 
       while (object)
       {
@@ -1733,20 +1877,20 @@ static void oc_core_fp_r_post_handler(oc_request_t* request, oc_interface_mask_t
           if (object->iname != 0)
           {
             // NOT an id (0), for sure from now on a not 'ID only' case
-            id_only = false;
+            member_flags |= MF_SEEN_OTHER;
           }
 
           // ia (12) - used on unicast
           if (object->iname == 12)
           {
-            grt_properties_seen |= TBL_PROP_IA;
+            member_flags |= TBL_SEEN_IA;
 
             tmp_grt_entry.ia = (int)object->value.integer;
           }
           // grpid (13) - used on multicast
           else if (object->iname == 13)
           {
-            grt_properties_seen |= TBL_PROP_GRPID;
+            member_flags |= TBL_SEEN_GRPID;
 
             tmp_grt_entry.grpid = (uint32_t)object->value.integer;
           }
@@ -1765,19 +1909,17 @@ static void oc_core_fp_r_post_handler(oc_request_t* request, oc_interface_mask_t
         case OC_REP_STRING:
 
           // any extra element - even if not valid - causes a "not an id only"
-          id_only = false;
+          member_flags |= MF_SEEN_OTHER;
 
           // at id (14) - used on unicast, see IMPORTANT notes below (in Options)
           if (object->iname == 14)
           {
-            grt_properties_seen |= TBL_PROP_AT;
-
             /*
               repeated key -> last wins
               - release the at of an earlier key in THIS request
               - don't release the at if it was NOT a repeated key, so the ptr from org table entry remains untouched
             */
-            if (allocator & TABLE_AT_REF)
+            if (member_flags & TBL_ALLOC_AT)
             {
               oc_free_string(&tmp_grt_entry.at);
             }
@@ -1785,20 +1927,18 @@ static void oc_core_fp_r_post_handler(oc_request_t* request, oc_interface_mask_t
             // set (new) at id in tmp copy (org ptr still valid)
             oc_new_string(&tmp_grt_entry.at, oc_string(object->value.string), oc_string_len(object->value.string));
 
-            allocator |= TABLE_AT_REF;
+            member_flags |= TBL_SEEN_AT | TBL_ALLOC_AT;
           }
 
           break;
         case OC_REP_INT_ARRAY:
 
           // any extra element - even if not valid - causes a "not an id only"
-          id_only = false;
+          member_flags |= MF_SEEN_OTHER;
 
           // ga array (7) - used on multicast
           if (object->iname == 7)
           {
-            grt_properties_seen |= TBL_PROP_GA;
-
             // a post request does NOT append items to an (existing) array, it overwrites them
             const int64_t* array = oc_int_array(object->value.array);
             const uint16_t array_size = oc_int_array_size(object->value.array);
@@ -1806,14 +1946,14 @@ static void oc_core_fp_r_post_handler(oc_request_t* request, oc_interface_mask_t
             // an empty array never reaches malloc(0), it is an empty ga (same as OC_REP_NIL below)
             if (array_size == 0)
             {
-              if (allocator & TABLE_GAS)
+              if (member_flags & TBL_ALLOC_GA)
               {
                 free(tmp_grt_entry.ga);
               }
 
               tmp_grt_entry.ga_len = 0;
               tmp_grt_entry.ga = NULL;
-              allocator |= TABLE_GAS;
+              member_flags |= TBL_SEEN_GA | TBL_ALLOC_GA;
               break;
             }
 
@@ -1833,7 +1973,7 @@ static void oc_core_fp_r_post_handler(oc_request_t* request, oc_interface_mask_t
                 - release the array of an earlier (same) key in THIS request
                 - don't release the array if it was NOT a repeated key, so the ptr from org table entry remains untouched
               */
-              if (allocator & TABLE_GAS)
+              if (member_flags & TBL_ALLOC_GA)
               {
                 free(tmp_grt_entry.ga);
               }
@@ -1842,16 +1982,14 @@ static void oc_core_fp_r_post_handler(oc_request_t* request, oc_interface_mask_t
               tmp_grt_entry.ga_len = array_size;
               tmp_grt_entry.ga = new_array;
 
-              allocator |= TABLE_GAS; // GPR1 (see below)
+              member_flags |= TBL_SEEN_GA | TBL_ALLOC_GA; // GPR1 (see below)
             }
             else
             {
               OC_ERR("out of stack memory");
 
               // on error: free PUB tmp entry (all heap allocations)
-              oc_free_allocated_group_table_elements(&tmp_grt_entry, allocator);
-
-              oc_prepare_no_format_response_no_payload(request, OC_STATUS_INTERNAL_SERVER_ERROR);
+              gt_post_reject(request, entries, entry_count, &tmp_grt_entry, member_flags, OC_STATUS_INTERNAL_SERVER_ERROR);
               return;
             }
           }
@@ -1859,36 +1997,39 @@ static void oc_core_fp_r_post_handler(oc_request_t* request, oc_interface_mask_t
           break;
         case OC_REP_NIL:
 
-          // any extra element - even if not valid - causes a "not an id only"
-          id_only = false;
-
-          // specification request, allowed empty ga array (7) for mc, coded in current CBOR with "OC_REP_NIL"
-          if (object->iname == 7)
+          // an empty array is only valid as the empty ga array (7) for mc (specification request), any other key -> 4.00, nothing changed
+          if (object->iname != 7)
           {
-            grt_properties_seen |= TBL_PROP_GA;
-
-            /*
-             - GPR1, see above: release a beforehand assigned ga array (2 x in the request would be wrong)
-             - DON'T release HERE a present assigned ga array from the org. ptr (will happen later on no error)
-             - free ignores NULL ptr
-            */
-            if (allocator & TABLE_GAS)
-            {
-              free(tmp_grt_entry.ga);
-            }
-
-            tmp_grt_entry.ga_len = 0;
-            tmp_grt_entry.ga = NULL;
-
-            // also an empty ga array satisfies the items number
-            allocator |= TABLE_GAS;
+            OC_ERR("empty array for key %d detected", (int)object->iname);
+            gt_post_reject(request, entries, entry_count, &tmp_grt_entry, member_flags, OC_STATUS_BAD_REQUEST);
+            return;
           }
+
+          // any extra element causes a "not an id only"
+          member_flags |= MF_SEEN_OTHER;
+
+          /*
+            empty ga array (7) for mc, coded in current CBOR with "OC_REP_NIL"
+           - GPR1, see above: release a beforehand assigned ga array (2 x in the request would be wrong)
+           - DON'T release HERE a present assigned ga array from the org. ptr (will happen later on no error)
+           - free ignores NULL ptr
+          */
+          if (member_flags & TBL_ALLOC_GA)
+          {
+            free(tmp_grt_entry.ga);
+          }
+
+          tmp_grt_entry.ga_len = 0;
+          tmp_grt_entry.ga = NULL;
+
+          // also an empty ga array satisfies the items number
+          member_flags |= TBL_SEEN_GA | TBL_ALLOC_GA;
 
           break;
         case OC_REP_BOOL:
 
           // any extra element - even if not valid - causes a "not an id only"
-          id_only = false;
+          member_flags |= MF_SEEN_OTHER;
 
           // resource 'non' (CBOR/JSON = 'non'/'non') - see 'non' details
           if (oc_string_len(object->name) > 0 && strncmp(oc_string(object->name), "non", 3) == 0)
@@ -1904,9 +2045,7 @@ static void oc_core_fp_r_post_handler(oc_request_t* request, oc_interface_mask_t
           OC_ERR("invalid object type detected");
 
           // on error: free RCP tmp entry (all heap allocations)
-          oc_free_allocated_group_table_elements(&tmp_grt_entry, allocator);
-
-          oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+          gt_post_reject(request, entries, entry_count, &tmp_grt_entry, member_flags, OC_STATUS_BAD_REQUEST);
           return;
         }
 
@@ -1954,40 +2093,39 @@ static void oc_core_fp_r_post_handler(oc_request_t* request, oc_interface_mask_t
 
       */
 
-      if (return_status == OC_STATUS_CHANGED && id_only)
+      if (return_status == OC_STATUS_CHANGED && mf_is_id_only(member_flags))
       { // c
 
         // no tmp elements will be allocated ...
         OC_INF("only found id in request, deleting entry at index: %d", index);
-        oc_delete_group_table_entry(index, KNX_STORAGE_KEY_GRT_ENTRY, g_grt, KNX_GRT_MAX_ENTRIES);
+        entries[entry_count++] = (tbl_post_entry_t){ .tmp.gt.id = id, .index = index, .delete_entry = true }; // deleted on commit
         break; // next entry
       }
 
-      if (return_status == OC_STATUS_CREATED && tbl_mandatory_missing(grt_properties_seen, MANDATORY_GRT_PROPERTIES, TARGET_GRT_PROPERTIES))
+      if (return_status == OC_STATUS_CREATED && tbl_mandatory_missing(member_flags, MANDATORY_GRT_PROPERTIES, TARGET_GRT_PROPERTIES))
       { // a0
 
         // see details on constant
         OC_ERR("mandatory items missing, no entry created at index: %d", index);
 
         // on error: free PUB tmp entry (all heap allocations)
-        oc_free_allocated_group_table_elements(&tmp_grt_entry, allocator);
-
-        oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+        gt_post_reject(request, entries, entry_count, &tmp_grt_entry, member_flags, OC_STATUS_BAD_REQUEST);
         return;
       }
 
-      if ((grt_properties_seen & TARGET_GRT_PROPERTIES) == TARGET_GRT_PROPERTIES)
+      // a1: an entry is either uc (ia, at) or mc (grpid), spec 2.5.7.4.2 table 21 -> ia and grpid in the same request -> 4.00
+      if ((member_flags & TARGET_GRT_PROPERTIES) == TARGET_GRT_PROPERTIES)
       { // a1
 
-        // see details on constant
-        OC_ERR("ia and grpid cannot be in the same table entry, no entry created at index: %d", index);
+        OC_ERR("ia and grpid cannot be in the same table entry, no entry stored at index: %d", index);
 
-        // on error: free PUB tmp entry (all heap allocations)
-        oc_free_allocated_group_table_elements(&tmp_grt_entry, allocator);
-
-        oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+        // on error: free RCP tmp entry (all heap allocations)
+        gt_post_reject(request, entries, entry_count, &tmp_grt_entry, member_flags, OC_STATUS_BAD_REQUEST);
         return;
       }
+
+      // an update with ia on a stored mc entry (or grpid on a stored uc entry) switches the mode
+      tbl_switch_mode(&tmp_grt_entry, &member_flags);
 
       /*
         ia (12) and at (14) are NOT checked for being together, deliberately
@@ -2005,21 +2143,8 @@ static void oc_core_fp_r_post_handler(oc_request_t* request, oc_interface_mask_t
       // b + d, here all ok, set new PUB entry
       OC_DBG("storing RCP table at %d", index);
 
-      /*
-        Free - on stack allocated -  live RCP table entry elements that will be overwritten next.
-        - created : 2 elements (GAs, AT)
-        - changed : 1..2 elements (GAs, AT) - 0 not possible, would be to delete an RCP entry
-      */
-      oc_free_allocated_group_table_elements(&g_grt[index], allocator);
-
-      // assign RCP table entry with tmp RCP (all elements)
-      g_grt[index] = tmp_grt_entry;
-
-      // debugging
-      oc_print_group_table_entry(index, KNX_STORAGE_KEY_GRT_ENTRY, g_grt);
-
-      // store (includes here an overwrite)
-      oc_store_group_table_entry(index, KNX_STORAGE_KEY_GRT_ENTRY, g_grt);
+      // committed after ALL entries passed
+      entries[entry_count++] = (tbl_post_entry_t){ .tmp.gt = tmp_grt_entry, .index = index, .member_flags = member_flags };
 
       break;
     }
@@ -2030,6 +2155,27 @@ static void oc_core_fp_r_post_handler(oc_request_t* request, oc_interface_mask_t
 
     // next RCP entry
     rep = rep->next;
+  }
+
+  // all entries passed -> commit them in request order, nothing can fail from here on
+  for (tbl_post_entry_t* pending = entries; pending < entries + entry_count; pending++)
+  {
+    if (pending->delete_entry)
+    {
+      oc_delete_group_table_entry(pending->index, KNX_STORAGE_KEY_GRT_ENTRY, g_grt, KNX_GRT_MAX_ENTRIES);
+    }
+    else
+    {
+      // release the replaced values of the live entry, then take over the shadow copy
+      oc_free_allocated_group_table_elements(&g_grt[pending->index], pending->member_flags);
+      g_grt[pending->index] = pending->tmp.gt;
+
+      // debugging
+      oc_print_group_table_entry(pending->index, KNX_STORAGE_KEY_GRT_ENTRY, g_grt);
+
+      // store (includes here an overwrite)
+      oc_store_group_table_entry(pending->index, KNX_STORAGE_KEY_GRT_ENTRY, g_grt);
+    }
   }
 
   // the last (positive) return status from a collection with 'n' POST elements is responded (CREATED/CHANGED)
@@ -2485,14 +2631,15 @@ void oc_free_group_object_table_entry(int entry)
   g_got[entry].cflags = OC_CFLAG_NONE;
 }
 
-void oc_free_allocated_group_object_table_elements(oc_group_object_table_t* entry, uint8_t allocator)
+// frees the elements of a GO entry flagged TBL_ALLOC_* in 'member_flags' (the TBL_SEEN_* bits are ignored)
+static void oc_free_allocated_group_object_table_elements(oc_group_object_table_t* entry, uint16_t member_flags)
 {
-  if (allocator & GO_HREF)
+  if (member_flags & TBL_ALLOC_HREF)
   {
     oc_free_string(&entry->href);
   }
 
-  if (allocator & TABLE_GAS)
+  if (member_flags & TBL_ALLOC_GA)
   {
     free(entry->ga);
     entry->ga_len = 0;
@@ -2500,14 +2647,15 @@ void oc_free_allocated_group_object_table_elements(oc_group_object_table_t* entr
   }
 }
 
-void oc_free_allocated_group_table_elements(oc_group_table_t* entry, uint8_t allocator)
+// frees the elements of a PUB/RCP entry flagged TBL_ALLOC_* in 'member_flags' (the TBL_SEEN_* bits are ignored)
+static void oc_free_allocated_group_table_elements(oc_group_table_t* entry, uint16_t member_flags)
 {
-  if (allocator & TABLE_AT_REF)
+  if (member_flags & TBL_ALLOC_AT)
   {
     oc_free_string(&entry->at);
   }
 
-  if (allocator & TABLE_GAS)
+  if (member_flags & TBL_ALLOC_GA)
   {
     free(entry->ga);
     entry->ga_len = 0;
@@ -2891,12 +3039,16 @@ static void oc_free_group_tables(void)
   #endif
 }
 
-// max_size MUST respect the array size
-static int find_empty_slot_in_table(const oc_group_table_t* table, int max_size)
+/*
+  max_size MUST respect the array size
+  - skip: number of free slots to skip, the nth new entry of a POST collection gets the nth free slot
+    (the entries are committed after ALL passed, an earlier new entry of the same request has not taken its slot yet)
+*/
+static int find_empty_slot_in_table(const oc_group_table_t* table, int max_size, int skip)
 {
   for (int i = 0; i < max_size; i++)
   {
-    if (table[i].id == -1)
+    if (table[i].id == -1 && skip-- == 0)
     { // empty slot
 
       return i;

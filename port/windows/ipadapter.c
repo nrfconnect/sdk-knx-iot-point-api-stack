@@ -61,60 +61,8 @@ static LPFN_WSASENDMSG PWSASendMsg;
 
 OC_LIST(ip_contexts);
 
-OC_LIST(ip_interface_list);
-
 OC_LIST(oc_network_interface_cb_list);
 static HANDLE oc_network_interface_cb_mutex;
-
-static ifaddr_t * find_ip_interface(ifaddr_t *if_list, DWORD target_index) {
-  ifaddr_t *if_item = if_list;
-  while (if_item != NULL && if_item->if_index != target_index) {
-    if_item = if_item->next;
-  }
-
-  return if_item;
-}
-
-static bool add_ip_interface(DWORD target_index) {
-  if (find_ip_interface(oc_list_head(ip_interface_list), target_index)) {
-    return false;
-  }
-
-  ifaddr_t *new_if = calloc(1, sizeof(ifaddr_t));
-  if (!new_if) {
-    OC_ERR("interface item alloc failed");
-    return false;
-  }
-
-  new_if->if_index = target_index;
-  oc_list_add(ip_interface_list, new_if);
-  OC_DBG("New interface added: %lu", new_if->if_index);
-
-  return true;
-}
-
-static bool remove_ip_interface(DWORD target_index) {
-  ifaddr_t *if_item = find_ip_interface(oc_list_head(ip_interface_list), target_index);
-  if (!if_item) {
-    return false;
-  }
-
-  oc_list_remove(ip_interface_list, if_item);
-  free(if_item);
-  OC_DBG("Removed from ip interface list: %lu", target_index);
-
-  return true;
-}
-
-static void remove_all_ip_interface(void) {
-  ifaddr_t *if_item = oc_list_head(ip_interface_list), *next;
-  while (if_item != NULL) {
-    next = if_item->next;
-    oc_list_remove(ip_interface_list, if_item);
-    free(if_item);
-    if_item = next;
-  }
-}
 
 static void remove_all_network_interface_cbs(void) {
   oc_network_interface_cb_t *cb_item = oc_list_head(oc_network_interface_cb_list), *next;
@@ -144,7 +92,6 @@ void oc_network_event_handler_mutex_destroy(void) {
   mutex_free(mutex);
   closesocket(ifchange_sock);
   mutex_free(oc_network_interface_cb_mutex);
-  remove_all_ip_interface();
   remove_all_network_interface_cbs();
   WSACleanup();
 }
@@ -467,43 +414,41 @@ int oc_connectivity_get_new_port(void) {
 
 int oc_network_refresh_endpoints(void) {
   int ret = 0;
-  ifaddr_t *ifaddr_list = get_network_addresses();
-  if (!ifaddr_list) {
+  ip_context_t *dev = get_ip_context_for_device();
+  if (dev == NULL) {
+    OC_ERR("IP context is NULL");
     return -1;
   }
 
-  ip_context_t *dev = get_ip_context_for_device();
-  if (dev != NULL) {
+  // NULL is also the answer when no usable IPv6 address is left, the state below is then "down"
+  ifaddr_t *ifaddr_list = get_network_addresses();
+
+  /*
+    the state comes from the usable IPv6 addresses of the filtered interfaces, the shared code decides on "up" and "down"
+    (see knx_network_report_state())
+    - also called by the network thread: never rebuild (free) the endpoint list here, the main thread may walk it
+    -> the hash is summed over the same addresses get_interface_addresses() puts into the list, it equals
+       knx_network_addresses_hash() of the rebuilt list
+  */
+  bool up = false;
+  uint32_t addresses_hash = 0;
+  const uint32_t filter = oc_network_get_interface_filter();
+  for (const ifaddr_t *ifaddr = ifaddr_list; ifaddr != NULL; ifaddr = ifaddr->next) {
+    if ((filter != 0 && ifaddr->if_index != filter) || ifaddr->addr.ss_family != AF_INET6) {
+      continue;
+    }
+
+    const struct sockaddr_in6 *addr = (const struct sockaddr_in6 *)&ifaddr->addr;
+    addresses_hash += knx_network_address_hash((const uint8_t *)&addr->sin6_addr);
+    up = true;
+  }
+
+  mark_endpoints_dirty();
+
+  // The "all CoAP nodes" groups are set up again only when the state changed,
+  // update_mcast_socket() drops and adds them, which sends MLD leaves and joins.
+  if (knx_network_report_state(up, addresses_hash) && ifaddr_list != NULL) {
     ret += update_mcast_socket(dev->mcast_sock, AF_INET6, ifaddr_list);
-    // also called by the network thread: never rebuild (free) the list here, the main thread may walk it
-    mark_endpoints_dirty();
-  } else {
-    OC_ERR("IP context is NULL");
-  }
-
-  bool if_up = false;
-  bool if_down = false;
-  for (ifaddr_t *ifaddr = ifaddr_list; ifaddr != NULL; ifaddr = ifaddr->next) {
-    if (add_ip_interface(ifaddr->if_index)) {
-      if_up = true;
-    }
-  }
-
-  for (ifaddr_t *ifaddr = oc_list_head(ip_interface_list); ifaddr != NULL;) {
-    if (!find_ip_interface(ifaddr_list, ifaddr->if_index)) {
-      ifaddr_t *next = ifaddr->next;
-      remove_ip_interface(ifaddr->if_index);
-      ifaddr = next;
-      if_down = true;
-    } else {
-      ifaddr = ifaddr->next;
-    }
-  }
-  if (if_up) {
-    oc_network_interface_event(NETWORK_INTERFACE_UP);
-  }
-  if (if_down) {
-    oc_network_interface_event(NETWORK_INTERFACE_DOWN);
   }
 
   free_network_addresses(ifaddr_list);
@@ -1328,6 +1273,17 @@ int oc_connectivity_init(void) {
     }
 
     ifchange_initialized = TRUE;
+  }
+
+  // The network state the port starts with, remembered without an event before the network
+  // thread starts, the stack start registers the groups and DNS-SD itself.
+  {
+    bool up = false;
+    oc_network_event_handler_mutex_lock();
+    refresh_endpoints_list(dev, NULL);
+    const uint32_t addresses_hash = knx_network_addresses_hash(oc_list_head(dev->eps), &up);
+    oc_network_event_handler_mutex_unlock();
+    knx_network_set_initial_state(up, addresses_hash);
   }
 
   dev->event_thread_handle =

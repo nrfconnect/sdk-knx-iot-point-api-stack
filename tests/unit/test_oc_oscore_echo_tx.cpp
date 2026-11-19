@@ -905,6 +905,7 @@ protected:
     group_address_ = 0x1234;
     at_.ga = &group_address_;
     at_.ga_len = 1;
+    at_.scope = OC_ACL_GA; // as POST /auth/at sets it for a group address scope
 
     const uint8_t recipient_id[] = { 0xBB };
     oc_oscore_context_params_t params = {};
@@ -1197,6 +1198,7 @@ static int count_contexts(const oc_oscore_context_t* first)
 TEST_F(OscoreEngine, MulticastRequestWithTokenWithoutGroupAddressIsSilentlyDropped)
 {
   at_.ga_len = 0;
+  at_.scope = OC_ACL_P;
 
   const uint8_t plaintext[] = { COAP_POST };
   oc_message_t* message = make_encrypted_request(plaintext, sizeof(plaintext));
@@ -1211,6 +1213,32 @@ TEST_F(OscoreEngine, MulticastRequestWithTokenWithoutGroupAddressIsSilentlyDropp
   EXPECT_EQ(oc_process_nevents(), 0);
   EXPECT_EQ(g_oscore_send_calls, 0);
   EXPECT_EQ(message->ref_count, 1U);
+  oc_message_unref(message);
+}
+
+/*
+  an 'if.g.s' token has no group address list but covers ALL group addresses (spec 3.5.3, 2.5.9.6)
+  -> a multicast request with it is decrypted and queued, the ACL of /k decides as on unicast
+*/
+TEST_F(OscoreEngine, MulticastRequestWithIfGsTokenIsDecrypted)
+{
+  at_.ga_len = 0;
+  at_.scope = OC_ACL_G;
+
+  const uint8_t plaintext[] = { COAP_POST };
+  oc_message_t* message = make_encrypted_request(plaintext, sizeof(plaintext));
+  ASSERT_NE(message, nullptr);
+  message->data[0] = 0x50; /* NON, as a multicast request */
+  message->endpoint.flags = MULTICAST;
+
+  ASSERT_EQ(oc_process_post(&oc_oscore_handler, oc_events[INBOUND_OSCORE_EVENT], message), OC_PROCESS_ERR_OK);
+  oc_process_run();
+
+  EXPECT_NE(message->endpoint.flags & OSCORE_DECRYPTED, 0);
+  EXPECT_EQ(oc_process_nevents(), 1);
+  EXPECT_EQ(g_oscore_send_calls, 0);
+
+  oc_message_unref(message);
   oc_message_unref(message);
 }
 
@@ -1335,6 +1363,36 @@ TEST_F(OscoreEngine, OutboundResponseIsEncryptedAndSent)
   /* 8.3: the response reuses the request PIV, so no sender sequence number is spent */
   EXPECT_EQ(recipient_context_->ssn, 0U);
   EXPECT_EQ(sender_context_->ssn, 0U);
+}
+
+/*
+  a POST /auth/at that changes the key of the token protecting the request itself is applied, but gets no 2.04
+  - the commit frees ALL contexts of the token (key changed), the re-initialization rebuilds only its sender context
+  - the response must be protected with the request's context (RFC 8613 8.3): looked up as recipient context by the token's
+    osc id -> gone, the response is dropped (the client sees a timeout)
+  - intended: key rotation per spec 3.5.4.1 uses a NEW token, switches to it and deletes the old one later
+  - the handler side (commit frees the recipient context) is SecAtPost.FullOverwriteWithNewKeyFreesTheCachedRecipientContext
+*/
+TEST_F(OscoreEngine, ResponseToARequestThatReKeyedItsOwnTokenIsDropped)
+{
+  oc_message_t* message = make_outbound_response();
+  ASSERT_NE(message, nullptr);
+
+  // commit (key changed) + re-initialization
+  oc_oscore_free_contexts_at_id(&at_);
+  const uint8_t sender_id[] = { 0xCC };
+  oc_oscore_context_params_t params = {};
+  params.sender_id = sender_id;
+  params.sender_id_size = sizeof(sender_id);
+  params.auth_at = &at_;
+  params.read_ssn_from_storage = false;
+  ASSERT_NE(oc_oscore_add_context(&params), nullptr);
+
+  ASSERT_EQ(oc_process_post(&oc_oscore_handler, oc_events[OUTBOUND_UC_OSCORE_EVENT], message), OC_PROCESS_ERR_OK);
+  oc_process_run();
+  oc_process_run();
+
+  EXPECT_EQ(g_network_send_calls, 0);
 }
 
 /*

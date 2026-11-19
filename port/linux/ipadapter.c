@@ -63,90 +63,7 @@ bool ifchange_initialized;
 
 OC_LIST(ip_contexts);
 
-/**
- * Structure to manage interface list.
- */
-typedef struct ip_interface {
-  struct ip_interface *next;
-  int if_index;
-} ip_interface_t;
-
-OC_LIST(ip_interface_list);
-
 OC_LIST(oc_network_interface_cb_list);
-
-static ip_interface_t * get_ip_interface(int target_index) {
-  ip_interface_t *if_item = oc_list_head(ip_interface_list);
-  while (if_item != NULL && if_item->if_index != target_index) {
-    if_item = if_item->next;
-  }
-
-  return if_item;
-}
-
-static bool add_ip_interface(int target_index) {
-  if (get_ip_interface(target_index)) {
-    return false;
-  }
-
-  ip_interface_t *new_if = calloc(1, sizeof(ip_interface_t));
-  if (!new_if) {
-    OC_ERR("interface item alloc failed");
-    return false;
-  }
-
-  new_if->if_index = target_index;
-  oc_list_add(ip_interface_list, new_if);
-  OC_DBG("New interface added: %d", new_if->if_index);
-
-  return true;
-}
-
-static bool check_new_ip_interfaces(void) {
-  struct ifaddrs *ifs = NULL, *interface = NULL;
-  if (getifaddrs(&ifs) < 0) {
-    OC_ERR("querying interface address");
-    return false;
-  }
-
-  for (interface = ifs; interface != NULL; interface = interface->ifa_next) {
-    // Ignore interfaces that are down and the loopback interface.
-    if (!(interface->ifa_flags & IFF_UP) || 
-            (interface->ifa_flags & IFF_LOOPBACK)) {
-      continue;
-    }
-
-    // Obtain interface index for this address.
-    int if_index = if_nametoindex(interface->ifa_name);
-
-    add_ip_interface(if_index);
-  }
-
-  freeifaddrs(ifs);
-  return true;
-}
-
-static bool remove_ip_interface(int target_index) {
-  ip_interface_t *if_item = get_ip_interface(target_index);
-  if (!if_item) {
-    return false;
-  }
-
-  oc_list_remove(ip_interface_list, if_item);
-  free(if_item);
-  OC_DBG("Removed from ip interface list: %d", target_index);
-  return true;
-}
-
-static void remove_all_ip_interface(void) {
-  ip_interface_t *if_item = oc_list_head(ip_interface_list), *next;
-  while (if_item != NULL) {
-    next = if_item->next;
-    oc_list_remove(ip_interface_list, if_item);
-    free(if_item);
-    if_item = next;
-  }
-}
 
 static void remove_all_network_interface_cbs(void) {
   oc_network_interface_cb_t *cb_item =
@@ -177,7 +94,6 @@ void oc_network_event_handler_mutex_unlock(void) {
 void oc_network_event_handler_mutex_destroy(void) {
   ifchange_initialized = false;
   close(ifchange_sock);
-  remove_all_ip_interface();
   remove_all_network_interface_cbs();
   pthread_mutex_destroy(&mutex);
 }
@@ -191,16 +107,19 @@ static int add_mcast_sock_to_ipv6_mcast_group(int mcast_sock, int interface_inde
   struct ipv6_mreq mreq;
 
   OC_DBG("Adding all CoAP nodes");
+  // This runs again for an interface whose socket already has the groups (at start and for
+  // every new link-local address). The kernel answers a repeated add with EADDRINUSE, the
+  // membership is in place, so the add counts as joined. No drop before the add: drop and add
+  // end in the same membership, but the drop makes the kernel send an MLD leave and the add a
+  // join on every call, an access point with MLD snooping can stop forwarding in between.
+
   // Link-local scope all CoAP nodes.
   memset(&mreq, 0, sizeof(mreq));
   memcpy(mreq.ipv6mr_multiaddr.s6_addr, ALL_COAP_NODES_LL, 16);
   mreq.ipv6mr_interface = interface_index;
 
-  setsockopt(mcast_sock, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP, (char *)&mreq,
-          sizeof(mreq));
-
   if (setsockopt(mcast_sock, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, (char *)&mreq,
-          sizeof(mreq)) == -1) {
+          sizeof(mreq)) == -1 && errno != EADDRINUSE) {
     OC_ERR("joining link-local IPv6 multicast group %d", errno);
     return -1;
   }
@@ -210,11 +129,8 @@ static int add_mcast_sock_to_ipv6_mcast_group(int mcast_sock, int interface_inde
   memcpy(mreq.ipv6mr_multiaddr.s6_addr, ALL_COAP_NODES_RL, 16);
   mreq.ipv6mr_interface = interface_index;
 
-  setsockopt(mcast_sock, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP, (char *)&mreq,
-          sizeof(mreq));
-
   if (setsockopt(mcast_sock, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, (char *)&mreq,
-          sizeof(mreq)) == -1) {
+          sizeof(mreq)) == -1 && errno != EADDRINUSE) {
     OC_ERR("joining realm-local IPv6 multicast group %d", errno);
     return -1;
   }
@@ -224,11 +140,8 @@ static int add_mcast_sock_to_ipv6_mcast_group(int mcast_sock, int interface_inde
   memcpy(mreq.ipv6mr_multiaddr.s6_addr, ALL_COAP_NODES_SL, 16);
   mreq.ipv6mr_interface = interface_index;
 
-  setsockopt(mcast_sock, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP, (char *)&mreq,
-          sizeof(mreq));
-
   if (setsockopt(mcast_sock, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, (char *)&mreq,
-          sizeof(mreq)) == -1) {
+          sizeof(mreq)) == -1 && errno != EADDRINUSE) {
     OC_ERR("joining site-local IPv6 multicast group %d", errno);
     return -1;
   }
@@ -385,12 +298,10 @@ static void get_interface_addresses(ip_context_t *dev, unsigned char family,
     }
 
     response = (struct nlmsghdr *)buffer;
-    /*
-      Signed like the int the netlink macros are written against, 64 bit so the u32 message
-      length compares without a sign change on every target (clang -Wsign-compare).
-    */
+    // Signed like the int the netlink macros are written against, 64 bit so the u32 message
+    // length compares without a sign change on every target (clang -Wsign-compare).
     int64_t len = response_len;
-    
+
     // NLMSG_OK first: a reply shorter than a header must not be read
     if (!NLMSG_OK(response, len) || response->nlmsg_type == NLMSG_ERROR) {
       free(buffer);
@@ -412,13 +323,13 @@ static void get_interface_addresses(ip_context_t *dev, unsigned char family,
         if ((int)addrmsg->ifa_index == prev_interface_index) {
           goto next_ifaddr;
         }
-        
+
         // Filter by interface if filter is set.
         uint32_t filter = oc_network_get_interface_filter();
         if (filter != 0 && addrmsg->ifa_index != filter) {
           goto next_ifaddr;
         }
-        
+
         ep.interface_index = addrmsg->ifa_index;
         include = true;
         struct rtattr *attr = (struct rtattr *)IFA_RTA(addrmsg);
@@ -430,7 +341,10 @@ static void get_interface_addresses(ip_context_t *dev, unsigned char family,
                 ep.flags = IPV6;
               }
           } else if (attr->rta_type == IFA_FLAGS) {
-            if (*(uint32_t *)(RTA_DATA(attr)) & IFA_F_TEMPORARY) {
+            // Temporary addresses are left out, a tentative address cannot be used before the
+            // duplicate address detection is done, a dadfailed address never.
+            if (*(uint32_t *)(RTA_DATA(attr)) &
+                (IFA_F_TEMPORARY | IFA_F_TENTATIVE | IFA_F_DADFAILED)) {
               include = false;
             }
           }
@@ -509,12 +423,26 @@ oc_endpoint_t * oc_connectivity_get_endpoints(void) {
     return NULL;
   }
 
+  bool rebuilt = false;
+  bool up = false;
+  uint32_t addresses_hash = 0;
   oc_network_event_handler_mutex_lock();
   if (endpoints_dirty || oc_list_length(dev->eps) == 0) {
     refresh_endpoints_list(dev);
     endpoints_dirty = false;
+    addresses_hash = knx_network_addresses_hash(oc_list_head(dev->eps), &up);
+    rebuilt = true;
   }
   oc_network_event_handler_mutex_unlock();
+
+  /*
+    the network state comes from the rebuilt list (usable IPv6 addresses only, see get_interface_addresses())
+    - reported after unlock: knx_network_report_state() locks oc_network_event_handler_mutex itself
+    - lifetime refreshes, deprecations and a new port keep the addresses -> same hash, no event
+  */
+  if (rebuilt) {
+    knx_network_report_state(up, addresses_hash);
+  }
 
   return oc_list_head(dev->eps);
 }
@@ -664,15 +592,15 @@ int oc_network_refresh_endpoints(void) {
   struct timeval tv = {0, 0}; // Zero timeout = non-blocking check
   FD_ZERO(&readfds);
   FD_SET(ifchange_sock, &readfds);
-  
+
   int select_ret = select(ifchange_sock + 1, &readfds, NULL, NULL, &tv);
-  
+
   // If no data available (manual call), the endpoint list is rebuilt in the main thread.
   if (select_ret == 0) {
     mark_endpoints_dirty();
     return 0;
   }
-  
+
   // If select failed, return error.
   if (select_ret < 0) {
     OC_ERR("select() on netlink socket failed");
@@ -702,12 +630,11 @@ int oc_network_refresh_endpoints(void) {
   }
 
   response = (struct nlmsghdr *)buffer;
-  /*
-    Signed like the int the netlink macros are written against, 64 bit so the u32 message
-    length compares without a sign change on every target (clang -Wsign-compare).
-  */
+  // Signed like the int the netlink macros are written against, 64 bit so the u32 message
+  // length compares without a sign change on every target (clang -Wsign-compare).
   int64_t len = response_len;
-  // NLMSG_OK first: a reply shorter than a header must not be read (F-044)
+
+  // NLMSG_OK first: a reply shorter than a header must not be read
   if (!NLMSG_OK(response, len) || response->nlmsg_type == NLMSG_ERROR) {
     OC_ERR("short or NLMSG_ERROR payload from netlink interface");
     free(buffer);
@@ -715,19 +642,14 @@ int oc_network_refresh_endpoints(void) {
   }
 
   bool if_state_changed = false;
-  bool if_up = false;
-  bool if_down = false;
   while (NLMSG_OK(response, len)) {
     if (response->nlmsg_type == RTM_NEWADDR) {
       struct ifaddrmsg *ifa = (struct ifaddrmsg *)NLMSG_DATA(response);
       if (ifa) {
-        if (add_ip_interface(ifa->ifa_index)) {
-          if_up = true;
-        }
         struct rtattr *attr = (struct rtattr *)IFA_RTA(ifa);
         int att_len = IFA_PAYLOAD(response);
         while (RTA_OK(attr, att_len)) {
-          if (attr->rta_type == IFA_ADDRESS && 
+          if (attr->rta_type == IFA_ADDRESS &&
                   ifa->ifa_family == AF_INET6 &&
                   ifa->ifa_scope == RT_SCOPE_LINK) {
             ip_context_t *dev = get_ip_context_for_device();
@@ -740,13 +662,6 @@ int oc_network_refresh_endpoints(void) {
 
       if_state_changed = true;
     } else if (response->nlmsg_type == RTM_DELADDR) {
-      struct ifaddrmsg *ifa = (struct ifaddrmsg *)NLMSG_DATA(response);
-      if (ifa) {
-        if (remove_ip_interface(ifa->ifa_index)) {
-          if_down = true;
-        }
-      }
-
       if_state_changed = true;
     }
 
@@ -756,15 +671,13 @@ int oc_network_refresh_endpoints(void) {
   free(buffer);
 
   if (if_state_changed) {
-    // network thread: never rebuild (free) the list here, the main thread may walk it
+    /*
+      an address message tells about one address, not about the network state
+      - network thread: never rebuild (free) the list here, the main thread may walk it
+      -> the main thread rebuilds it (oc_connectivity_get_endpoints()) and reports the state from it
+         (knx_network_report_state() decides on "up" and "down")
+    */
     mark_endpoints_dirty();
-  }
-  // posted after the list is marked dirty: the main thread rebuilds it before the interface callbacks (mDNS) run
-  if (if_up) {
-    oc_network_interface_event(NETWORK_INTERFACE_UP);
-  }
-  if (if_down) {
-    oc_network_interface_event(NETWORK_INTERFACE_DOWN);
   }
 
   return ret;
@@ -838,7 +751,7 @@ static void oc_udp_add_socks_to_fd_set(ip_context_t *dev) {
   FD_SET(dev->mcast_sock, &dev->rfds);
 }
 
-static adapter_receive_state_t oc_udp_receive_message(ip_context_t *dev, 
+static adapter_receive_state_t oc_udp_receive_message(ip_context_t *dev,
         fd_set *fds, oc_message_t *message) {
   // destination address of a datagram (IPV6_PKTINFO), only used to decide on the MULTICAST flag
   oc_ipv6_addr_t mcast_dest = { 0 };
@@ -1313,7 +1226,7 @@ static void network_interface_event_handler(oc_interface_event_t event) {
 }
 
 static uint16_t g_multicast_port = COAP_PORT_UNSECURED;
-static uint16_t g_unicast_port = 0; // on '0' -> let OS assign ephemeral port - value is set by oc_connectivity_set_port() 
+static uint16_t g_unicast_port = 0; // on '0' -> let OS assign ephemeral port - value is set by oc_connectivity_set_port()
 
 int oc_connectivity_set_port(uint16_t port) {
   g_unicast_port = port;
@@ -1413,10 +1326,14 @@ int oc_connectivity_init(void) {
       return -1;
     }
 
-    if (!check_new_ip_interfaces()) {
-      OC_ERR("checking new IP interfaces failed.");
-      return -1;
-    }
+    // The network state the port starts with, remembered without an event, the stack start
+    // registers the groups and DNS-SD itself.
+    bool up = false;
+    oc_network_event_handler_mutex_lock();
+    refresh_endpoints_list(dev);
+    const uint32_t addresses_hash = knx_network_addresses_hash(oc_list_head(dev->eps), &up);
+    oc_network_event_handler_mutex_unlock();
+    knx_network_set_initial_state(up, addresses_hash);
 
     ifchange_initialized = true;
   }
@@ -1652,13 +1569,16 @@ void oc_connectivity_subscribe_mcast_ipv6(oc_endpoint_t *address) {
       memcpy(mreq.ipv6mr_multiaddr.s6_addr, address->addr.ipv6.address, 16);
       mreq.ipv6mr_interface = if_index;
 
-      (void)setsockopt(dev->mcast_sock, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP,
-              &mreq, sizeof(mreq));
-
+      // getifaddrs() lists one entry per address, so an interface comes up several times, and
+      // the groups are registered again on every "up". The kernel answers a repeated add with
+      // EADDRINUSE, the membership is in place, so the add counts as joined. No drop before the
+      // add: drop and add end in the same membership, but the drop makes the kernel send an MLD
+      // leave and the add a join on every call, an access point with MLD snooping can stop
+      // forwarding in between.
       if (setsockopt(dev->mcast_sock, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, &mreq,
-              sizeof(mreq)) == -1) {
+              sizeof(mreq)) == -1 && errno != EADDRINUSE) {
         OC_ERR("Failed to add IPv6 multicast membership!");
-        return;
+        break;
       }
     }
   }

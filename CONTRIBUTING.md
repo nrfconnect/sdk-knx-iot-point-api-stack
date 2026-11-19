@@ -19,6 +19,105 @@ To keep control over the (build) tools and their generated artefact's please sim
    changes before we merge to the 'main' branch. Merge requests are only possible by the repository maintainer, this prevents accidental damage.
 1. After merging/testing/publishing it, the change will also be deployed here.
 
+## Commit messages
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
+The CI job `commit-lint` checks every commit of a branch that is not yet on `main`; a branch with a non-conforming commit cannot be merged.
+
+### Format
+
+```
+<type>(<scope>): <description>
+
+<body>
+
+<footer>
+```
+
+- **Subject line** (checked by CI): `<type>(<scope>): <description>`, at most 100 characters. The scope is optional, the description starts in lower case and has no trailing period.
+- **Body** (optional): what changed and why, wrapped at 72 characters.
+- **Footer** (optional): issue references and breaking changes, see below.
+
+### Types
+
+| Type | Use for | Release impact |
+|------|---------|----------------|
+| `feat` | a new feature | minor |
+| `fix` | a bug fix | patch |
+| `perf` | a performance or memory improvement without functional change | patch |
+| `refactor` | a code change that neither fixes a bug nor adds a feature | none |
+| `test` | adding or changing tests only | none |
+| `docs` | documentation only | none |
+| `build` | build system, CMake, Kconfig, dependencies | none |
+| `ci` | CI configuration (`.gitlab-ci.yml`, CI scripts) | none |
+| `style` | formatting only, no code change | none |
+| `chore` | maintenance that fits no other type | none |
+| `revert` | reverting an earlier commit | depends |
+
+### Scopes
+
+The scope names the part of the stack that is changed. Use lower case and prefer one of these:
+
+| Scope | Area |
+|-------|------|
+| `api` | `api/` (resources, discovery, core API) |
+| `messaging` | `messaging/` (CoAP) |
+| `oscore` | OSCORE |
+| `security` | `security/` (SPAKE2+, access tokens, auth) |
+| `mdns` / `dns-sd` | `port/mdns/`, DNS-SD |
+| `zephyr` | `port/zephyr/`, `zephyr/` |
+| `freertos` | `port/freertos_esp32/`, `esp-idf/` |
+| `linux` / `windows` | host ports |
+| `soc` | vendor or SoC specific code, boards, patches (name the vendor in the description) |
+| `wifi` / `thread` / `ethernet` | network backend |
+| `config` | CMake options, Kconfig, presets |
+| `tests` | `tests/` |
+| `tools` | `tools/`, `scripts/` |
+
+Combine an operating system with a network backend with a slash, for example `fix(zephyr/thread): ...`.
+
+Leave the scope out when a change spans many areas.
+
+### Breaking changes
+
+Mark a change that requires users to adapt with `!` after the type/scope and describe the migration in a `BREAKING CHANGE:` footer:
+
+```
+feat(api)!: rename oc_add_device() to knx_add_device()
+
+BREAKING CHANGE: callers must use knx_add_device(); the old name is removed.
+```
+
+### Issue references
+
+Reference the related issue in the footer: `Closes #123` closes it when merged to `main`, `Refs #123` only links it.
+
+### Examples
+
+```
+fix(oscore): reject replayed sequence numbers after a reset
+feat(mdns): announce the device on every interface
+docs: describe the memory footprint per platform
+ci: add commit message check
+```
+
+### Local check (optional)
+
+The same check can run on every commit as a git `commit-msg` hook. Create `.git/hooks/commit-msg` with:
+
+```sh
+#!/bin/sh
+exec python3 scripts/check_commit_messages.py --file "$1"
+```
+
+On Windows replace `python3` with `python` if needed. On Linux and macOS make the hook executable (`chmod +x .git/hooks/commit-msg`).
+
+To check a branch before pushing:
+
+```sh
+python3 scripts/check_commit_messages.py --range origin/main..HEAD
+```
+
 ## Contribution License Agreement ("Agreement")
 
 This Contribution License Agreement ("Agreement") is agreed to by the party signing below ("You"), and conveys certain license rights to the KNX Association, ("KNX Association") 

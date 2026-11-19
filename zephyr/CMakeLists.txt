@@ -211,13 +211,6 @@ list(APPEND PORT_SOURCES
     ${STACK_ROOT}/port/zephyr/storage.c
 )
 
-# Network interface enumeration, needs the Zephyr IPv6 stack.
-if(CONFIG_NET_IPV6)
-    list(APPEND PORT_SOURCES
-        ${STACK_ROOT}/port/zephyr/oc_network_interface.c
-    )
-endif()
-
 # Platform port - Zephyr-specific - Optional
 # KNX IoT shell command: The shared command handlers (port/knx_shell_commands.c) plus the
 # Zephyr shell binding, compiled with the KNXIOT_SHELL option.
@@ -239,6 +232,9 @@ endif()
 #       API (zsock_*), used for both Wi-Fi and Ethernet L2 backends.
 #       The shared port/dns-sd_mdns.c provides DNS-SD and mDNS, the same implementation
 #       used on Linux and Windows.
+# Note: oc_network_interface.c enumerates the interfaces over Zephyr net_if (Wi-Fi,
+#       Ethernet, Thread with CONFIG_NET_L2_OPENTHREAD), oc_network_interface_thread.c over
+#       the OpenThread API (Thread without CONFIG_NET_L2_OPENTHREAD).
 # Note: The backend is chosen with CONFIG_KNXIOT_NETWORK_BACKEND_* (zephyr/Kconfig),
 #       not inferred from the Zephyr L2 symbols.
 if(CONFIG_KNXIOT_NETWORK_BACKEND_ETHERNET)
@@ -250,6 +246,7 @@ if(CONFIG_KNXIOT_NETWORK_BACKEND_ETHERNET)
 
     list(APPEND PORT_SOURCES
         ${STACK_ROOT}/port/zephyr/connectivity_posix.c
+        ${STACK_ROOT}/port/zephyr/oc_network_interface.c
         ${STACK_ROOT}/port/dns-sd_mdns.c
     )
 elseif(CONFIG_KNXIOT_NETWORK_BACKEND_THREAD)
@@ -264,10 +261,17 @@ elseif(CONFIG_KNXIOT_NETWORK_BACKEND_THREAD)
         ${STACK_ROOT}/port/zephyr/connectivity_thread.c
         ${STACK_ROOT}/port/dns-sd_srp.c
     )
+
+    if(CONFIG_NET_L2_OPENTHREAD)
+        list(APPEND PORT_SOURCES ${STACK_ROOT}/port/zephyr/oc_network_interface.c)
+    else()
+        list(APPEND PORT_SOURCES ${STACK_ROOT}/port/zephyr/oc_network_interface_thread.c)
+    endif()
 elseif(CONFIG_KNXIOT_NETWORK_BACKEND_WIFI)
     # The Wi-Fi backend selects CONFIG_WIFI itself, so there is nothing to check.
     list(APPEND PORT_SOURCES
         ${STACK_ROOT}/port/zephyr/connectivity_posix.c
+        ${STACK_ROOT}/port/zephyr/oc_network_interface.c
         ${STACK_ROOT}/port/dns-sd_mdns.c
     )
 else()

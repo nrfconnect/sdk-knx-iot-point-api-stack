@@ -159,10 +159,17 @@ class TestOscoreRequestAboveOneBlock:
             f"Size1 must be the block size {BLOCK_SIZE}, got {int.from_bytes(size1, 'big')}")
 
 
-# group object table entries for the Block1 transfer: ~18 bytes CBOR each, 36 entries ~650 bytes,
-# above ONE block and below MAX_APP_DATA_SIZE (the reassembly buffer)
+# group object table entries for the Block1 transfer: 5 entries (one POST may carry at most 10, more -> 4.13),
+# each with 20 group addresses above 65535 (5 bytes CBOR each, a GO table SHALL support >= 20, spec 2.5.7.3.2 Table 18)
+# -> ~115 bytes per entry, ~575 bytes: above ONE block and below MAX_APP_DATA_SIZE (the reassembly buffer)
 GOT_FIRST_ID = 1100
-GOT_ENTRIES = 36
+GOT_ENTRIES = 5
+GAS_PER_ENTRY = 20
+GA_BASE = 0x10000
+
+
+def _got_gas(i):
+    return [GA_BASE + i * GAS_PER_ENTRY + k for k in range(GAS_PER_ENTRY)]
 
 
 class TestOscoreBlock1Transfer:
@@ -189,7 +196,7 @@ class TestOscoreBlock1Transfer:
                                         crit_option=(BLOCK1_OPTION, block1))
 
     def test_post_above_one_block_with_block1_is_reassembled(self):
-        entries = [{0: GOT_FIRST_ID + i, 7: [1000 + i], 8: 0x01, 11: "/p/1"} for i in range(GOT_ENTRIES)]
+        entries = [{0: GOT_FIRST_ID + i, 7: _got_gas(i), 8: 0x01, 11: "/p/1"} for i in range(GOT_ENTRIES)]
         body = cbor2.dumps(entries)
         assert BLOCK_SIZE < len(body) < MAX_APP_DATA_SIZE, f"body must span two blocks and fit the buffer, is {len(body)}"
 
@@ -211,4 +218,4 @@ class TestOscoreBlock1Transfer:
             assert resp is not None and resp.code == "2.05", (
                 f"GET /fp/g/{got_id}: expected 2.05, got {resp.code if resp else 'timeout'}")
             entry = cbor2.loads(resp.payload)
-            assert entry.get(7) == [1000 + got_id - GOT_FIRST_ID], f"/fp/g/{got_id} ga: got {entry}"
+            assert entry.get(7) == _got_gas(got_id - GOT_FIRST_ID), f"/fp/g/{got_id} ga: got {entry}"

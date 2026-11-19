@@ -191,7 +191,7 @@ bool check_and_increment_ssn_in_context(oc_oscore_context_t* ctx, bool increment
 // inputs are checked against the own Recipient Contexts (RID)
 oc_oscore_context_t *oc_oscore_find_context_by_kid_and_kid_context(uint8_t *kid, uint8_t kid_len, uint8_t *kid_ctx, uint8_t kid_ctx_len);
 
-// searches a context by token/ mid of inbound response, from a former (OBSERVE) request by a client (inputs are checked against the contexts INBOUND access token)
+// searches the SENDER context of the own former request (OBSERVE, echo re-request, s-mode) by token/ mid of the inbound response
 oc_oscore_context_t* oc_oscore_find_context_by_token_mid(const coap_packet_t* pkt, uint8_t** request_piv, uint8_t* request_piv_len);
 
 #ifdef __cplusplus

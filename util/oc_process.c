@@ -7,6 +7,9 @@
  * SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
  *
  * This file is part of the Contiki operating system.
+ *
+ * This file was created with the assistance of AI tools.
+ * Copyright 2026 KNXA (to the extent protectable under applicable law)
  */
 
 #include "oc_process.h"
@@ -365,8 +368,7 @@ void oc_process_poll(struct oc_process* p)
 {
   if (p != NULL)
   {
-    if (p->state == OC_PROCESS_STATE_RUNNING ||
-      p->state == OC_PROCESS_STATE_CALLED)
+    if (p->state == OC_PROCESS_STATE_RUNNING || p->state == OC_PROCESS_STATE_CALLED)
     {
       p->needspoll = 1;
       poll_requested = 1;

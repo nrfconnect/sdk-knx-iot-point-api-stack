@@ -712,6 +712,13 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
 
       if (recipient)
       {
+        /*
+          mc or uc is decided by the FIRST if: grpid > 0 -> multicast, otherwise unicast (ia)
+          - a recipient entry is either mc (grpid) or uc (ia, at), spec 2.5.7.4.2 table 21
+          - POST /fp/r rejects (4.00) ia and grpid in one request, an update with only one of them switches the mode
+            (the member of the request wins, the other mode is cleared), so an entry never holds both
+          -> grpid > 0 is a safe first test, the same for the write below
+        */
         if (recipient->grpid > 0)
         {
           // grpid is set in case of multicast in RCP table (configured by MaC)
@@ -762,6 +769,7 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
       }
       if (recipient)
       {
+        // mc or uc decided by grpid > 0, an entry never holds both ia and grpid, see the read above
         if (recipient->grpid > 0)
         {
           // mc: request -> grpid is used from RCP table (configured by MaC)

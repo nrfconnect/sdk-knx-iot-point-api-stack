@@ -5,7 +5,7 @@ Defects in the stack found by its tests that are still open.
 A finding is removed once it is fixed (its test then asserts the corrected
 behaviour) or withdrawn. Numbers are never reused, and tests and comments
 keep citing them: `git log -p -S "F-NNN" -- tests/FINDINGS.md` shows a
-removed entry. The next number is F-070.
+removed entry. The next number is F-078.
 
 ## ~~F-029: `oc_endpoint_print()` frees an uninitialized string for non-IPv6 endpoints~~ - FIXED
 
@@ -490,3 +490,182 @@ removed entry. The next number is F-070.
 - **Evidence:** code reading.
 - **Expected:** the oc_ri lookup walks the chain once (`resource = resource->next`, the chain ends with `next == NULL` after the last core resource); the list handlers may walk their range once the same way and pass a 'no skipping' counter instead of their loop counter (e.g. `int no_skip = 0`, first entry 0).
 - **Fix:** the oc_ri lookup walks the core resource chain once from index 0 (`next`, ends with NULL at `/.well-known/core`): one lookup by index instead of `OC_NUM_CORE_RESOURCES` (53). The five list handlers (`/dev`, the app list, `/auth/o`, `/auth`, `/swu`) look up `first_entry` once, then follow `next`, and call `oc_check_request_from_resource()` directly with a local `no_skip` counter (0, first entry 0) instead of their loop counter. `/.well-known/core` (5 non-consecutive indices) is kept. While there: the wildcard test of the lookup reads the last char with the known length (no `strlen` per core resource), and the then unused `oc_uri_contains_wildcard()` (public helper, read `uri[-1]` for an empty string) is removed. Tests: `test_oc_ri`, `RiEntityHandlerPaths.CoreLookupWalksTheChainOnce` (fails without the fix: 53 lookups), `CoreChainEndsWithWellKnownCore` (OC_NUM_CORE_RESOURCES entries, the last `/.well-known/core` with next NULL); `test_oc_knx_swu`, `KnxSwuList.ListWalksTheCoreChainOnce` (fails without the fix: 11 lookups); `--wrap=oc_core_get_core_resource_by_index` counts the lookups (pass through).
+
+## ~~F-070: the response to an own request is matched to the first context of its token, which can be a cached recipient context~~ - FIXED
+
+- **Files:** `security/oc_oscore_context.c`, `oc_oscore_find_context_by_token_mid()` case (c) (transaction without s-mode flag: echo re-request, OBSERVE request); used by `security/oc_oscore_engine.c`, `oc_oscore_recv_message()` for an inbound response; `api/oc_knx_sec.c`, `oc_init_oscore_from_storage()` (POST /auth/at).
+- **Severity:** Medium - the response to an own request (e.g. the echo re-request after an Echo challenge) is dropped silently: no answer for the re-request.
+- **Description:**
+  - case (c) took the FIRST context of the transaction's access token (`sender_only = false`), sender or recipient
+  - the stack keeps one context per ID: a sender context (sender id = osc:id) protects own requests, a recipient context (recipient id = osc:id, empty sender id) is cached for the peer's requests with the same token
+  - `oc_init_oscore_from_storage()` (POST /auth/at without a key change of that token) frees the sender contexts and re-adds them at the END of the list, behind a cached recipient context -> (c) then returns the recipient context
+  - RFC 8613 8.4 step 2: the response is verified with the Security Context associated with the token, i.e. the one that protected the request (8.1); 5.4: `request_kid` is the kid (Sender ID) of the request -> the recipient context has an empty sender id and keys of the other direction, the AEAD check fails
+  - not seen by the tests: the unit fixture of `OscoreContextByToken` used a recipient context only and asserted it as the result; no runtime or conformance sequence has a peer request on token X, then POST /auth/at, then an own request with X answered with an Echo challenge
+- **Evidence:** test below.
+- **Expected:** case (c) looks up the sender context of the token, as (a) and (b) do.
+- **Fix:** case (c) calls `oc_oscore_find_context_by_access_token(..., true)` (sender context only); the comment table of the function says why (RFC 8613 8.4, 5.4; re-add order after POST /auth/at). Tests: `test_oc_oscore_context`, the `OscoreContextByToken` fixture uses a sender context (what protects an own request), `ResponseIsMatchedToTheSenderContextNotACachedRecipientContext` (recipient context of the token first in the list, then the sender context -> the sender context is returned; fails without the fix: the recipient context).
+
+## ~~F-071: a POST /auth/at collection rejected at a later entry leaves an earlier committed token without a sender context~~ - FIXED
+
+- **Files:** `api/oc_knx_sec.c`, `oc_core_auth_at_post_handler()` (per-entry commit inside the collection loop: `oc_oscore_free_contexts_at_id()` on a key change, `*at_entry = tmp`, `oc_store_at_table_entry()`; the early `return` of every 4.00 / 5.00 path; `oc_init_oscore_from_storage(false)` only at the end of the handler); `oc_init_oscore_from_storage()` (the only place that creates persistent sender contexts).
+- **Severity:** Medium - a token updated or created in a rejected collection request can not send (uc, mc, s-mode) until the next successful POST /auth/at, reset or restart; the client is told the request failed although part of it was applied.
+- **Description:**
+  - the handler commits each entry of the collection as soon as its checks pass: on a key change (cnf values or profile differ) the contexts of the token are freed, the entry is replaced and stored
+  - a later entry that fails (mixed array, no id, AT table full, invalid scope or GA array, alg, master secret, id / context id size, missing mandatory properties, out of memory) answers 4.00 / 5.00 and returns at once -> `oc_init_oscore_from_storage(false)` at the end is skipped
+  - the earlier entry is then in the AT table and in storage without a sender context: own requests with that token find no context; a NEW token of an earlier entry never got one
+  - receiving still works: the engine creates a missing recipient context again on the next inbound request
+  - the response is 4.00 / 5.00 although the earlier entries were applied (partial apply, not atomic)
+- **Evidence:** code reading.
+- **Expected:** a rejected collection leaves no token without its contexts and the AT table unchanged (atomic): all entries are checked first and committed only when all passed.
+- **Plan (option B, chosen):**
+  - at most 10 entries per POST /auth/at, EVERY entry counts (id-only deletes too); counted before any entry is processed, more -> 4.13 Request Entity Too Large (RFC 7252 5.9.2.9; spec 2.6.3.3.2: too many elements for the server -> 4.13, the client adapts and resends)
+  - the limit fits the payload: `KNX_PAYLOAD_SIZE` (768 B) holds about 7 typical / 17 minimal full tokens, so a 4.13 is rare
+  - check pass: each entry is parsed into its own shadow copy, kept in a local array of 10 `oc_auth_at_t` on the stack; the first error frees all copies and answers 4.00 / 5.00, nothing is changed
+  - commit pass: only after all entries passed, each copy is committed (contexts freed on a key change, entry replaced, id written, stored); nothing can fail any more (all allocations were done in the check pass)
+  - then `oc_init_oscore_from_storage()` (unless scope only) and the response, as today
+  - same id twice in one request -> 4.00 (spec 2.6.7.2 / 3.5.4.2: the id is unique; spec 3.5.4.1: a new token first, the old one deleted with a subsequent request)
+- **Options considered:**
+
+  | | A: re-init on error | B: atomic with copies (chosen) | C: two passes (check, then parse again and apply) |
+  |---|---|---|---|
+  | contexts after 4.00 | re-built | never lost | never lost |
+  | AT table after 4.00 | partly applied | unchanged | unchanged |
+  | response matches the state | no | yes | yes |
+  | extra RAM | none | 10 copies on the stack | none |
+  | extra CPU | none | none | payload parsed twice |
+  | allocation failure while applying | as today | none, all allocated in the check pass | possible in pass 2, needs A as fallback |
+  | new limit | none | 10 entries -> 4.13 | none |
+
+- **Fix:** option B. `oc_core_auth_at_post_handler()` counts the entries first (more than `KNX_POST_MAX_ENTRIES` (10, was `AT_POST_MAX_ENTRIES`) -> 4.13), then checks each entry into `at_post_entry_t entries[10]` on the stack (shadow copy, allocator bits, delete flag, key-change flag); every error goes through `at_post_reject()` (frees the current and all earlier copies, answers the status) and changes nothing. A duplicate id in the request -> 4.00. Only when all passed, the commit loop deletes / frees the contexts on a key change / replaces the entry / writes the id / stores, then `oc_init_oscore_from_storage()` as before. `find_empty_at_entry(skip)` gives the nth new token of the request the nth free slot (ids are written on commit); the PASE caller passes 0. Tests: `test_oc_knx_sec`, `SecAtPost.CollectionRejectedAtALaterEntryKeepsTheEarlierTokenAndItsContexts` and `CollectionWithMoreThanTenEntriesIsRejectedWith413` (both fail without the fix), `TenNewTokensInOneRequestAreCreatedInTenSlots`, `SameIdTwiceInOneRequestIsRejected`, `DeleteAndRecreateInOneRequestIsRejected`.
+
+## ~~F-072: an inbound multicast request protected with an `if.g.s` token is dropped, although `if.g.s` authorizes all group addresses~~ - FIXED
+
+- **Files:** `security/oc_oscore_engine.c`, `oc_oscore_receive_message()` 8.2 (inbound request with 'kid': the multicast drop `(msg->endpoint.flags & MULTICAST) && at_entry->ga_len == 0` and its comment, case (b)); `api/oc_knx_sec.c`, `oc_knx_sec_check_acl()` (case O1: `if.g.s` -> all group addresses allowed on `/k`).
+- **Severity:** Low - a multicast group message from a sender whose token holds `if.g.s` (no explicit GA list) is never processed; the stack itself never sends multicast with such a token (spec 6.3.2.1 picks a token with the GA in its scope list), so this hits only other senders.
+- **Description:**
+  - the engine discards an inbound multicast request silently when the token of its 'kid' has no group addresses (`ga_len == 0`), before a context is created and before the replay check (no echo)
+  - an `if.g.s` token has a string scope -> `ga_len == 0` -> dropped, like a token with no group rights at all (e.g. only `if.p`)
+  - spec 3.5.3 (Table 47): `if.g.s` = S-Mode group communication (input and output) for ALL group addresses; spec 2.5.9.6: the token used for decryption must contain the group address of the message in its scope -> `if.g.s` covers every group address
+  - the ACL agrees: `oc_knx_sec_check_acl()` lets an `if.g.s` token reach `/k` for any group address (O1), but a multicast request never gets there; a unicast request with the same token is accepted
+  - the engine comment cites 2.5.9.6 as if it required an explicit GA list
+- **Evidence:** code reading.
+- **Expected:** a multicast request is dropped early only when its token has no group rights at all (neither `if.g.s` nor `<ga>`); an `if.g.s` token is accepted and the ACL decides per group address, as on unicast.
+- **Possible fix:** test the scope mask instead of `ga_len`: `(msg->endpoint.flags & MULTICAST) && !(oc_at_get_scope_mask(at_entry) & (OC_ACL_G | OC_ACL_GA))` (`oc_at_get_scope_mask()` is static in `api/oc_knx_sec.c` today -> expose it in `oc_knx_sec.h`); correct the comment of case (b).
+- **Fix:** the engine drops a multicast request only when the token's scope has neither `OC_ACL_G` (`if.g.s`) nor `OC_ACL_GA` (`<ga>`): `msg->endpoint.flags & MULTICAST && !(at_entry->scope & (OC_ACL_G | OC_ACL_GA))`. `ga_len` is no longer needed, because POST /auth/at gives a token a group address list exactly when it sets `OC_ACL_GA`. `scope` is read directly, so `oc_at_get_scope_mask()` stays static. The comments of case (b) and of the multicast echo branch say "group rights" now. `if.g.s` only takes effect at `/k`, the only resource with `OC_ACL_G` (spec 2.5.9.1), and multicast is always s-mode to `/k` (spec 2.6.9.1). Tests: `test_oc_oscore_echo_tx`, `OscoreEngine.MulticastRequestWithIfGsTokenIsDecrypted` (fails without the fix); the fixture token now has `OC_ACL_GA` as POST /auth/at sets it, and the drop test uses an `if.p` token. Runtime: `test_group_comm.py`, `TestMulticastWriteWithIfGsToken` (fails without the fix: /p/1 stays false) and the control `TestMulticastWriteWithoutGroupRights`.
+
+## ~~F-073: a full access token re-POSTed without salt or contextId keeps the old salt and contextId~~ - FIXED
+
+- **Files:** `api/oc_knx_sec.c`, `oc_core_auth_at_post_handler()` (shadow copy `oc_auth_at_t tmp = *at_entry;`, cnf:osc parser for contextId (8:4:6) and salt (8:4:5), `key_changed`).
+- **Severity:** Medium - after a re-keying with a full token, the device derives its keys with the OLD salt and sends the OLD contextId as `kid_context`; the MaC uses none -> every request with that token fails the AEAD check (unicast 4.00, multicast dropped silently) and multicast receivers find no context, without a hint at the cause.
+- **Description:**
+  - the shadow copy starts as a copy of the live entry, including `osc_salt` and `osc_contextid`
+  - the cnf parser overwrites only the members the request carries; a full token (id, cnf with id + ms, scope, profile) without salt / contextId therefore commits the old salt / contextId
+  - spec 2.6.7.3: `cnf` is not updatable in parts, only a full token replaces it (case d) -> it replaces the WHOLE key; spec 3.5.4.2 / 3.6.2: salt and contextId are optional members of `osc`, absent = none (RFC 8613 3.2: empty salt by default)
+  - `key_changed` compares the shadow copy with the live entry: an inherited salt / contextId counts as unchanged, so only the master secret / id change frees the contexts
+- **Evidence:** code reading.
+- **Expected:** a full token carrying `cnf` replaces all `osc` members; an optional member it does not carry (salt, contextId) is empty afterwards.
+- **Possible fix:** after the parse loop, if the request carried `cnf` (`AT_PROP_CNF`): set `tmp.osc_salt` / `tmp.osc_contextid` to an empty byte string when the request did not carry them (`AT_ALLOC_OSC_SALT` / `AT_ALLOC_OSC_CONTEXTID` not set) and set the allocator bit, so the commit frees the old values and a reject frees the empty copies; `key_changed` then sees the change. Test: POST a token with salt and contextId, re-POST it as a full token without them -> both empty (fails today).
+- **Fix:** in the b + d branch of `oc_core_auth_at_post_handler()`, before `key_changed`: if the request carried `cnf` (`AT_PROP_CNF`), `tmp.osc_salt` / `tmp.osc_contextid` are set to an empty byte string when the request did not carry them, with their allocator bit (`AT_ALLOC_OSC_SALT` / `AT_ALLOC_OSC_CONTEXTID`): the commit frees the old values, a reject frees the empty copies, `key_changed` sees the change and frees the contexts. Tests: `test_oc_knx_sec`, `SecAtPost.FullTokenWithoutSaltAndContextIdClearsTheOldOnes` (token with salt and contextId, full re-POST without them -> 2.04, both empty; fails without the fix).
+
+## ~~F-074: POST /auth/at with a CBOR null member deletes the existing token~~ - FIXED
+
+- **Files:** `api/oc_knx_sec.c`, `oc_core_auth_at_post_handler()` (member loop: no branch for `OC_REP_NULL`, `id_only` stays true -> case c); `api/oc_rep.c` (CBOR null / undefined parsed as `OC_REP_NULL`, before as `OC_REP_NIL`).
+- **Severity:** Medium - a malformed or tool-generated update such as `{0: "tok", 9: null}` silently deletes an existing access token (its contexts, observers and SSN record) instead of being rejected or ignored; the client gets 2.04.
+- **Description:**
+  - the parser now maps CBOR null / undefined to its own type `OC_REP_NULL` (an empty array stays `OC_REP_NIL`)
+  - the member loop of the handler has branches for string array, int array, string, int, object and `OC_REP_NIL`; the NIL branch sets `id_only = false` ("an empty element ... causes a not an id only")
+  - a member with `OC_REP_NULL` (or `OC_REP_UNSUPPORTED`) matches no branch -> `id_only` stays true -> an existing token is deleted on commit (case c)
+  - before the parser change, null was `OC_REP_NIL` -> not id only -> a no-op update (2.04), the token stayed
+  - spec 2.6.7.2 / 3.5.4.2: only a payload with the id alone deletes a token
+  - the fp tables are not affected: their `switch` sends an unknown type to `default` -> 4.00
+- **Evidence:** code reading.
+- **Expected:** a member with an unexpected type (null, undefined, unsupported) is not "id only"; the request is rejected with 4.00 (as on fp/g, fp/p, fp/r) and the token stays.
+- **Possible fix:** in the member loop, a final `else` for any other type: `id_only = false` and reject with 4.00 via `at_post_reject()`, or at least `id_only = false` for `OC_REP_NULL` / `OC_REP_UNSUPPORTED`. Test: create "tok", POST `{0: "tok", 9: null}` -> not deleted (fails today: deleted).
+- **Fix:** the member loop of `oc_core_auth_at_post_handler()` ends with an `else` for every type it does not handle: 4.00 via `at_post_reject()`, nothing changed. The former `OC_REP_NIL` branch (empty array -> not "id only", 2.04 without a change) is folded into it: an empty array is no valid scope (spec 3.5.4.2) and is rejected the same way (create was already 4.00). Tests: `test_oc_knx_sec`, `SecAtPost.NullMemberIsRejectedAndDoesNotDeleteTheToken` (`{0: "tok", 9: null}` -> 4.00, token kept; fails without the fix: deleted) and `SecAtPost.EmptyScopeArrayUpdateIsRejectedAndKeepsTheToken` (`{0: "tok", 9: []}` -> 4.00, scope kept; fails with the old NIL branch: 2.04).
+
+## ~~F-075: an empty array on a non-ga key of POST /fp/g deletes the group object entry~~ - FIXED
+
+- **Files:** `api/oc_knx_fp.c`, POST handlers of `/fp/g` (`case OC_REP_NIL`: `if (object->iname != 7) break;` without `id_only = false`), `/fp/p` and `/fp/r` (`case OC_REP_NIL`: other keys ignored).
+- **Severity:** Medium - `{0: 1, 11: []}` on an existing group object entry silently deletes it (2.04); on `/fp/p` and `/fp/r` the same request is answered 2.04 although nothing changed.
+- **Description:**
+  - an empty CBOR array is parsed as `OC_REP_NIL` (null / undefined are `OC_REP_NULL` and get 4.00 in all three tables through `default`)
+  - `/fp/g`: `OC_REP_NIL` on a key other than ga (7) breaks out of the switch without `id_only = false` -> the request counts as "id only" -> the existing entry is deleted (case c); on `main` `{0: 1, 11: null}` did the same, the parser change fixed only the null half
+  - `/fp/p`, `/fp/r`: `OC_REP_NIL` sets `id_only = false` first -> no delete, but a key other than ga is ignored -> 2.04 without a change
+  - spec 2.5.7.4.1 Table 20: only an empty element (only "id") deletes an entry; an empty array is no valid value for any member but the ga of PUB / RCP (multicast)
+  - `/auth/at` (F-074) answers any empty array with 4.00 now
+- **Evidence:** code reading.
+- **Expected:** `OC_REP_NIL` on a key other than ga (7) -> 4.00, the entry unchanged, in all three tables; the empty ga stays as it is (GO 4.00, PUB / RCP accepted for multicast).
+- **Possible fix:** in the three `case OC_REP_NIL`: a key other than 7 -> free the tmp entry and answer 4.00 (as in `default`). Tests: one per table, `{0: <id>, 11: []}` on an existing entry -> 4.00 and the entry unchanged (GO fails today: deleted; PUB / RCP fail today: 2.04).
+- **Fix:** `/fp/g`: the `case OC_REP_NIL` is removed, an empty array on ANY key falls into `default` -> 4.00, nothing changed (a GO needs at least one ga, spec 2.5.7.3.2 Table 18; no other GO member is an array). `/fp/p`, `/fp/r`: `OC_REP_NIL` on a key other than 7 -> 4.00 (tmp entry freed), the empty ga (7) stays accepted for multicast. Tests: `test_oc_knx_fp`, `FpHandlers.GoPostEmptyArrayOnOtherKeyIsRejectedAndKeepsTheEntry`, `PubPostEmptyArrayOnOtherKeyIsRejectedAndKeepsTheEntry`, `RcpPostEmptyArrayOnOtherKeyIsRejectedAndKeepsTheEntry` (`{0: 1, 11: []}` on an existing entry -> 4.00, entry unchanged; all three fail without the fix: GO deleted, PUB / RCP 2.04).
+
+## ~~F-076: a POST /fp/g, /fp/p or /fp/r collection rejected at a later entry leaves the earlier entries stored~~ - FIXED
+
+- **Files:** `api/oc_knx_fp.c`, `oc_core_fp_g_post_handler()`, the POST handlers of `/fp/p` and `/fp/r` (each entry is checked into its shadow copy and committed (`g_got[entry] = tmp`, `oc_store_..._entry()`) before the next entry is parsed; every 4.00 / 5.00 returns at once).
+- **Severity:** Low / Medium - a collection that fails at a later entry has already stored the earlier entries, but the MaC gets 4.00 / 5.00 and does not know that a part was applied (partial apply, not atomic); no OSCORE contexts are involved (unlike F-071).
+- **Description:**
+  - the GO handler documents it: "on a 4.00 / 5.00 the previously written entries - from a collection - are not restored (currently to complicate)"; `/fp/p` and `/fp/r` work the same way
+  - a collection has no entry limit; the same id twice in one request overwrites the first entry ("last wins") instead of being rejected
+  - `/auth/at` has the same structure since F-071: check pass into shadow copies on the stack, commit pass only when ALL entries passed, at most `KNX_POST_MAX_ENTRIES` (10, was `AT_POST_MAX_ENTRIES`) entries (more -> 4.13), the same id twice -> 4.00, `at_post_reject()` frees the current and all earlier copies and answers the error
+- **Evidence:** code reading.
+- **Expected:** a rejected collection leaves all three tables unchanged (atomic), as on `/auth/at`.
+- **Plan (as on `/auth/at`):**
+  - check pass: each entry into its own shadow copy in a local `entries[]` array; the first error frees all copies and answers 4.00 / 5.00, nothing stored
+  - commit pass: only after all entries passed, each copy is committed and stored in request order
+  - entry limit per request -> 4.13 (spec 2.6.3.3.2, RFC 7252 5.9.2.9); the limit needs a memory estimate first: a GO copy (href, ga array) and a PUB / RCP copy (at, url, ga array) are larger than a token copy, the array lives on the stack (Zephyr, ESP-IDF)
+  - the same id twice in one request -> 4.00 (the id is unique in the table, spec 2.5.7.3.2 Table 18, 2.5.7.4.2)
+  - one reject helper per entry type (GO, PUB / RCP) instead of the repeated "free tmp, respond, return" (about 5 sites per handler)
+- **Already aligned with `/auth/at` (this branch):**
+  - one `uint16_t member_flags` per entry instead of `allocator` + `..._properties_seen`, with the layout shared with `/auth/at` in `api/oc_knx_helpers.h` (`oc_member_flag_t`: seen bits 0 ... 8, alloc bits 9 ... 13, bits 14, 15 reserved for combined sets; `TBL_SEEN_*` / `TBL_ALLOC_*` and `AT_SEEN_*` / `AT_ALLOC_*` are names of the same bits)
+  - every member sets its seen and alloc bits in one statement
+  - `bool id_only` replaced by `MF_SEEN_OTHER` and `mf_is_id_only()` (case c: only the id alone deletes)
+  - `oc_free_allocated_group_object_table_elements()` / `oc_free_allocated_group_table_elements()` are `static` and read only the alloc bits (removed from `oc_knx_fp.h`)
+  - an empty array on a key other than ga -> 4.00 (F-075), any other unexpected type -> 4.00 (`default`)
+- **Not part of this finding:** a re-POST of an existing entry keeps the members it does not carry (partial update instead of a replace) -> F-077.
+- **Fix:** the three POST handlers in `api/oc_knx_fp.c` work as `/auth/at` (stack array, option A of the plan):
+  - `KNX_POST_MAX_ENTRIES` 10 in `api/oc_knx_helpers.h`, the ONE limit of `/auth/at` and the three tables (first `TBL_POST_MAX_ENTRIES` 5; the Point API template sends at most 5 entries per request); its comment names the stack risk path (POST `/auth/at`: array + OSCORE re-initialization, about 6.2 KB on Cortex-M33 in the 12 KiB Zephyr stack thread; the tables about 4.5 KB): `tbl_post_entry_count()` counts the entries (top-level objects) before any is processed, more -> 4.13
+  - check pass into `tbl_post_entry_t entries[KNX_POST_MAX_ENTRIES]` on the stack: one entry type for all three tables, the shadow copy is a union (`tmp.go` on `/fp/g`, `tmp.gt` on `/fp/p`, `/fp/r`); both table structs start with `int32_t id` (common initial sequence, C11 6.5.2.3), so `tbl_post_has_id()` reads the id of both -> `id` must stay the first member; about 100 bytes per entry on 32 bit
+  - every error (also before a copy exists: id missing, no free slot) goes through `go_post_reject()` / `gt_post_reject()`: frees the current and all earlier copies, answers the error, nothing stored
+  - the same id twice in one request -> 4.00 (`tbl_post_has_id()`)
+  - an id-only delete is recorded (`delete_entry`), not executed in the check pass
+  - commit pass after ALL entries passed, in request order: delete, or release the replaced live values, take over the copy and store it
+  - new entries claim slots with `skip` (`find_empty_slot_in_table(..., skip)`, `find_empty_go_slot(skip)`), the nth new entry gets the nth free slot; the public `find_empty_slot_in_group_object_table()` keeps its signature
+  - conformance 5.5 passes (Docker)
+  - Tests: `test_oc_knx_fp`, `FpHandlers.RcpCollectionRejectedAtALaterEntryStoresNothing`, `PubCollectionRejectedAtALaterEntryStoresNothing`, `GoCollectionRejectedAtALaterEntryStoresNothing`, `RcpCollectionWithMoreThanTenEntriesIsRejectedWith413`, `RcpSameIdTwiceInOneRequestIsRejected` (all five fail without the fix), `RcpTwoNewEntriesInOneRequestGetTwoSlots` (guards the slot claim).
+
+## ~~F-077: a POST /fp/r or /fp/p to an existing entry keeps the members it does not carry, a switch between unicast and multicast does not take effect~~ - FIXED
+
+- **Files:** `api/oc_knx_fp.c`, POST handlers of `/fp/r` and `/fp/p` (shadow copy from the live entry `tmp = g_grt[index]` / `g_gpt[index]`, case d "changed + 1...n elements = update", mandatory check only on create (a0), check a1 "ia and grpid cannot be in the same table entry" on the members of the request only); `api/oc_knx_client.c` (send path decides by `grpid > 0`); the same structure on `/fp/g`.
+- **Severity:** Medium - a MaC that switches a recipient from multicast to unicast gets 2.04, but the entry keeps its `grpid` and the device keeps sending multicast; a switch from unicast to multicast leaves a stale `ia` / `at` in the entry.
+- **Description:**
+  - spec 2.5.7.4.2 Table 21: a recipient entry is EITHER a direct unicast (`ia`, `at`, `fid`: "C u") OR a multicast exchange (`grpid`, `scop`, `iid`: "C m"); `id` and `ga` are mandatory
+  - spec 2.5.7.4.1 Table 20 (and 2.5.7.3.1 Table 17 for `/fp/g`): "Single elements are identified by their 'id'. Existing elements are replaced, and not existing elements are added." -> a POST to an existing id replaces the element; the spec does not forbid a change between unicast and multicast
+  - the handlers start the shadow copy from the live entry and overwrite only the members of the request -> a member not carried keeps its OLD value
+  - mc -> uc, `{0: 1, 7: [..], 12: <ia>, 14: "<at>"}` on a multicast entry: the old `grpid` stays, `ia` / `at` are added; a1 sees only `ia` in the request and passes; the send path takes `grpid > 0` -> still multicast
+  - uc -> mc, `{0: 1, 7: [..], 13: <grpid>}` on a unicast entry: `ia` / `at` stay; `grpid > 0` -> multicast, the entry carries a stale `ia` / `at` (`oc_is_unicast_recipient_access_token()` excludes it only through `grpid == 0`)
+  - a1 (`(member_flags & TARGET_..._PROPERTIES) == TARGET_..._PROPERTIES`): `ia` and `grpid` in the SAME request -> 4.00, correct and kept (no unit test pins it today)
+  - but a1 checks only the request, not the resulting entry -> a request with only `ia` on a stored multicast entry (or only `grpid` on a unicast one) stores an entry with `ia` AND `grpid` without a 4.00
+  - such an entry is sent by the FIRST `if` of the send path (`grpid > 0` -> mc, else uc), grpid has precedence (documented there):
+
+    | stored | added by the update | entry | sent as |
+    |---|---|---|---|
+    | `ia` (+ `at`) | `grpid` | `ia`, `at`, `grpid` | mc (the old `ia` / `at` stay unused) |
+    | `grpid` | `ia` (+ `at`) | `grpid`, `ia`, `at` | mc (the switch to uc does not take effect) |
+  - the mandatory members (`ga`, one of `ia` / `grpid`) are checked only on create (a0), an update is never checked against them
+- **Evidence:** code reading.
+- **Expected:** a POST to an existing id replaces the entry: the result holds exactly the members of the request (members not carried are cleared, as F-073 on `/auth/at`), and the result passes the same checks as a create: a0 (mandatory `ga`, exactly one of `ia` / `grpid`) and a1 (`ia` and `grpid` not both).
+- **Possible fix:**
+  - on an existing id (case d), start the shadow copy from an EMPTY entry (id only) instead of the live entry; the commit releases all allocated members of the live entry (`TBL_ALLOC_AT`, `TBL_ALLOC_GA`, url) and takes over the copy
+  - run a0 and a1 for create AND update (on the request flags, which then describe the whole entry)
+  - minimum, if the partial update is kept: a1 on the resulting entry (`tmp.ia` set AND `tmp.grpid > 0` -> 4.00), so a half-switched entry can not be stored
+  - the same decision for `/fp/g` (all four members are mandatory there, a replace then needs all of them)
+- **Tests:** `ia` and `grpid` in one request -> 4.00 (pins a1, passes today); mc entry re-POSTed as uc -> `grpid` cleared, unicast send; uc entry re-POSTed as mc -> `ia` / `at` cleared; with the minimum fix: a mc entry updated with only `ia` -> 4.00 (fails today: 2.04, entry with both).
+- **Why not a full replace:** the conformance template (5.5 "Function point tables") sends partial updates and expects 2.04: `/fp/g` `{id, ga}`, `{id, cflag}`, `{id, href}` ("'ga' / 'cflags' / 'href' change"), `/fp/r` `[{id 2, grpid}, {id 3, ga, grpid}, {id 4, ia}]` on existing entries -> a POST to an existing id stays a partial update, a0 stays create only.
+- **Fix:** the partial update stays; a mode switch by an update is resolved, the mode member of the request wins and the other mode is cleared: `tbl_switch_mode()` in `api/oc_knx_fp.c`, called by the `/fp/p` and `/fp/r` POST handlers after a1:
+  - mc -> uc (`ia` in the request, `grpid` stored): `grpid` = 0 -> the send path (`grpid > 0` first) sends uc
+  - uc -> mc (`grpid` in the request, `ia` stored): `ia` = -1, the ia resolver reset, a stale `at` cleared unless the request carries one (`TBL_ALLOC_AT` -> the commit releases the old string) -> no stale unicast `at` usable for mc (spec 6.3.2.1)
+  - a1 stays on the request: `ia` and `grpid` in one request -> 4.00; an entry never holds both
+  - `fid` / `iid` are not touched (not used for the mode decision)
+  - the comment of the send path (`api/oc_knx_client.c`) states it: an entry never holds both, `grpid > 0` is a safe first test
+  - conformance 5.5 passes (Docker)
+  - Tests: `test_oc_knx_fp`, `FpHandlers.RcpPostIaAndGrpidInOneRequestIsRejected`, `PubPostIaAndGrpidInOneRequestIsRejected` (pin a1, pass also without the fix), `RcpPostIaOnAMulticastEntrySwitchesToUnicast`, `RcpPostGrpidOnAUnicastEntrySwitchesToMulticast` (`at` cleared), `PubPostIaOnAMulticastEntrySwitchesToUnicast` (all three fail without the switch: the old mode stays).
+

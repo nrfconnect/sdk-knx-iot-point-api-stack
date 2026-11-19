@@ -734,17 +734,21 @@ static void oc_oscore_receive_message(oc_message_t* msg)
               multicast address, mc later ignored, standard case (a MULTICAST group value write where the GA is
               not used in THIS device)
             - uc 4.01, MaC misconfiguration (a UNICAST group value write where the GA is not used in THIS device)
-        (b) a multicast request with an access token without group addresses (also a cached context), spec:
+        
+        (b) a multicast request with an access token without group rights (no group addresses and no 'if.g.s', also a
+            cached context), spec:
             - 2.6.9.1: multicast is s-mode group communication, responses are suppressed except the SSN synchronization (echo)
             - 2.5.9.6: the access token of the recipient context must contain the group address of the message in its scope
+            - 3.5.3: 'if.g.s' covers ALL group addresses -> such a token passes here, the ACL (/k) decides as on unicast
             -> never authorized: silently discarded BEFORE a context is created and before the replay check could send an echo
       */
-      if (!at_entry || ((msg->endpoint.flags & MULTICAST) && at_entry->ga_len == 0))
+      
+      if (!at_entry || (msg->endpoint.flags & MULTICAST && !(at_entry->scope & (OC_ACL_G | OC_ACL_GA))))
       {
         if (msg->endpoint.flags & MULTICAST)
         {
           // multicast: silently discard — do not reply
-          OC_DBG("no access token (8.2 step 2) or one without group addresses for 'kid' from inbound multicast request message, silently discarding");
+          OC_DBG("no access token (8.2 step 2) or one without group rights for 'kid' from inbound multicast request message, silently discarding");
         }
         else
         {
@@ -1600,9 +1604,10 @@ static void oc_oscore_send_unicast_message(oc_message_t* msg)
     { // s-mode (x0) - overwrites the context retrieved by (uc-a) with a temporary 'Response Sender Context'
 
       /*
-        only s-mode tokens get here: the 'receiver' side drops a multicast request whose token has no group addresses
+        only s-mode tokens get here: the 'receiver' side drops a multicast request whose token has no group rights
+        (no group addresses and no 'if.g.s')
         - small window, accepted: the echo response is sent delayed (0 ... osndelay ms), a POST /auth/at in between may
-          remove the group addresses of the token meanwhile
+          remove the group rights of the token meanwhile
         -> harmless, the temporary context below does not depend on the group addresses, the echo is still encrypted
            correctly (own context, nonce and AAD); this branch always replaces oscore_ctx by the temporary context, so the
            frees below (flag unicast_echo_response_by_mc) never free the persistent context

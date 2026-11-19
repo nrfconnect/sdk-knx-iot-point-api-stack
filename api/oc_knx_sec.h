@@ -257,11 +257,16 @@ extern "C" {
 	void oc_create_knx_sec_resources(void);
 
 	/**
-	 * @brief initialize all OSCORE context from AT table content, called after device reset/ restart or 
+	 * @brief initialize all OSCORE context from AT table content, called after device reset/ restart or
 	 *        on an inbound POST to /auth/at table
 	 *
 	 * @note
-	 * If true the SNN is increased after reading from storage by at least the replay window size
+	 * - If true the SNN is increased after reading from storage by at least the replay window size
+	 * - POST /auth/at that changes the key (cnf, profile) of the token protecting the request itself:
+	 *       - the request is applied, but its 2.04 is not sent. All contexts of the token are freed on the key change,
+	 *         only the sender context is rebuilt here, and the response must be protected with the request's (old)
+	 *         context (RFC 8613 8.3). 
+	 *       - key rotation per spec 3.5.4.1: create a NEW token, switch to it, delete the old one.
 	 *
 	 * @param read_ssn_from_storage affects if the to be used, send out SSN is increased on reading from storage
 	 *                              (true usually after device reset/ restart)

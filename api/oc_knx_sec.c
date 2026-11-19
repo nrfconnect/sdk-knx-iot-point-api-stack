@@ -442,15 +442,28 @@ void oc_free_at_table_ram(void)
 
 /*
   empty ... when 'id' string is an empty string ""
-  the returned entry wipes the at-table RAM content (but not the storage), a free RAM at-table slot
-  may still carry leftovers (salt, context id, ga) of a beforehand rejected entry
+  - the returned entry wipes the at-table RAM content (but not the storage), a free RAM at-table slot
+    may still carry leftovers (salt, context id, ga) of a beforehand rejected entry
+
+  skip
+  - how many free slots must be skipped to really guarantee that we have enough and find the correct position for a later assign
+  - on scanning we always find the first free slot and assume all is OK (but later on commit all new tokens land in that one slot)
+  - without skip, all new tokens of one request get the SAME slot and the commit writes them all into it (last wins)
+  - 'skip--' counts empty slots only ('&&' short-circuits), the n-th new token gets the n-th empty slot
+    example: tokens A (slot 0) and B (slot 2) in the table, one request with 3 new tokens X, Y, Z
+
+      slot      :  0     1     2     3     4
+      id        : "A"   ""    "B"   ""    ""
+      X, skip 0 :        X                       -> first empty slot
+      Y, skip 1 :                    Y           -> passes slot 1 (claimed by X)
+      Z, skip 2 :                          Z     -> passes slots 1 and 3 (claimed by X and Y)
 */
-static oc_auth_at_t* find_empty_at_entry(void)
+static oc_auth_at_t* find_empty_at_entry(int skip)
 {
 
   for (oc_auth_at_t* entry = g_at_entries; entry < g_at_entries + KNX_ATT_MAX_ENTRIES; entry++)
   {
-    if (oc_string_len(entry->id) == 0)
+    if (oc_string_len(entry->id) == 0 && skip-- == 0)
     {
       // found an empty 'id' string ... reset the remaining content before handing the slot out (double free of id accepted)
       oc_free_at_table_entry_ram(entry);
@@ -649,47 +662,79 @@ static void oc_core_auth_at_get_handler(oc_request_t* request, oc_interface_mask
   OC_INF("oc_core_auth_at_get_handler - end");
 }
 
-// identifiers of the elements a POST /auth/at request replaced in its shadow copy (as TABLE_AT_REF/TABLE_GAS on fp/r)
-#define AT_ALLOC_OSC_ID        (1u << 0)
-#define AT_ALLOC_OSC_MS        (1u << 1)
-#define AT_ALLOC_OSC_SALT      (1u << 2)
-#define AT_ALLOC_OSC_CONTEXTID (1u << 3)
-#define AT_ALLOC_GA            (1u << 4)
+// member flags of ONE access token of a POST /auth/at request: MF_SEEN_*, AT_SEEN_*, AT_ALLOC_* (layout in oc_knx_helpers.h)
+#define AT_SEEN_MANDATORY      (MF_SEEN_ID | AT_SEEN_SCOPE | AT_SEEN_PROFILE | AT_SEEN_OSC_ID | AT_SEEN_OSC_MS)
 
 /*
-  frees the elements of 'entry' flagged in 'allocator' (a set bit = the element was replaced in the shadow copy)
-  - (&tmp, allocator) on a rejected request -> drops the new values, the live entry stays as it was
-  - (live, allocator) before '*live = tmp' -> drops the replaced old values, no leak
-  - AT_ALLOC_GA is also set when a string scope removed the ga array (tmp.ga = NULL), free ignores NULL ptr
+  key material of a committed token -> the OSCORE contexts are re-initialized
+  - the osc members (alg, ms, contextId, id, salt) are only parsed inside cnf -> each of them implies AT_SEEN_CNF
+  - a committed token carrying cnf has all mandatory members (else case a / e rejects it) -> cnf = key material
+  - the profile decides whether an OSCORE context exists at all
 */
-static void oc_free_allocated_at_elements(oc_auth_at_t* entry, uint8_t allocator)
+#define AT_SEEN_KEY_MATERIAL   (AT_SEEN_CNF | AT_SEEN_PROFILE)
+
+/*
+  frees the elements of 'entry' flagged AT_ALLOC_* in 'member_flags' (a set bit = the element was replaced in the shadow copy)
+  - (&tmp, member_flags) on a rejected request -> drops the new values, the live entry stays as it was
+  - (live, member_flags) before '*live = tmp' -> drops the replaced old values, no leak
+  - AT_ALLOC_GA is also set when a string scope removed the ga array (tmp.ga = NULL), free ignores NULL ptr
+  - the AT_SEEN_* bits are ignored here
+*/
+static void oc_free_allocated_at_elements(oc_auth_at_t* entry, uint16_t member_flags)
 {
-  if (allocator & AT_ALLOC_OSC_ID)
+  if (member_flags & AT_ALLOC_OSC_ID)
   {
     oc_free_string(&entry->osc_id);
   }
 
-  if (allocator & AT_ALLOC_OSC_MS)
+  if (member_flags & AT_ALLOC_OSC_MS)
   {
     oc_free_string(&entry->osc_ms);
   }
 
-  if (allocator & AT_ALLOC_OSC_SALT)
+  if (member_flags & AT_ALLOC_OSC_SALT)
   {
     oc_free_string(&entry->osc_salt);
   }
 
-  if (allocator & AT_ALLOC_OSC_CONTEXTID)
+  if (member_flags & AT_ALLOC_OSC_CONTEXTID)
   {
     oc_free_string(&entry->osc_contextid);
   }
 
-  if (allocator & AT_ALLOC_GA)
+  if (member_flags & AT_ALLOC_GA)
   {
     free(entry->ga);
     entry->ga = NULL;
     entry->ga_len = 0;
   }
+}
+
+// one checked entry of a POST /auth/at request, committed only when ALL entries of the request passed
+typedef struct
+{
+  oc_auth_at_t tmp;           // shadow copy with the new values
+  oc_auth_at_t* at_entry;     // live slot: the existing token, or the empty slot claimed for a new one
+  const oc_string_t* id;      // access token id, points into the request payload
+  uint16_t member_flags;      // AT_SEEN_* / AT_ALLOC_* of 'tmp' (AT_ALLOC_* elements are owned by 'tmp')
+  bool delete_entry;          // case c: id only on an existing token
+  bool free_contexts;         // the key (cnf values or profile) changed -> the contexts of the token are freed on commit
+} at_post_entry_t;
+
+/*
+  a rejected POST /auth/at changes nothing
+  - releases the current entry and the shadow copies of all older entries checked before, responds the error
+*/
+static void at_post_reject(oc_request_t* request, at_post_entry_t* entries, int entry_count, oc_auth_at_t* tmp, uint16_t member_flags, oc_status_t error)
+{
+  // current
+  oc_free_allocated_at_elements(tmp, member_flags);
+
+  for (int i = 0; i < entry_count; i++)
+  { // older
+    oc_free_allocated_at_elements(&entries[i].tmp, entries[i].member_flags);
+  }
+  oc_prepare_no_format_response_no_payload(request, error);
 }
 
 static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
@@ -704,11 +749,18 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
   // default assumption
   oc_status_t return_status = OC_STATUS_BAD_REQUEST;
 
-  // global flags to indicate if scope or other properties were updated over an entire collection
-  bool scope_updated = false;
-  bool other_updated = false;
-
   oc_auth_at_t* at_entry = NULL;
+
+  /*
+    a request is applied ALL or NOTHING (atomic)
+    - check pass -> each entry is checked into its own shadow copy in 'entries', the first error frees all copies -> 4.00/5.00,
+      the AT table and the OSCORE contexts stay as they were
+    - commit pass -> only when ALL entries passed, nothing can fail there (all values were allocated in the check pass)
+    -> a rejected request never leaves an earlier entry committed (its contexts freed, but not re-initialized)
+  */
+  at_post_entry_t entries[KNX_POST_MAX_ENTRIES];
+  int entry_count = 0; // number of entries checked into shadow copies, committed only when ALL entries passed
+  int new_tokens = 0;  // empty slots claimed by new tokens of this request
   OC_INF("oc_core_auth_at_post_handler");
 
   if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
@@ -718,6 +770,27 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
 
   // debugging
   oc_print_rep_as_json(request->request_payload, true);
+
+  /*
+    every entry counts (also an id-only delete), counted before any entry is checked
+    - spec 2.6.3.3.2 / RFC 7252 5.9.2.9: more elements than the server handles -> 4.13, the client splits the request
+    - the payload (KNX_PAYLOAD_SIZE) holds about 7 typical / 17 minimal full tokens anyway
+  */
+  int entries_in_request = 0;
+  for (const oc_rep_t* entry_rep = request->request_payload; entry_rep != NULL; entry_rep = entry_rep->next)
+  {
+    if (entry_rep->type == OC_REP_OBJECT)
+    {
+      entries_in_request++;
+    }
+  }
+
+  if (entries_in_request > KNX_POST_MAX_ENTRIES)
+  {
+    OC_ERR("%d access tokens in one request, max %d", entries_in_request, KNX_POST_MAX_ENTRIES);
+    oc_prepare_no_format_response_no_payload(request, OC_STATUS_REQUEST_ENTITY_TOO_LARGE);
+    return;
+  }
 
   // set ptr to collection of 1...n access token entries in payload
   rep = request->request_payload;
@@ -736,7 +809,7 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
         if (object->type == OC_REP_MIXED_ARRAY)
         {
           OC_WRN("mixed array as scope is not allowed!");
-          oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+          at_post_reject(request, entries, entry_count, NULL, 0, OC_STATUS_BAD_REQUEST);
           return;
         }
 
@@ -755,8 +828,29 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
       if (access_token_id == NULL)
       {
         OC_ERR("Access token ID in payload not found!");
-        oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+        at_post_reject(request, entries, entry_count, NULL, 0, OC_STATUS_BAD_REQUEST);
         return;
+      }
+
+      /*
+        the same id twice in one request -> 4.00
+        
+        - spec 2.6.7.2 / 3.5.4.2 : the id SHALL be unique on the device; 
+        - spec 3.5.4.1           : a new token first, the old one deleted with a SUBSEQUENT request
+        
+        - the ids are written on commit only, the table lookup below does not see the earlier entries of this request
+          -> a second create would claim a second slot (the id twice in the table), a second update would build on the live
+             values the first one replaces on commit (freed)
+      */
+      for (int i = 0; i < entry_count; i++)
+      {
+        if (oc_string_len(*entries[i].id) == oc_string_len(*access_token_id)
+            && memcmp(oc_string(*entries[i].id), oc_string(*access_token_id), oc_string_len(*access_token_id)) == 0)
+        {
+          OC_ERR("access token %s twice in the same request", oc_string_checked(*access_token_id));
+          at_post_reject(request, entries, entry_count, NULL, 0, OC_STATUS_BAD_REQUEST);
+          return;
+        }
       }
 
       // find index from access token table
@@ -773,34 +867,23 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
         // no index, so we will create one
         return_status = OC_STATUS_CREATED;
 
-        // no index, so we will create one (default)
-        at_entry = find_empty_at_entry();
+        // no index, so we will create one (default), the slots claimed by earlier new tokens of this request are skipped
+        at_entry = find_empty_at_entry(new_tokens);
         if (!at_entry)
         {
           OC_ERR("AT table has no empty slot to add a new entry!");
-          oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+          at_post_reject(request, entries, entry_count, NULL, 0, OC_STATUS_BAD_REQUEST);
           return;
         }
+        new_tokens++;
       }
-
-      /*
-        A bitmask, not a counter: a repeated CBOR key survives oc_parse_rep() as
-        a separate rep, so counting occurrences would let one property repeated
-        five times stand in for all five mandatory ones.
-      */
-      #define AT_PROP_ID      (1u << 0)
-      #define AT_PROP_SCOPE   (1u << 1)
-      #define AT_PROP_PROFILE (1u << 2)
-      #define AT_PROP_OSC_ID  (1u << 3)
-      #define AT_PROP_OSC_MS  (1u << 4)
-      #define AT_PROP_CNF     (1u << 5)
-      #define MANDATORY_AT_PROPERTIES (AT_PROP_ID | AT_PROP_SCOPE | AT_PROP_PROFILE | AT_PROP_OSC_ID | AT_PROP_OSC_MS)
 
       /*
         shadow copy (as for POST on fp/g, fp/p, fp/r): all properties are written to 'tmp', the live entry changes only once ALL checks passed
         - a rejected request (4.00/5.00) leaves an existing token as it was, a new one leaves its slot empty
         - the access token id is written to the entry as the LAST step (see 'b + d' below)
-        - a new value gets its own allocation, flagged in 'allocator'; an element not in the payload stays shared with the live entry
+        - a new value gets its own allocation, flagged AT_ALLOC_* in 'member_flags'; an element not in the payload stays shared with the
+          live entry
 
         repeated key in one access token
         - accepted, the last one wins (as on fp/g, fp/p, fp/r)
@@ -808,18 +891,14 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
         - a value shared with the live entry (bit not set) is NOT freed there, the commit below releases it
       */
       oc_auth_at_t tmp = *at_entry;
-      uint8_t allocator = 0;
-
-      bool id_only = true; // used to delete the AT table entry
-
-      unsigned int at_properties_seen = AT_PROP_ID;
+      uint16_t member_flags = MF_SEEN_ID;
 
       while (object)
       {
         if (object->type == OC_REP_STRING_ARRAY)
         {
           // any extra element - even if not valid - causes a "not an id only"
-          id_only = false;
+          member_flags |= MF_SEEN_OTHER;
 
           // scope with ACL scope string array from MaC such as ["if.sec", "if.swu"]
           if (object->iname == 9)
@@ -856,13 +935,12 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
             if (acl_scopes == OC_ACL_NONE)
             {
               OC_ERR("No valid access scope was set!");
-              oc_free_allocated_at_elements(&tmp, allocator);
-              oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+              at_post_reject(request, entries, entry_count, &tmp, member_flags, OC_STATUS_BAD_REQUEST);
               return;
             }
 
             // release a ga array of this request (repeated key), a live one is released by the commit, free ignores NULL ptr
-            if (allocator & AT_ALLOC_GA)
+            if (member_flags & AT_ALLOC_GA)
             {
               free(tmp.ga);
             }
@@ -870,19 +948,14 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
             // in case of scopes the GA/GA len property is not used, the bit makes the commit release a live ga array
             tmp.ga = NULL;
             tmp.ga_len = 0;
-            allocator |= AT_ALLOC_GA;
-
-            scope_updated = true;
-
-            // scopes (compacted bits)
-            tmp.scope = acl_scopes;
-            at_properties_seen |= AT_PROP_SCOPE;
+            tmp.scope = acl_scopes; // compacted bits
+            member_flags |= AT_SEEN_SCOPE | AT_ALLOC_GA;
           }
         }
         else if (object->type == OC_REP_INT_ARRAY)
         {
           // any extra element - even if not valid - causes a "not an id only"
-          id_only = false;
+          member_flags |= MF_SEEN_OTHER;
 
           // scope with GA integer array from MaC such as [200, 201]
           if (object->iname == 9)
@@ -895,8 +968,7 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
             if (array_size == 0)
             {
               OC_ERR("No valid access GA scope was set!");
-              oc_free_allocated_at_elements(&tmp, allocator);
-              oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+              at_post_reject(request, entries, entry_count, &tmp, member_flags, OC_STATUS_BAD_REQUEST);
               return;
             }
 
@@ -904,8 +976,7 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
             if (!new_array)
             {
               OC_ERR("Out of stack memory!");
-              oc_free_allocated_at_elements(&tmp, allocator);
-              oc_prepare_no_format_response_no_payload(request, OC_STATUS_INTERNAL_SERVER_ERROR);
+              at_post_reject(request, entries, entry_count, &tmp, member_flags, OC_STATUS_INTERNAL_SERVER_ERROR);
               return;
             }
 
@@ -917,14 +988,13 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
             OC_DBG("ga size %d", array_size);
 
             // release a ga array of this request (repeated key), a live one is released by the commit, free ignores NULL ptr
-            if (allocator & AT_ALLOC_GA)
+            if (member_flags & AT_ALLOC_GA)
             {
               free(tmp.ga);
             }
 
             tmp.ga_len = array_size;
             tmp.ga = new_array;
-            allocator |= AT_ALLOC_GA;
 
             /*
               define THIS auth at token below with <ga> scope 's-mode messaging',
@@ -933,10 +1003,7 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
               - is used only in combination with a present ga array / array len (see above)
             */
             tmp.scope = OC_ACL_GA;
-            at_properties_seen |= AT_PROP_SCOPE;
-
-            // as in the string scope branch: a GA-only update needs no re-initialization of the OSCORE contexts (see below)
-            scope_updated = true;
+            member_flags |= AT_SEEN_SCOPE | AT_ALLOC_GA;
           }
         }
         else if (object->type == OC_REP_STRING)
@@ -947,33 +1014,30 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
               NOT id (0), for sure from now on a not 'ID only' case
               Note: id (0) was already scanned/assigned
             */
-            id_only = false;
+            member_flags |= MF_SEEN_OTHER;
           }
         }
         else if (object->type == OC_REP_INT)
         {
           // any extra element - even if not valid - causes a "not an id only"
-          id_only = false;
+          member_flags |= MF_SEEN_OTHER;
 
           // profile (38)
           if (object->iname == 38)
           {
             tmp.profile = (oc_at_profile_t)object->value.integer;
-            at_properties_seen |= AT_PROP_PROFILE;
-
-            // the profile decides whether an OSCORE context exists at all -> the contexts must be re-initialized
-            other_updated = true;
+            member_flags |= AT_SEEN_PROFILE;
           }
         }
         else if (object->type == OC_REP_OBJECT)
         {
           // any extra element - even if not valid - causes a "not an id only"
-          id_only = false;
+          member_flags |= MF_SEEN_OTHER;
 
           // cnf (8): only allowed in a full token, see the check after the loop
           if (object->iname == 8)
           {
-            at_properties_seen |= AT_PROP_CNF;
+            member_flags |= AT_SEEN_CNF;
           }
 
           // level of cnf:xxx
@@ -1000,12 +1064,9 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
                     if (oscore_object->value.integer != 10)
                     {
                       OC_ERR("algorithm is not 10 : %d", (int)oscore_object->value.integer);
-                      oc_free_allocated_at_elements(&tmp, allocator);
-                      oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+                      at_post_reject(request, entries, entry_count, &tmp, member_flags, OC_STATUS_BAD_REQUEST);
                       return;
                     }
-
-                    other_updated = true;
                   }
                 }
                 else if (oscore_object->type == OC_REP_BYTE_STRING)
@@ -1021,8 +1082,7 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
                     if (mastersecret_size < OSCORE_KEY_LEN || mastersecret_size > OSCORE_MASTER_SECRET_LEN)
                     {
                       OC_ERR("master secret size must be in range 16 ... 32: %u", mastersecret_size);
-                      oc_free_allocated_at_elements(&tmp, allocator);
-                      oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+                      at_post_reject(request, entries, entry_count, &tmp, member_flags, OC_STATUS_BAD_REQUEST);
                       return;
                     }
 
@@ -1031,21 +1091,17 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
                     {
 
                       OC_ERR("master secret with len %u content cannot be zero : ", mastersecret_size);
-                      oc_free_allocated_at_elements(&tmp, allocator);
-                      oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+                      at_post_reject(request, entries, entry_count, &tmp, member_flags, OC_STATUS_BAD_REQUEST);
                       return;
                     }
 
                     // repeated key: release the value of this request only (see shadow copy above)
-                    if (allocator & AT_ALLOC_OSC_MS)
+                    if (member_flags & AT_ALLOC_OSC_MS)
                     {
                       oc_free_string(&tmp.osc_ms);
                     }
                     oc_new_byte_string(&tmp.osc_ms, mastersecret_ptr, mastersecret_size);
-                    allocator |= AT_ALLOC_OSC_MS;
-
-                    other_updated = true;
-                    at_properties_seen |= AT_PROP_OSC_MS;
+                    member_flags |= AT_SEEN_OSC_MS | AT_ALLOC_OSC_MS;
                   }
                   else if (cnf_object_nr == 8 && oscore_object_nr == 4 && oscore_object->iname == 6)
                   {
@@ -1057,18 +1113,16 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
                     if (id_context_size > OSCORE_ID_CONTEXT_LEN)
                     {
                       OC_ERR("id context size to big : %zu", id_context_size);
-                      oc_free_allocated_at_elements(&tmp, allocator);
-                      oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+                      at_post_reject(request, entries, entry_count, &tmp, member_flags, OC_STATUS_BAD_REQUEST);
                       return;
                     }
 
-                    if (allocator & AT_ALLOC_OSC_CONTEXTID)
+                    if (member_flags & AT_ALLOC_OSC_CONTEXTID)
                     {
                       oc_free_string(&tmp.osc_contextid);
                     }
                     oc_new_byte_string(&tmp.osc_contextid, oc_string(oscore_object->value.string), id_context_size);
-                    allocator |= AT_ALLOC_OSC_CONTEXTID;
-                    other_updated = true;
+                    member_flags |= AT_SEEN_OSC_CONTEXTID | AT_ALLOC_OSC_CONTEXTID;
                   }
                   else if (cnf_object_nr == 8 && oscore_object_nr == 4 && oscore_object->iname == 0)
                   {
@@ -1080,31 +1134,27 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
                     if (sender_id_size > OSCORE_SENDER_ID_LEN)
                     {
                       OC_ERR("sender id size to big : %zu", sender_id_size);
-                      oc_free_allocated_at_elements(&tmp, allocator);
-                      oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+                      at_post_reject(request, entries, entry_count, &tmp, member_flags, OC_STATUS_BAD_REQUEST);
                       return;
                     }
 
-                    if (allocator & AT_ALLOC_OSC_ID)
+                    if (member_flags & AT_ALLOC_OSC_ID)
                     {
                       oc_free_string(&tmp.osc_id);
                     }
                     oc_new_byte_string(&tmp.osc_id, oc_string(oscore_object->value.string), sender_id_size);
-                    allocator |= AT_ALLOC_OSC_ID;
-                    other_updated = true;
-                    at_properties_seen |= AT_PROP_OSC_ID;
+                    member_flags |= AT_SEEN_OSC_ID | AT_ALLOC_OSC_ID;
                   }
                   else if (cnf_object_nr == 8 && oscore_object_nr == 4 && oscore_object->iname == 5)
                   {
                     // cnf:osc:salt (8:4:5), RFC 9003 max 255 bytes on JSON ....
 
-                    if (allocator & AT_ALLOC_OSC_SALT)
+                    if (member_flags & AT_ALLOC_OSC_SALT)
                     {
                       oc_free_string(&tmp.osc_salt);
                     }
                     oc_new_byte_string(&tmp.osc_salt, oc_string(oscore_object->value.string), oc_string_len(oscore_object->value.string));
-                    allocator |= AT_ALLOC_OSC_SALT;
-                    other_updated = true;
+                    member_flags |= AT_SEEN_OSC_SALT | AT_ALLOC_OSC_SALT;
                   }
                 }
 
@@ -1115,10 +1165,17 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
             cnf_object = cnf_object->next;
           }
         } 
-        else if (object->type == OC_REP_NIL)
+        else
         {
-          // an empty (array) element such as [{0: '12', 9: []}]  - as a kind of MaC mistake ar attack - causes a "not an id only"
-          id_only = false;
+          /*
+            any other member type is not valid in an access token -> 4.00, nothing changed (as on fp/g, fp/p, fp/r)
+            - an empty array (OC_REP_NIL) such as {0: "tok", 9: []}: no valid scope (spec 3.5.4.2), never "id only"
+            - null / undefined (OC_REP_NULL), a type the parser does not map (OC_REP_UNSUPPORTED), bool, float, byte string, ...
+            - without this, such a member set no MF_SEEN_OTHER -> {0: "tok", 9: null} deleted the existing token (case c)
+          */
+          OC_ERR("invalid member type %d (key %d)", (int)object->type, (int)object->iname);
+          at_post_reject(request, entries, entry_count, &tmp, member_flags, OC_STATUS_BAD_REQUEST);
+          return;
         }
 
         object = object->next;
@@ -1133,30 +1190,51 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
                                                - a full token (with ALL mandatory elements) with the same id is 
                                                  seen as allowed to overwrite, its cnf is accepted (case d)
       */
-      if (return_status == OC_STATUS_CHANGED && id_only)
+      if (return_status == OC_STATUS_CHANGED && mf_is_id_only(member_flags))
       {
-        // c
+        // c, deleted on commit
         OC_DBG("only found id in request, deleting entry...");
-        oc_delete_at_table_entry(at_entry);
+        entries[entry_count++] = (at_post_entry_t){ .at_entry = at_entry, .id = access_token_id, .delete_entry = true };
       }
-      else if ((return_status == OC_STATUS_CREATED || at_properties_seen & AT_PROP_CNF) &&
-               (at_properties_seen & MANDATORY_AT_PROPERTIES) != MANDATORY_AT_PROPERTIES)
+      else if ((return_status == OC_STATUS_CREATED || member_flags & AT_SEEN_CNF) &&
+               (member_flags & AT_SEEN_MANDATORY) != AT_SEEN_MANDATORY)
       {
         // a + e
         OC_WRN("mandatory items missing, entry not created / cnf not updated");
-        oc_free_allocated_at_elements(&tmp, allocator);
-        oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+        at_post_reject(request, entries, entry_count, &tmp, member_flags, OC_STATUS_BAD_REQUEST);
         return;
       }
       else
       {
-        // b + d
+        // b + d, committed after ALL entries passed
         OC_DBG("storage index: %d (%s) ", (int)(at_entry - g_at_entries), oc_string_checked(*access_token_id));
+
+        /*
+          a token carrying 'cnf' replaces the WHOLE key (spec 2.6.7.3: cnf is not updatable in parts)
+          - the shadow copy started as a copy of the live entry -> an optional osc member the request does not carry
+            would keep its OLD value (old salt in the key derivation, old contextId as 'kid_context')
+          - absent = none (spec 3.6.2 Table 50: salt default empty, contextId omitted on a receiving device)
+          -> set to empty with its AT_ALLOC_* bit: the commit frees the old value, a reject frees the empty copy
+        */
+        if (member_flags & AT_SEEN_CNF)
+        {
+          if (!(member_flags & AT_SEEN_OSC_SALT))
+          {
+            oc_new_byte_string(&tmp.osc_salt, "", 0);
+            member_flags |= AT_ALLOC_OSC_SALT;
+          }
+
+          if (!(member_flags & AT_SEEN_OSC_CONTEXTID))
+          {
+            oc_new_byte_string(&tmp.osc_contextid, "", 0);
+            member_flags |= AT_ALLOC_OSC_CONTEXTID;
+          }
+        }
 
         /*
           an existing token rewritten (= CHANGED) with a NEW key (cnf values or profile differ from the live entry)
 
-          1. oc_oscore_free_contexts_at_id() below frees ALL its contexts (sender and recipient), only when the key differs
+          1. oc_oscore_free_contexts_at_id() on commit frees ALL its contexts (sender and recipient), only when the key differs
           2. oc_init_oscore_from_storage() at the end rebuilds only the sender contexts, a recipient context is created again
              from the new key on the next inbound request
 
@@ -1171,31 +1249,54 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
           - the VALUES are compared, not the elements seen: a full token re-POSTed with the same key (conformance 5.3.8.4,
             and 5.10.5.2 protected with this token itself) keeps its contexts (a), such a request still gets its response
         */
-        if (return_status == OC_STATUS_CHANGED && (tmp.profile != at_entry->profile
-                      || (at_properties_seen & AT_PROP_CNF
+        const bool key_changed = return_status == OC_STATUS_CHANGED && (tmp.profile != at_entry->profile
+                      || (member_flags & AT_SEEN_CNF
                       && (oc_byte_string_cmp(tmp.osc_id, at_entry->osc_id) != 0
                           || oc_byte_string_cmp(tmp.osc_ms, at_entry->osc_ms) != 0
                           || oc_byte_string_cmp(tmp.osc_salt, at_entry->osc_salt) != 0
-                          || oc_byte_string_cmp(tmp.osc_contextid, at_entry->osc_contextid) != 0))))
-        {
-          oc_oscore_free_contexts_at_id(at_entry);
-        }
+                          || oc_byte_string_cmp(tmp.osc_contextid, at_entry->osc_contextid) != 0)));
 
-        // all checks passed: release the replaced values of the live entry, then take over the shadow copy
-        oc_free_allocated_at_elements(at_entry, allocator);
-        *at_entry = tmp;
-
-        // all checks passed, only now the entry gets its id and becomes visible in the AT table
-        oc_free_string(&at_entry->id);
-        oc_new_string(&at_entry->id, oc_string(*access_token_id), oc_string_len(*access_token_id));
-
-        // debugging
-        oc_print_auth_at_entry(at_entry);
-        oc_store_at_table_entry(at_entry);
+        entries[entry_count++] = (at_post_entry_t){ .tmp = tmp, .at_entry = at_entry, .id = access_token_id, .member_flags = member_flags,
+                                                    .free_contexts = key_changed };
       }
     }
 
     rep = rep->next;
+  }
+
+  // member flags of all committed tokens of the request (deletes add none)
+  uint16_t request_flags = 0;
+
+  // all entries passed -> commit them in request order, nothing can fail from here on
+  for (at_post_entry_t* pending = entries; pending < entries + entry_count; pending++)
+  {
+    if (pending->delete_entry)
+    {
+      oc_delete_at_table_entry(pending->at_entry);
+    }
+    else
+    {
+      // collect all access token's member flags, used to decide whether the OSCORE contexts are re-initialized at the end
+      request_flags |= pending->member_flags;
+
+      if (pending->free_contexts)
+      {
+        oc_oscore_free_contexts_at_id(pending->at_entry);
+      }
+
+      // release the replaced values of the live entry, then take over the shadow copy
+      oc_free_allocated_at_elements(pending->at_entry, pending->member_flags);
+
+      *pending->at_entry = pending->tmp;
+
+      // only now the entry gets its id and becomes visible in the AT table
+      oc_free_string(&pending->at_entry->id);
+      oc_new_string(&pending->at_entry->id, oc_string(*pending->id), oc_string_len(*pending->id));
+
+      // debugging
+      oc_print_auth_at_entry(pending->at_entry);
+      oc_store_at_table_entry(pending->at_entry);
+    }
   }
 
   /*
@@ -1209,18 +1310,23 @@ static void oc_core_auth_at_post_handler(oc_request_t* request, oc_interface_mas
     Use Case
     - update ONE or MANY access token in place (as part of one request), such as to extend the 'exp' time of an access token without rewriting the key
       (such as a token for a diagnostic function that publishes a live value to a visualization)
-    -> a scope-only update needs no re-initialization, all other cases add the oscore contexts by reinitializing all used oscore keys
+    -> a request without a key change (no cnf, no profile) needs no re-initialization, all other cases add the oscore contexts
+       by reinitializing all used oscore keys
+       - scope update   -> the contexts stay valid
+       - id-only delete -> oc_delete_at_table_entry() already freed the contexts of the deleted token
+       - no-op update   -> nothing changed
+       - a created token always carries cnf (mandatory) -> AT_SEEN_KEY_MATERIAL is set
   */
-  const bool scope_only = return_status == OC_STATUS_CHANGED && !other_updated && scope_updated;
-  if (!scope_only)
+ 
+  if (request_flags & AT_SEEN_KEY_MATERIAL)
   {
     oc_init_oscore_from_storage(false);
   }
-  OC_DBG("oscore contexts %s", scope_only ? "kept (scope-only update)" : "reinitialized");
+  OC_DBG("oscore contexts %s", request_flags & AT_SEEN_KEY_MATERIAL ? "reinitialized" : "kept (no key changed)");
 
   // the last return status from a collection with 'n' POST elements is responded (CREATED/CHANGED)
   oc_prepare_no_format_response_no_payload(request, return_status);
-  OC_INF("oc_core_auth_at_post_handler - end"); 
+  OC_INF("oc_core_auth_at_post_handler - end");
 }
 
 static void oc_core_auth_at_delete_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
@@ -2012,7 +2118,7 @@ void oc_oscore_set_auth_shared(const char* client_sender_id, int client_sender_i
   if (!at_entry)
   {
     // no pase token present in AT table (normal case)
-    at_entry = find_empty_at_entry();
+    at_entry = find_empty_at_entry(0);
   }
 
   if (!at_entry)

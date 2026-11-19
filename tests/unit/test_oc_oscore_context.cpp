@@ -838,10 +838,11 @@ protected:
   {
     OscoreContextTest::SetUp();
 
-    static const uint8_t rid[] = {0x02};
+    // our own request was protected with the SENDER context of the token, the response is matched to it
+    static const uint8_t sid[] = {0x02};
     oc_oscore_context_params_t params = {};
-    params.recipient_id = rid;
-    params.recipient_id_size = sizeof(rid);
+    params.sender_id = sid;
+    params.sender_id_size = sizeof(sid);
     params.auth_at = &at_;
     params.read_ssn_from_storage = false;
     ctx_ = oc_oscore_add_context(&params);
@@ -932,4 +933,40 @@ TEST_F(OscoreContextByToken, TransactionWithoutAccessTokenReturnsNull)
   uint8_t *piv = nullptr;
   uint8_t piv_len = 0;
   EXPECT_EQ(oc_oscore_find_context_by_token_mid(&pkt, &piv, &piv_len), nullptr);
+}
+
+/*
+  a response to an own request (no s-mode flag, e.g. an echo re-request) is matched to the SENDER context of the token
+  - a cached recipient context of the same token comes FIRST in the list (POST /auth/at re-adds the sender contexts at
+    the end, behind it)
+  - the recipient context (empty sender id, keys of the other direction) could not decrypt the response
+*/
+TEST_F(OscoreContextByToken, ResponseIsMatchedToTheSenderContextNotACachedRecipientContext)
+{
+  // the order after POST /auth/at: recipient context of the token first, then its sender context
+  oc_oscore_free_context(ctx_);
+  static const uint8_t rid[] = {0x02};
+  oc_oscore_context_params_t params = {};
+  params.recipient_id = rid;
+  params.recipient_id_size = sizeof(rid);
+  params.auth_at = &at_;
+  params.read_ssn_from_storage = false;
+  oc_oscore_context_t* recipient = oc_oscore_add_context(&params);
+  ASSERT_NE(recipient, nullptr);
+
+  static const uint8_t sid[] = {0x02};
+  params = {};
+  params.sender_id = sid;
+  params.sender_id_size = sizeof(sid);
+  params.auth_at = &at_;
+  params.read_ssn_from_storage = false;
+  oc_oscore_context_t* sender = oc_oscore_add_context(&params);
+  ASSERT_NE(sender, nullptr);
+  ASSERT_EQ(oc_oscore_find_context_by_access_token(&at_, false), recipient); // the recipient context is the first
+
+  const uint8_t token[] = {0x11, 0x22, 0x33};
+  coap_packet_t pkt = make_packet(token, sizeof(token), 0);
+  uint8_t* piv = nullptr;
+  uint8_t piv_len = 0;
+  EXPECT_EQ(oc_oscore_find_context_by_token_mid(&pkt, &piv, &piv_len), sender);
 }

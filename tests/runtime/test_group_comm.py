@@ -20,6 +20,9 @@ Multicast skips the unicast recipient's token (ADDITIONAL, non-EITT) - spec
 5.4.1.9   Set Init Flag Causes S-Mode Group Message on Startup
 Multicast Response on UPDATE-only GO (ADDITIONAL, non-EITT) - probes
           spec(Table 19 "if w=true") vs code(oc_knx.c checks u-flag only)
+Multicast write with an 'if.g.s' token (ADDITIONAL, non-EITT) - spec 3.5.3
+          Table 47 / 2.5.9.6: if.g.s covers all ga, applied; an 'if.p' only
+          token (no group rights) is discarded
 5.4.1.12  Updating Own Group Objects for Outgoing Group Messages
 5.4.1.14  Sending Support for Long Group Addresses
 5.4.1.15  Trigger Sending (Non) Confirmable Messages
@@ -2013,6 +2016,87 @@ class TestMulticastResponseUpdateOnly:
             "response must be ignored (oc_knx.c service_a requires "
             "OC_CFLAG_UPDATE AND OC_CFLAG_WRITE). Spec 2.5.7.3.3 Table 19 "
             f"requires w=true, so /p/1 must stay True. Got {data}.")
+
+
+# ===========================================================================
+# Multicast write with an interface scope token (ADDITIONAL, non-EITT)
+# ===========================================================================
+
+def _multicast_write_reaches_p1(coap, oscore_ctx, device_iface):
+    """Sync the SSN, seed /p/1=false via /p, multicast write true to ga 65535, return /p/1 afterwards."""
+    tx_ctx = _sync_multicast_ssn(coap, device_iface, _make_mc_tx_ctx())
+
+    # seeded AFTER the sync: its own write (false) must not decide the result
+    _set_datapoint(coap, oscore_ctx, "/p/1", False)
+    data = _get_datapoint(coap, oscore_ctx, "/p/1")
+    assert data.get(1) is False, f"Expected /p/1=false before the write, got {data}"
+
+    tx_ctx.ssn += 1
+    coap.oscore_multicast_post(tx_ctx, "/k", payload=_build_smode_write(65535, True, sia=PEER_IA), target_addr=_mcast_addr(),
+                               interface=device_iface, collect_timeout=1.0)
+    time.sleep(0.5)
+    return _get_datapoint(coap, oscore_ctx, "/p/1").get(1)
+
+
+class TestMulticastWriteWithIfGsToken:
+    """ADDITIONAL, non-EITT: NON POST /k multicast write protected with an 'if.g.s' token.
+
+    The template sends multicast /k only with tokens holding a group address list. An 'if.g.s' token has no
+    group address list but covers ALL group addresses (spec 3.5.3 Table 47, 2.5.9.6), so the write is
+    processed as with a <ga> token; the ACL of /k decides as on unicast.
+
+    GO table: ga=[65535], cflag=0x10 (write), href=/p/1
+    PUB table: ga=[65535], grpid=0x80000001
+    AT: multicast credentials with scope=["if.g.s"]
+    """
+
+    @pytest.fixture(autouse=True, scope="class")
+    @staticmethod
+    def setup(coap, oscore_ctx, device_iface):
+        if device_iface is None:
+            pytest.skip("Multicast tests require DEVICE_IFACE env var")
+        auth_prepare(coap, oscore_ctx)
+        ia_prepare(coap, oscore_ctx)
+        go = [{0: 13, 7: [65535], 8: 0x10, 11: "/p/1"}]  # cflag=16=w
+        pub = [{0: 7, 7: [65535], 13: GROUP_GRPID}]
+        _provision_multicast(coap, oscore_ctx, go, scope=["if.g.s"], pub_entries=pub)
+        yield
+        set_lsm(coap, oscore_ctx, 4)
+
+    def test_multicast_write_with_if_g_s_token_is_applied(self, coap, oscore_ctx, device_iface):
+        value = _multicast_write_reaches_p1(coap, oscore_ctx, device_iface)
+        assert value is True, (
+            "a multicast write protected with an 'if.g.s' token must be applied (spec 3.5.3: if.g.s covers all "
+            f"group addresses), /p/1 should be True, got {value}")
+
+
+class TestMulticastWriteWithoutGroupRights:
+    """ADDITIONAL, non-EITT: control for the class above, the same multicast write with an 'if.p' only token.
+
+    A token with neither 'if.g.s' nor a group address list has no group rights (spec 2.5.9.6): the device
+    discards the multicast request silently, the value stays unchanged.
+
+    GO / PUB tables as above; AT: multicast credentials with scope=["if.p"]
+    """
+
+    @pytest.fixture(autouse=True, scope="class")
+    @staticmethod
+    def setup(coap, oscore_ctx, device_iface):
+        if device_iface is None:
+            pytest.skip("Multicast tests require DEVICE_IFACE env var")
+        auth_prepare(coap, oscore_ctx)
+        ia_prepare(coap, oscore_ctx)
+        go = [{0: 13, 7: [65535], 8: 0x10, 11: "/p/1"}]  # cflag=16=w
+        pub = [{0: 7, 7: [65535], 13: GROUP_GRPID}]
+        _provision_multicast(coap, oscore_ctx, go, scope=["if.p"], pub_entries=pub)
+        yield
+        set_lsm(coap, oscore_ctx, 4)
+
+    def test_multicast_write_without_group_rights_is_dropped(self, coap, oscore_ctx, device_iface):
+        value = _multicast_write_reaches_p1(coap, oscore_ctx, device_iface)
+        assert value is False, (
+            "a multicast write protected with an 'if.p' only token (no group rights) must be discarded, "
+            f"/p/1 should stay False, got {value}")
 
 
 # ===========================================================================

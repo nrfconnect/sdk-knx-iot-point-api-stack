@@ -4,6 +4,9 @@
  * Copyright (c) 2024-2026 KNX Association
  *
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * This file was created with the assistance of AI tools.
+ * Copyright 2026 KNXA (to the extent protectable under applicable law)
  */
 
 #include <stdlib.h>
@@ -1140,6 +1143,21 @@ bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
     for (const oc_resource_t* tmp_core_res = oc_core_get_core_resource_by_index(0); tmp_core_res; tmp_core_res = tmp_core_res->next)
     {
       const size_t tmp_core_res_len = oc_string_len(tmp_core_res->uri);
+
+      /*
+        required guard, do not remove: every core resource uri is '/' plus at least one char (see the
+        core resource definitions), a shorter one can not match and is skipped. The matching below
+        depends on it:
+        - length 0 or 1: 'tmp_core_res_len - 2' wraps to a huge strncmp bound
+        - length 0: 'uri[tmp_core_res_len - 1]' reads in front of the string, and the exact match
+          'uri_path_len + 1 == 0' needs uri_path_len == SIZE_MAX (strncmp bound SIZE_MAX)
+        The compiler can not see the invariant: without this guard gcc 14 -O3 (MinGW cross build)
+        stops with -Werror=stringop-overread on both strncmp calls.
+      */
+      if (tmp_core_res_len < 2)
+      {
+        continue;
+      }
 
       /*
         incoming URL fits to a core resource by len and content, such as:

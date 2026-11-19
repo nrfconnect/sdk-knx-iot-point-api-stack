@@ -167,6 +167,87 @@ int oc_frame_query_l(char* url, bool ps_exists, int ps, bool total_exists, int t
  */
 int oc_frame_integer(const int value);
 
+/*
+  entries of ONE POST collection on auth/at, fp/g, fp/p, fp/r (one limit for all four handlers)
+
+  FACTS:
+  1. a collection is atomic: every entry is checked into a shadow copy first, committed only when ALL entries passed
+  2. the shadow copies live in a local array of KNX_POST_MAX_ENTRIES on the STACK of the handler -> this define scales the
+     frame of all four handlers
+  3. more entries in one request -> 4.13 Request Entity Too Large (spec 2.6.3.3.2, RFC 7252 5.9.2.9), the client splits
+     the collection
+
+  DETAILS (stack depth, measured on Cortex-M33 with -Os):
+  - RISK PATH = POST auth/at: the handler runs in the stack thread below coap_receive -> oc_ri_invoke_coap_entity_handler
+    (about 1.6 KB), holds its array (about 150 bytes per entry) and then re-initializes the OSCORE contexts:
+    oc_init_oscore_from_storage -> oc_oscore_add_context -> HKDF -> PSA MAC -> SHA-256 (about 3 KB below the handler)
+    -> about 6.2 KB in total with 10 entries, the deepest path of the stack thread
+  - fp/g, fp/p, fp/r: array (about 100 bytes per entry, the size of oc_group_table_t) plus the storage write
+    (settings -> NVS, about 1.3 KB) -> about 4.5 KB in total with 10 entries
+  - the stack of the thread that runs the stack must cover the RISK PATH with headroom (Zephyr:
+    CONFIG_KNXIOT_THREAD_STACK_SIZE); a higher limit costs about 150 bytes per entry on that path
+*/
+#define KNX_POST_MAX_ENTRIES 10
+
+/*
+  member flags of ONE entry of a POST (uint16_t), one layout for auth/at, fp/g, fp/p, fp/r
+
+  - bits 0 ... 8   *_SEEN_*  -> the member is in the request (mandatory check, cnf present, salt/contextId carried,
+                                any member besides the id -> not 'id only')
+                                a bitmask, not a counter: a repeated CBOR key survives oc_parse_rep() as a separate rep,
+                                so counting occurrences would let one member repeated five times stand in for all mandatory ones
+  - bits 9 ... 13  *_ALLOC_* -> the value was allocated in the shadow copy
+                                freed from the copy on a reject, released from the live entry on commit
+  - bits 14, 15              -> reserved for combined sets
+
+  FACTS:
+  1. the same bit has a name per module (AT_* on auth/at, TBL_* on fp/g, fp/p, fp/r) -> an enum may hold the same value
+     under different names, two names with one value are INTENDED here
+  2. MF_SEEN_ID and MF_SEEN_OTHER mean the same in all modules -> shared names
+  3. masks (mandatory members, key material) are combinations of bits and stay in their module
+*/
+typedef enum
+{
+  // shared by all modules
+  MF_SEEN_ID             = 1u << 0,   // id (0), set before the member loop (a missing id is a 4.00 there)
+  MF_SEEN_OTHER          = 1u << 8,   // any member besides the id -> not 'id only' (case c deletes on the id alone)
+
+  // auth/at
+  AT_SEEN_SCOPE          = 1u << 1,   // scope (9)
+  AT_SEEN_PROFILE        = 1u << 2,   // profile (38)
+  AT_SEEN_CNF            = 1u << 3,   // cnf (8)
+  AT_SEEN_OSC_ID         = 1u << 4,   // cnf:osc:id (8:4:0)
+  AT_SEEN_OSC_MS         = 1u << 5,   // cnf:osc:ms (8:4:2)
+  AT_SEEN_OSC_SALT       = 1u << 6,   // cnf:osc:salt (8:4:5)
+  AT_SEEN_OSC_CONTEXTID  = 1u << 7,   // cnf:osc:contextId (8:4:6)
+  AT_ALLOC_OSC_ID        = 1u << 9,
+  AT_ALLOC_OSC_MS        = 1u << 10,
+  AT_ALLOC_OSC_SALT      = 1u << 11,
+  AT_ALLOC_OSC_CONTEXTID = 1u << 12,
+  AT_ALLOC_GA            = 1u << 13,  // ga array of a <ga> scope, also set when a string scope removes it
+
+  // fp/g, fp/p, fp/r
+  TBL_SEEN_GA            = 1u << 1,   // ga (7)
+  TBL_SEEN_CFLAG         = 1u << 2,   // cflag (8), go table
+  TBL_SEEN_HREF          = 1u << 3,   // href (11), go table
+  TBL_SEEN_IA            = 1u << 4,   // ia (12), pub/rcp table
+  TBL_SEEN_GRPID         = 1u << 5,   // grpid (13), pub/rcp table
+  TBL_SEEN_AT            = 1u << 6,   // at (14), pub/rcp table
+  TBL_ALLOC_HREF         = 1u << 9,   // go table href
+  TBL_ALLOC_AT           = 1u << 10,  // pub/rcp table access token reference
+  TBL_ALLOC_GA           = 1u << 11,  // pub/rcp/go table ga list
+} oc_member_flag_t;
+
+#define MF_SEEN_MASK     0x01FFu  // bits 0 ... 8
+#define MF_ALLOC_MASK    0x3E00u  // bits 9 ... 13
+#define MF_COMBINED_MASK 0xC000u  // bits 14, 15
+
+// true if the entry carried nothing but its id (case c: an existing entry is deleted)
+static inline bool mf_is_id_only(uint16_t member_flags)
+{
+  return (member_flags & MF_SEEN_OTHER) == 0;
+}
+
 #ifdef __cplusplus
 }
 #endif
