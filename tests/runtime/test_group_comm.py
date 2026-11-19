@@ -2726,6 +2726,9 @@ class TestUnicastNonEchoReRequest:
         assert code == 0x02, f"Expected inner POST, got {code:#04x}"
         assert inner_opts.get(252) == echo, (
             f"Echo option not mirrored: {inner_opts.get(252)!r}")
+        assert inner_opts.get(12) == bytes([60]), (
+            f"Content-Format not CBOR: {inner_opts.get(12)!r}")
+        assert 17 not in inner_opts, "re-request carries an Accept option"
         data = cbor2.loads(payload)
         assert data[4] == DUT_IA, f"SIA should be {DUT_IA:#x}"
         assert data[5][7] == 65535 and data[5][6] == "w", (

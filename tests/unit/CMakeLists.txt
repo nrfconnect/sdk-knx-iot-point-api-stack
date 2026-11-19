@@ -235,6 +235,9 @@ kis_add_test(test_smode_loopback_recursion test_smode_loopback_recursion.cpp)
 # transaction), so no live network stack or oc_main_init() is needed.
 target_link_options(test_smode_loopback_recursion PRIVATE
     -Wl,--wrap=coap_new_transaction_with_message
+    -Wl,--wrap=coap_send_transaction
+    -Wl,--wrap=coap_notify_observers_dispatched
+    -Wl,--wrap=oc_knx_notify_k_observers
 )
 # oc_rep macros use g_err |= cbor_encode_*() which is an invalid
 # enum-to-int conversion in strict C++.
@@ -316,6 +319,18 @@ target_link_options(test_read_on_init PRIVATE
     -Wl,--wrap=oc_connectivity_get_network_scope
     -Wl,--wrap=oc_send_s_mode_multicast_message
     -Wl,--wrap=oc_send_s_mode_unicast_message
+)
+kis_add_test(test_oc_knx_publisher   test_oc_knx_publisher.cpp)
+# The clock, the timed-event registry, the load state, the resource lookup and
+# the s-mode sender are replaced by test doubles, so the periodic check runs
+# without event loop or network.
+target_link_options(test_oc_knx_publisher PRIVATE
+    -Wl,--wrap=oc_clock_time
+    -Wl,--wrap=oc_ri_add_timed_event_callback_ticks
+    -Wl,--wrap=oc_ri_remove_timed_event_callback
+    -Wl,--wrap=oc_send_s_mode_mc_or_uc_message_dispatched
+    -Wl,--wrap=oc_is_device_in_runtime
+    -Wl,--wrap=oc_ri_get_app_resource_by_resource_path
 )
 kis_add_test(test_oc_network_events  test_oc_network_events.cpp)
 target_link_options(test_oc_network_events PRIVATE

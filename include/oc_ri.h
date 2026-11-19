@@ -520,8 +520,10 @@ void oc_ri_shutdown(void);
  * @param cb_data the timed event callback info
  * @param event_callback the callback
  * @param ticks time in ticks
+ *
+ * @return true added, false the callback entry cannot be allocated
  */
-void oc_ri_add_timed_event_callback_ticks(void* cb_data, oc_trigger_t event_callback, oc_clock_time_t ticks);
+bool oc_ri_add_timed_event_callback_ticks(void* cb_data, oc_trigger_t event_callback, oc_clock_time_t ticks);
 
 /**
  * @brief add timed event callback in seconds

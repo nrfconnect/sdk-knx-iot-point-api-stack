@@ -854,29 +854,29 @@ void oc_ri_remove_timed_event_callback(void* cb_data, oc_trigger_t event_callbac
   }
 }
 
-void oc_ri_add_timed_event_callback_ticks(void* cb_data, oc_trigger_t event_callback, oc_clock_time_t ticks)
+bool oc_ri_add_timed_event_callback_ticks(void* cb_data, oc_trigger_t event_callback, oc_clock_time_t ticks)
 {
   oc_event_callback_t* event_cb = calloc(1, sizeof(oc_event_callback_t));
 
-  if (event_cb)
-  {
-    event_cb->data = cb_data;
-    event_cb->callback = event_callback;
-    OC_PROCESS_CONTEXT_BEGIN(&timed_callback_events);
-      oc_etimer_set(&event_cb->timer, ticks);
-    OC_PROCESS_CONTEXT_END(&timed_callback_events);
-    oc_list_add(timed_callbacks, event_cb);
-
-    /* Wake the event loop so ports that sleep until signaled (e.g. Zephyr)
-     * re-evaluate their next wakeup and service this new timer on time.
-     * Without this, a timed callback scheduled from another context (e.g. a
-     * button press) can be missed until an unrelated event wakes the loop. */
-    _oc_signal_event_loop();
-  }
-  else
+  if (!event_cb)
   {
     OC_WRN("insufficient memory to add timed event callback");
+    return false;
   }
+
+  event_cb->data = cb_data;
+  event_cb->callback = event_callback;
+  OC_PROCESS_CONTEXT_BEGIN(&timed_callback_events);
+  oc_etimer_set(&event_cb->timer, ticks);
+  OC_PROCESS_CONTEXT_END(&timed_callback_events);
+  oc_list_add(timed_callbacks, event_cb);
+
+  /* Wake the event loop so ports that sleep until signaled (e.g. Zephyr)
+   * re-evaluate their next wakeup and service this new timer on time.
+   * Without this, a timed callback scheduled from another context (e.g. a
+   * button press) can be missed until an unrelated event wakes the loop. */
+  _oc_signal_event_loop();
+  return true;
 }
 
 static void poll_event_callback_timers(oc_list_t list)

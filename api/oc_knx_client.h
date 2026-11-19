@@ -77,16 +77,31 @@ int oc_is_redirected_request_from(const oc_request_t *request);
  *
  * For the recipient table all entries are used to send the unicast communication.
  *
- * @note the function checks the t-cflag from the GO for the sending GA
+ * @note the function checks the t-cflag from the GO for the sending GA; for 'w' the /p observers
+ *       of the resource are notified when the device is loaded, with or without t-cflag
  *
  * @param scope the multicast scope
  * @param resource_path caller resource path (e.g. implemented on the device that is calling this function)
  * @param srv_type the service type to use, 'w' or 'r'
  *
- * @return 0 send out, -1 not send out (path not existing, t-cflag not set)
+ * @return 0 processed (also when no recipient table entry exists, see
+ *         oc_send_s_mode_mc_or_uc_message_dispatched()), -1 not send out (path not existing, t-cflag not set,
+ *         value cannot be encoded)
  *
  */
 int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, char srv_type);
+
+/**
+ * @brief oc_send_s_mode_mc_or_uc_message() that also reports whether the message reached an audience
+ *
+ * @param dispatched set to true when the s-mode message was handed to the messaging layer (or is held by
+ *                   the IPv6 resolver of the recipient and sent once resolved), or, for 'w', at least one
+ *                   /p observer notification was queued; false otherwise, e.g. no recipient table entry
+ *                   and no observer. May be NULL.
+ *
+ * @return same as oc_send_s_mode_mc_or_uc_message(); 0 does not imply that anything was sent
+ */
+int oc_send_s_mode_mc_or_uc_message_dispatched(uint8_t scope, const char* resource_path, char srv_type, bool* dispatched);
 
 /**
  * @brief regenerates an s-mode payload for a late 4.01 echo re-request
@@ -109,37 +124,36 @@ int oc_create_s_mode_payload_for_go(const oc_group_object_table_t* group_object,
  * @param group_object originating group object table entry; carried to the OSCORE layer so a late 4.01
  *                     echo response can REGENERATE the re-request payload. May be NULL, then a late echo
  *                     falls back to the 'sia' only form.
+ *
+ * @return true when the message was handed to the messaging layer
  */
-void oc_send_s_mode_multicast_message(uint8_t scope, uint32_t group_address, char service_type,
-                                      const uint8_t* value_data, int value_size,
+bool oc_send_s_mode_multicast_message(uint8_t scope, uint32_t group_address, char service_type, const uint8_t* value_data, int value_size,
                                       oc_group_table_t* recipient, const oc_group_object_table_t* group_object);
 
 /**
  * @brief Send unicast s-mode message (confirmable or non-confirmable)
- * 
+ *
  * Automatically handles IPv6 resolution:
  * - If IPv6 is resolved: sends immediately
  * - If IPv6 is not resolved: queues message and triggers CoAP discovery
- * 
+ *
  * Sender IA and IID are obtained internally from the local device info.
- * 
+ *
  * @param group_address Group address to send on (specific GA for this message)
  * @param service_type 'w', 'r', or 'a'
  * @param value_data CBOR encoded value
  * @param value_size Size of value_data
  * @param recipient Recipient table entry (contains ia, non flag, IPv6 address)
  * @param group_object Group Object table entry that host the sending GA
- * @return 0 on success (sent or queued), -1 on error
+ * @return true when the message was handed to the messaging layer, or is held by the IPv6 resolver
+ *         for this group object and sent once the address is resolved
  *
  * @note Message confirmability is determined by recipient->non:
  *       - recipient->non = false (default) -> sends Confirmable (CON)
  *       - recipient->non = true -> sends Non-Confirmable (NON)
  */
-void oc_send_s_mode_unicast_message(
-  uint32_t group_address, char service_type,
-  const uint8_t* value_data, int value_size,
-  oc_group_table_t* recipient,
-  oc_group_object_table_t* group_object);
+bool oc_send_s_mode_unicast_message(uint32_t group_address, char service_type, const uint8_t* value_data, int value_size, oc_group_table_t* recipient,
+                                    oc_group_object_table_t* group_object);
 
 /** @} */ // end of doc_module_tag_s_mode_client
 

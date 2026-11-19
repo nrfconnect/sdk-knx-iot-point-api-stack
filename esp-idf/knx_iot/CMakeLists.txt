@@ -39,6 +39,7 @@ set(API_SOURCES
     ${STACK_ROOT}/api/oc_knx_hooks.c
     ${STACK_ROOT}/api/oc_knx_observe.c
     ${STACK_ROOT}/api/oc_knx_p.c
+    ${STACK_ROOT}/api/oc_knx_publisher.c
     ${STACK_ROOT}/api/oc_knx_sec.c
     ${STACK_ROOT}/api/oc_knx_swu.c
     ${STACK_ROOT}/api/oc_knx_sub.c

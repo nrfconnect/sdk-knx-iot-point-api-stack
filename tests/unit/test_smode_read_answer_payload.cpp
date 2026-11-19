@@ -92,16 +92,13 @@ static uint8_t g_fake_tx_buffer[512];
   value_size the /k handler computed for each answer - the quantity that was wrong - without
   needing a live network stack.
 */
-extern "C" void __wrap_oc_send_s_mode_multicast_message(uint8_t scope,
-                                                        uint32_t group_address,
-                                                        char service_type,
-                                                        const uint8_t *value_data,
-                                                        int value_size,
-                                                        oc_group_table_t *recipient)
+extern "C" bool __wrap_oc_send_s_mode_multicast_message(uint8_t scope, uint32_t group_address, char service_type, const uint8_t* value_data,
+                                                        int value_size, oc_group_table_t* recipient, const oc_group_object_table_t* group_object)
 {
   (void)scope;
   (void)value_data;
   (void)recipient;
+  (void)group_object;
 
   SentAnswer a;
   a.value_size = value_size;
@@ -143,6 +140,7 @@ extern "C" void __wrap_oc_send_s_mode_multicast_message(uint8_t scope,
   oc_rep_i_set_text_string(tx, 6, "a");
   cbor_encoder_close_container_checked(&root_map, &tx_map);
   oc_rep_end_root_object();
+  return true;
 }
 
 /* -- application GET handlers ---------------------------------------------- */
@@ -206,62 +204,6 @@ protected:
       dev->iid = m_saved_iid;
       dev->lsm_s = m_saved_lsm;
     }
-  }
-
-  static void clear_go_table()
-  {
-    int n = oc_core_get_group_object_table_total_size();
-    for (int i = 0; i < n; i++) {
-      oc_group_object_table_t *e = oc_core_get_group_object_table_entry(i);
-      if (e == nullptr) {
-        continue;
-      }
-      e->id = -1;
-      e->ga = nullptr;
-      e->ga_len = 0;
-      e->cflags = OC_CFLAG_NONE;
-      oc_free_string(&e->href); /* release the href set_go() allocated (LeakSanitizer) */
-      e->href = (oc_string_t){ 0 };
-    }
-  }
-
-  static void clear_recipient_table()
-  {
-    int n = oc_core_get_recipient_table_size();
-    for (int i = 0; i < n; i++) {
-      oc_group_table_t *e = oc_core_get_recipient_table_entry(i);
-      if (e == nullptr) {
-        continue;
-      }
-      memset(e, 0, sizeof(*e));
-      e->id = -1;
-      e->ia = -1;
-    }
-  }
-
-  static void set_go(int index, int32_t id, const char *href, uint32_t *ga,
-                     uint16_t ga_len, oc_cflag_mask_t cflags)
-  {
-    oc_group_object_table_t *e = oc_core_get_group_object_table_entry(index);
-    ASSERT_TRUE(e != nullptr);
-    e->id = id;
-    e->ga = ga;
-    e->ga_len = ga_len;
-    e->cflags = cflags;
-    oc_new_string(&e->href, href, strlen(href));
-  }
-
-  static void set_recipient(int index, int32_t id, uint32_t *ga, uint16_t ga_len,
-                            uint32_t grpid)
-  {
-    oc_group_table_t *e = oc_core_get_recipient_table_entry(index);
-    ASSERT_TRUE(e != nullptr);
-    e->id = id;
-    e->ga = ga;
-    e->ga_len = ga_len;
-    e->grpid = grpid;
-    e->iid = -1;
-    e->ia = -1;
   }
 
   uint64_t m_saved_iid = 0;

@@ -557,6 +557,21 @@ TEST_F(CoapObserve, RegistrationRejectsNegativeLifetime)
   EXPECT_EQ(tr.data.num_observers, 0);
 }
 
+// only "non=true" selects NON notifications, a bare "non" keeps the default
+TEST_F(CoapObserve, BareNonKeepsConfirmableNotifications)
+{
+  TestResource tr("/test");
+  ObserverCleanup cleanup;
+  tr.resource.get_handler.cb = observe_get_handler;
+  oc_endpoint_t ep = make_endpoint(5683);
+  uint8_t token[] = {0xD1};
+  ASSERT_EQ(add_test_observer(&tr.resource, &ep, token, 1, "test", 4, "lt=60&non", 64), 0);
+  g_sent_types.clear();
+
+  ASSERT_EQ(coap_notify_observers_dispatched(&tr.resource, nullptr, nullptr), 1);
+  ASSERT_EQ(g_sent_types.size(), 1u);
+  EXPECT_EQ(g_sent_types[0], COAP_TYPE_CON);
+}
 
 // an invalid re-registration is answered with 4.00 and leaves the running observation alone
 TEST_F(CoapObserve, RejectedReregistrationKeepsExistingObservation)
@@ -655,11 +670,83 @@ TEST_F(CoapObserve, NotifyObserverBuildsAndSendsNotification)
   coap_free_all_observers();
 }
 
+/* ---------------- coap_notify_observers_dispatched ----------------------- */
 
+TEST_F(CoapObserve, NotifyDispatchedCountsQueuedNotification)
+{
+  TestResource tr("/test");
+  ObserverCleanup cleanup;
+  tr.resource.get_handler.cb = observe_get_handler;
+  oc_endpoint_t ep = make_endpoint(5683);
+  uint8_t token[] = {0xC5};
+  ASSERT_EQ(add_test_observer(&tr.resource, &ep, token, 1, "test", 4, "lt=86400", 64), 0);
 
+  EXPECT_EQ(coap_notify_observers_dispatched(&tr.resource, nullptr, nullptr), 1);
+}
 
+TEST_F(CoapObserve, BlockwiseHrefAllocationFailureSkipsOnlyThatObserver)
+{
+  // the href copy ("test" + NUL) of the blockwise buffer fails: no write through NULL, no half-built buffer
+  TestResource tr("/test");
+  ObserverCleanup cleanup;
+  tr.resource.get_handler.cb = large_get_handler;
+  oc_endpoint_t ep1 = make_endpoint(5683);
+  oc_endpoint_t ep2 = make_endpoint(5684);
+  uint8_t token1[] = {0xCC};
+  uint8_t token2[] = {0xCD};
+  ASSERT_EQ(add_test_observer(&tr.resource, &ep1, token1, 1, "test", 4, "lt=86400", kBlockSize), 0);
+  ASSERT_EQ(add_test_observer(&tr.resource, &ep2, token2, 1, "test", 4, "lt=86400", kBlockSize), 0);
 
+  g_fail_malloc_size = sizeof("test");
+  EXPECT_EQ(coap_notify_observers_dispatched(&tr.resource, nullptr, nullptr), 1);
+  EXPECT_EQ(g_fail_malloc_size, 0u);
+  g_fail_malloc_size = 0;
+}
 
+TEST_F(CoapObserve, NotifyDispatchedIsZeroForNonMatchingEndpoint)
+{
+  TestResource tr("/test");
+  ObserverCleanup cleanup;
+  tr.resource.get_handler.cb = observe_get_handler;
+  oc_endpoint_t ep1 = make_endpoint(5683);
+  oc_endpoint_t ep2 = make_endpoint(5684);
+  uint8_t token[] = {0xC6};
+  ASSERT_EQ(add_test_observer(&tr.resource, &ep1, token, 1, "test", 4, "lt=86400", 64), 0);
+
+  EXPECT_EQ(coap_notify_observers_dispatched(&tr.resource, nullptr, &ep2), 0);
+}
+
+TEST_F(CoapObserve, NotifyDispatchedIsZeroWhenBufferAllocationFails)
+{
+  /* the observer count contract of coap_notify_observers stays, the dispatch result reports the failure */
+  TestResource tr("/test");
+  ObserverCleanup cleanup;
+  tr.resource.get_handler.cb = observe_get_handler;
+  oc_endpoint_t ep = make_endpoint(5683);
+  uint8_t token[] = {0xC7};
+  ASSERT_EQ(add_test_observer(&tr.resource, &ep, token, 1, "test", 4, "lt=86400", 64), 0);
+
+  g_fail_observe_buffer_malloc = true;
+  EXPECT_EQ(coap_notify_observers_dispatched(&tr.resource, nullptr, nullptr), 0);
+  EXPECT_FALSE(g_fail_observe_buffer_malloc);
+
+  g_fail_observe_buffer_malloc = true;
+  EXPECT_EQ(coap_notify_observers(&tr.resource, nullptr, nullptr), 1);
+  EXPECT_FALSE(g_fail_observe_buffer_malloc);
+}
+
+TEST_F(CoapObserve, NotifyDispatchedIsZeroWhenGetIsIgnored)
+{
+  TestResource tr("/test");
+  ObserverCleanup cleanup;
+  tr.resource.get_handler.cb = ignoring_get_handler;
+  oc_endpoint_t ep = make_endpoint(5683);
+  uint8_t token[] = {0xC8};
+  ASSERT_EQ(add_test_observer(&tr.resource, &ep, token, 1, "test", 4, "lt=86400", 64), 0);
+
+  EXPECT_EQ(coap_notify_observers_dispatched(&tr.resource, nullptr, nullptr), 0);
+  EXPECT_EQ(coap_notify_observers(&tr.resource, nullptr, nullptr), 1);
+}
 
 TEST_F(CoapObserve, NotifyKObserversNullPayloadIsSafe)
 {

@@ -129,9 +129,8 @@ static bool ipv6_for_ia_is_resolved(char service_type, oc_group_table_t* recipie
   return false;
 }
 
-static void oc_issue_s_mode_message(const oc_endpoint_t* endpoint, const char* path,
-                                    uint32_t group_address, char service_type, const uint8_t* value_data,
-                                    int value_size, oc_group_table_t* recipient);
+static bool oc_issue_s_mode_message(const oc_endpoint_t* endpoint, const char* path, uint32_t group_address, char service_type,
+                                    const uint8_t* value_data, int value_size, oc_group_table_t* recipient);
 
 /*
   Re-entrance guard for the internal group object update ('loopback') below in
@@ -198,8 +197,11 @@ int oc_is_redirected_request_from(const oc_request_t* request)
   return 2;
 }
 
-void oc_send_s_mode_unicast_message(uint32_t group_address, char service_type,
-                                    const uint8_t* value_data, int value_size, oc_group_table_t* recipient,
+/*
+  returns true when the message was handed to the messaging layer, or is held by the IPv6 resolver for this
+  group object and sent once the address is resolved
+*/
+bool oc_send_s_mode_unicast_message(uint32_t group_address, char service_type, const uint8_t* value_data, int value_size, oc_group_table_t* recipient,
                                     oc_group_object_table_t* group_object)
 {
  
@@ -208,7 +210,7 @@ void oc_send_s_mode_unicast_message(uint32_t group_address, char service_type,
   if (recipient->ia == -1)
   {
     OC_ERR("Cannot send unicast: invalid IA in recipient table for GA %" PRIu32, group_address);
-    return;
+    return false;
   }
 
   /*
@@ -219,20 +221,21 @@ void oc_send_s_mode_unicast_message(uint32_t group_address, char service_type,
   if (oc_string_len(recipient->at) == 0)
   {
     OC_ERR("Cannot send unicast: recipient table entry for GA %" PRIu32 " has no access token (at)", group_address);
-    return;
+    return false;
   }
 
   const oc_auth_at_t* auth_at = oc_core_find_at_entry_by_access_token(oc_string(recipient->at), oc_string_len(recipient->at));
   if (!auth_at)
   {
     OC_ERR("Cannot send unicast: access token '%s' of the recipient table entry not found (GA %" PRIu32 ")", oc_string(recipient->at), group_address);
-    return;
+    return false;
   }
 
   if (!ipv6_for_ia_is_resolved(service_type, recipient, group_object))
   {
     OC_WRN("Cannot send unicast: IPv6 address resolver still in progress for GA %" PRIu32, group_address);
-    return; 
+    // the resolver sends the stored group object once the address is resolved
+    return recipient->ipv6_res.resolve_status == OC_IP_STATUS_RESOLVING && recipient->ipv6_res.group_object == group_object;
   }
 
   /*
@@ -260,13 +263,12 @@ void oc_send_s_mode_unicast_message(uint32_t group_address, char service_type,
   OC_INF("Sending s-mode unicast %c", service_type);
 
   // send unicast message, confirmable or non-confirmable by 'non' flag in recipient table entry
-  oc_issue_s_mode_message(&group_ucast_endpoint, "/k", group_address, service_type, value_data, value_size, recipient);
-
+  return oc_issue_s_mode_message(&group_ucast_endpoint, "/k", group_address, service_type, value_data, value_size, recipient);
 }
 
-void oc_send_s_mode_multicast_message(uint8_t scope, uint32_t group_address, char service_type,
-                                      const uint8_t* value_data, int value_size, oc_group_table_t* recipient,
-                                      const oc_group_object_table_t* group_object)
+// returns true when the message was handed to the messaging layer
+bool oc_send_s_mode_multicast_message(uint8_t scope, uint32_t group_address, char service_type, const uint8_t* value_data, int value_size,
+                                      oc_group_table_t* recipient, const oc_group_object_table_t* group_object)
 {
   
   // 'recipient' and 'recipient->grpid' CANT BE invalid here, all tested before this method call -> no extra test here
@@ -305,7 +307,7 @@ void oc_send_s_mode_multicast_message(uint8_t scope, uint32_t group_address, cha
 
   OC_INF("Sending s-mode multicast %c", service_type);
 
-  oc_issue_s_mode_message(&group_mcast_endpoint, "/k", group_address, service_type, value_data, value_size, (oc_group_table_t*)recipient);
+  return oc_issue_s_mode_message(&group_mcast_endpoint, "/k", group_address, service_type, value_data, value_size, (oc_group_table_t*)recipient);
 }
 
 
@@ -362,9 +364,9 @@ static void oc_encode_s_mode_envelope(uint32_t group_address, char service_type,
 */
 #define OC_S_MODE_ENVELOPE_BUDGET (OC_MAX_APP_DATA_SIZE < OC_BLOCK_SIZE ? OC_MAX_APP_DATA_SIZE : OC_BLOCK_SIZE)
 
-// sends a mc (non) or uc (con/non) s-mode message ('non' flag is set by caller in case of mc)
-static void oc_issue_s_mode_message(const oc_endpoint_t* endpoint, const char* path, uint32_t group_address, char service_type,
-                                    const uint8_t* value_data, int value_size, oc_group_table_t* recipient)
+// see oc_issue_s_mode_message(), leaves the encoder on the outgoing message
+static bool issue_s_mode_message(const oc_endpoint_t* endpoint, const char* path, uint32_t group_address, char service_type,
+                                 const uint8_t* value_data, int value_size, oc_group_table_t* recipient)
 {
   /*
     CoAP request packet kept static, not on the call stack
@@ -376,7 +378,7 @@ static void oc_issue_s_mode_message(const oc_endpoint_t* endpoint, const char* p
   oc_message_t* message = oc_allocate_message();
   if (!message)
   {
-    return;
+    return false;
   }
 
   // no callback is possible to this (outbound) s-mode POST message, the message needs to generate its own token/mid
@@ -394,14 +396,13 @@ static void oc_issue_s_mode_message(const oc_endpoint_t* endpoint, const char* p
   message->endpoint.flags |= flag;
 
   coap_udp_init_message(request, type, COAP_POST, coap_get_next_mid());
-  coap_set_header_accept(request, APPLICATION_CBOR);
 
   // set here fix COAP_TOKEN_LEN byte token len
   request->token_len = COAP_TOKEN_LEN;
   const uint32_t a = oc_random_value(); memcpy(request->token + 0, &a, sizeof(a));
   const uint32_t b = oc_random_value(); memcpy(request->token + 4, &b, sizeof(b));
 
-  // s-mode messages carries a uri + no query + outgoing format
+  // s-mode messages carry a uri + no query + outgoing format, no Accept
   coap_set_header_content_format(request, APPLICATION_CBOR);
   coap_set_header_uri_path(request, path, strlen(path));
 
@@ -420,7 +421,7 @@ static void oc_issue_s_mode_message(const oc_endpoint_t* endpoint, const char* p
   {
     OC_WRN("sent (uc/mc) s-mode message - ERROR (payload size %d)", size);
     oc_message_unref(message);
-    return;
+    return false;
   }
 
   #ifdef OC_DEBUG
@@ -486,12 +487,28 @@ static void oc_issue_s_mode_message(const oc_endpoint_t* endpoint, const char* p
     {
       oc_knx_notify_k_observers(k_event, (size_t)size, group_address);
     }
+    return true;
   }
-  else
-  {
-    OC_WRN("sent (uc/mc) s-mode message - ERROR (message len %zu or no transaction free)", message->length);
-    oc_message_unref(message);
-  }
+
+  OC_WRN("sent (uc/mc) s-mode message - ERROR (message len %zu or no transaction free)", message->length);
+  oc_message_unref(message);
+  return false;
+}
+
+/*
+  sends a mc (non) or uc (con/non) s-mode message ('non' flag is set by caller in case of mc), true when sent
+  - the caller may be encoding a payload of its own (s-mode send from a request handler), it gets its encoder back
+*/
+static bool oc_issue_s_mode_message(const oc_endpoint_t* endpoint, const char* path, uint32_t group_address, char service_type,
+                                    const uint8_t* value_data, int value_size, oc_group_table_t* recipient)
+{
+  oc_rep_encoder_state_t caller_encoder;
+  oc_rep_save_encoder(&caller_encoder);
+
+  const bool sent = issue_s_mode_message(endpoint, path, group_address, service_type, value_data, value_size, recipient);
+
+  oc_rep_restore_encoder(&caller_encoder);
+  return sent;
 }
 
 /*
@@ -560,14 +577,19 @@ static int oc_s_mode_get_resource_value(const char* resource_path, uint8_t* buff
   };
 
 
-  // init CBOR data stream, callback handler will fill this buffer with 'oc_rep_i_set_boolean' or similar calls
+  // init CBOR data stream, callback handler will fill this buffer with 'oc_rep_i_set_boolean' or similar calls,
+  // the caller may be encoding a payload of its own (s-mode send from a request handler), it gets its encoder back
+  oc_rep_encoder_state_t caller_encoder;
+  oc_rep_save_encoder(&caller_encoder);
   oc_rep_new(buffer, buffer_size);
 
   // call application handler GET with own interface/ user data, it makes no sense to call it with a fix value
   resource->get_handler.cb(&new_request, resource->get_handler.interface_mask, resource->get_handler.user_data);
 
-  // return the filled data size 
-  return oc_rep_get_encoded_payload_size();
+  // return the filled data size
+  const int size = oc_rep_get_encoded_payload_size();
+  oc_rep_restore_encoder(&caller_encoder);
+  return size;
 }
 
 /*
@@ -649,6 +671,8 @@ int oc_create_s_mode_payload_for_go(const oc_group_object_table_t* group_object,
 
   // same envelope as the s-mode send path: { 4: <sia>, 5: { 7: <ga>, 6: <st>, 1: <value> } }
 
+  oc_rep_encoder_state_t caller_encoder;
+  oc_rep_save_encoder(&caller_encoder);
   oc_rep_new(buffer, (int)OC_S_MODE_ENVELOPE_BUDGET);
 
   oc_encode_s_mode_envelope(group_address, service_type, value_data, value_size);
@@ -656,6 +680,7 @@ int oc_create_s_mode_payload_for_go(const oc_group_object_table_t* group_object,
   free(value_data);
 
   const int size = oc_rep_get_encoded_payload_size();
+  oc_rep_restore_encoder(&caller_encoder);
   // 'size <= 0' catches the encoder error (-1) and the empty payload (0), neither can be re-requested
   if (size <= 0)
   {
@@ -672,9 +697,152 @@ int oc_create_s_mode_payload_for_go(const oc_group_object_table_t* group_object,
   return size;
 }
 
-int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, char srv_type)
+/*
+  sends an s-mode read or write to the recipient of the sending GA, false without a recipient
+  - mc or uc is decided by the FIRST if: grpid > 0 -> multicast, otherwise unicast (ia)
+  - a recipient entry is either mc (grpid) or uc (ia, at), spec 2.5.7.4.2 table 21
+  - POST /fp/r rejects (4.00) ia and grpid in one request, an update with only one of them switches the mode
+    (the member of the request wins, the other mode is cleared), so an entry never holds both
+  -> grpid > 0 is a safe first test
+  - grpid and ia are used from the RCP table (configured by MaC)
+*/
+static bool s_mode_send_to_recipient(uint8_t scope, uint32_t sending_ga, char srv_type, const uint8_t* value, int value_size,
+                                     oc_group_table_t* recipient, oc_group_object_table_t* go_entry)
+{
+  if (!recipient)
+  {
+    return false;
+  }
+
+  if (recipient->grpid > 0)
+  {
+    OC_DBG("grpid > 0, send mc via sending ga");
+    return oc_send_s_mode_multicast_message(scope, sending_ga, srv_type, value, value_size, recipient, go_entry);
+  }
+
+  OC_DBG("grpid = 0, send uc via sending ga");
+  return oc_send_s_mode_unicast_message(sending_ga, srv_type, value, value_size, recipient, go_entry);
+}
+
+/*
+  updates the application resource of one GO that hosts the written GA, only with the w-cflag set
+
+  - group object table and application resource definition see oc_knx.c, post handler
+  - POST /k with write on GA 39
+  - if the first GO href entry does not have a matching application resource
+    option 1 :
+    1. first GO is GO5 -> no application resource
+    2. stop and return
+    option 2 (used):
+    1. first GO is GO5 -> no application resource
+    2. search GO table for next href with GA included -> GO6 -> AR3
+    3. update AR3
+    4. return
+
+  - Note that a GO resource that uses if.i and if.o together, will NOT be able to create, see
+    oc_ri_add_resource(), the stack will reject it. So the originator is always a single point (an input with a transmitting GO),
+    never one resource acting as input and output at once (on interface mask level).
+
+  - the w- and t-cflags live in the GO table, NOT IN THE INTERFACE MASK, so the GO of the ORIGINATOR resource may carry both.
+    If it does, the 'loopback' walk finds that GO too and updates THIS originator resource, even if the point may have already
+    another value from the application (such as on a high frequent data producer)
+
+    This is a (wrong or intended) application behavior, set by the mac/user and will NOT be prevented here.
+*/
+static void s_mode_update_group_object(int go_table_index, const uint8_t* value, int value_size)
+{
+  const oc_string_t go_href = oc_core_get_href_from_group_object_table_index(go_table_index);
+
+  // NULL also if res. len = 0, so no need to test this in addition
+  const oc_resource_t* tmp_resource = oc_ri_get_app_resource_by_resource_path(oc_string(go_href), oc_string_len(go_href));
+  if (!tmp_resource || !(oc_core_get_cflags_from_group_object_table_index(go_table_index) & OC_CFLAG_WRITE) || !tmp_resource->put_handler.cb)
+  {
+    return;
+  }
+
+  // copy in CBOR object the CBOR encoded resource data from original write request
+  // oc_rep_t nodes are allocated via calloc inside oc_parse_rep.
+  oc_rep_t* cbor_object_ptr;
+  oc_parse_rep(value, value_size, &cbor_object_ptr);
+
+  /*
+    prepare request from "void" with data needed for the application callback PUT
+    NOTE:
+    - no response object/buffer is needed
+    - set only data that are not zero, C99 ensures the rest is '0'/'NULL'
+  */
+  oc_request_t new_request = {.request_payload = cbor_object_ptr,
+                              .resource = tmp_resource,
+                              .request_method = COAP_PUT,
+                              .content_format = APPLICATION_CBOR,
+                              .accept = APPLICATION_CBOR,
+                              .uri_path = oc_string(go_href),
+                              .uri_path_len = oc_string_len(go_href)};
+
+  // call application handler with own interface/user data (it makes no sense to call it with a fix vale)
+  tmp_resource->put_handler.cb(&new_request, tmp_resource->put_handler.interface_mask, tmp_resource->put_handler.user_data);
+
+  oc_free_rep(cbor_object_ptr);
+}
+
+/*
+  internal 'loopback': updates every GO that hosts the written GA
+
+  (a) we need a local bool copy per call, the call that enters the loopback MUST clear it at the end,
+      any nested calls must not clear it
+
+  (b) true when this very call was reached FROM a 'loopback' PUT handler that sends a next s-mode message
+      (is legal outside 'loopback' call, but illegal inside the 'loopback' call)
+*/
+static void s_mode_update_linked_group_objects(uint32_t sending_ga, const uint8_t* value, int value_size)
+{
+  const bool nested_write = g_iam_in_the_internal_go_update_loopback_mode;
+
+  OC_DBG("internal group object update - %s", nested_write ? "skip, we are in a 'loopback' call" : "run, check/update linked GOs");
+
+  // (b)
+  if (nested_write)
+  {
+    return;
+  }
+
+  OC_INF("internal group object update - run, check/update linked GOs");
+
+  // (a)
+  g_iam_in_the_internal_go_update_loopback_mode = true;
+
+  // for all GOs with the GA included (GO array index, NOT GO table id) -> update the values
+  for (int i = oc_core_find_first_go_table_index_with_ga(sending_ga); i != -1; i = oc_core_find_next_go_table_index_with_ga(sending_ga, i))
+  {
+    s_mode_update_group_object(i, value, value_size);
+  }
+
+  // release the guard only in that call that was setting it (first), nested calls must not clear it
+  g_iam_in_the_internal_go_update_loopback_mode = false;
+}
+
+/*
+  /p notification: the observers of the written resource get the new value, independent of the
+  s-mode sending (KNX IoT Point API 2.6.10.1), /k notification - see 'oc_knx_notify_k_observers'
+*/
+static void notify_p_observers(const oc_resource_t* resource, bool* dispatched)
+{
+  if (coap_notify_observers_dispatched(resource, NULL, NULL) > 0)
+  {
+    *dispatched = true;
+  }
+}
+
+int oc_send_s_mode_mc_or_uc_message_dispatched(uint8_t scope, const char* resource_path, char srv_type, bool* dispatched)
 {
   OC_DBG("scope = %d url = %s service type = %c", scope, resource_path, srv_type);
+
+  bool dispatched_local = false;
+  if (!dispatched)
+  {
+    dispatched = &dispatched_local;
+  }
+  *dispatched = false;
 
   if (!resource_path)
   {
@@ -709,37 +877,8 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
 
     if (srv_type == 'r')
     {
-      // issue a read request, with a sending GA that is able to transmit...
-
-      if (recipient)
-      {
-        /*
-          mc or uc is decided by the FIRST if: grpid > 0 -> multicast, otherwise unicast (ia)
-          - a recipient entry is either mc (grpid) or uc (ia, at), spec 2.5.7.4.2 table 21
-          - POST /fp/r rejects (4.00) ia and grpid in one request, an update with only one of them switches the mode
-            (the member of the request wins, the other mode is cleared), so an entry never holds both
-          -> grpid > 0 is a safe first test, the same for the write below
-        */
-        if (recipient->grpid > 0)
-        {
-          // grpid is set in case of multicast in RCP table (configured by MaC)
-
-          OC_DBG("grpid > 0, send mc via sending ga");
-
-          // multicast read, NO value data needed
-          oc_send_s_mode_multicast_message(scope, sending_ga, srv_type, NULL, 0, recipient, go_entry);
-        }
-        else
-        {
-          // uc: request -> ia is used from RCP table (configured by MaC)
-
-          OC_DBG("grpid = 0, send uc via sending ga");
-
-          // unicast read, NO value data needed
-          oc_send_s_mode_unicast_message(sending_ga, srv_type, NULL, 0, recipient, go_entry);
-        }
-      }
-
+      // issue a read request, with a sending GA that is able to transmit, NO value data needed
+      *dispatched = s_mode_send_to_recipient(scope, sending_ga, srv_type, NULL, 0, recipient, go_entry);
       return 0;
     }
     if (srv_type == 'w')
@@ -768,144 +907,13 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
         free(resource_value_buffer);
         return -1;
       }
-      if (recipient)
-      {
-        // mc or uc decided by grpid > 0, an entry never holds both ia and grpid, see the read above
-        if (recipient->grpid > 0)
-        {
-          // mc: request -> grpid is used from RCP table (configured by MaC)
+      // write, value data needed
+      *dispatched = s_mode_send_to_recipient(scope, sending_ga, srv_type, resource_value_buffer, resource_value_size, recipient, go_entry);
 
-          // multicast write, value data needed
-          oc_send_s_mode_multicast_message(scope, sending_ga, srv_type, resource_value_buffer, resource_value_size, recipient, go_entry);
-        }
-        else
-        {
-          // uc: request -> ia is used from RCP table (configured by MaC)
+      s_mode_update_linked_group_objects(sending_ga, resource_value_buffer, resource_value_size);
 
-          // unicast write, value data needed
-          oc_send_s_mode_unicast_message(sending_ga, srv_type, resource_value_buffer, resource_value_size, recipient, go_entry);
-        }
-      }
-
-      /* 
-        
-        (a) we need a local bool copy per call, the call that enters the loopback MUST clear it at the end, 
-            any nested calls must not clear it
-
-        (b) true when this very call was reached FROM a 'loopback' PUT handler that sends a next s-mode message
-            (is legal outside 'loopback' call, but illegal inside the 'loopback' call)
-
-      */
-      const bool nested_write = g_iam_in_the_internal_go_update_loopback_mode;
-
-      // (b) by default, no GO table index is found with the sending GA included
-      int go_table_index_where_ga_is_used = -1;
-
-      OC_DBG("internal group object update - %s", nested_write ? "skip, we are in a 'loopback' call" : "run, check/update linked GOs");
-
-      if (!nested_write)
-      {
-        OC_INF("internal group object update - run, check/update linked GOs");
-
-        // (a))
-        g_iam_in_the_internal_go_update_loopback_mode = true;
-
-        // get FIRST GO index with that GA included (one out of 0...max of GO array)
-        go_table_index_where_ga_is_used = oc_core_find_first_go_table_index_with_ga(sending_ga);
-      }
-
-      while (go_table_index_where_ga_is_used != -1)
-      {
-        // for all GOs with the GA included -> update the values
-        const oc_string_t go_href = oc_core_get_href_from_group_object_table_index(go_table_index_where_ga_is_used);
-        const oc_resource_t* tmp_resource =
-          oc_ri_get_app_resource_by_resource_path(oc_string(go_href), oc_string_len(go_href));
-
-        // NULL also if res. len = 0, so no need to test this in addition
-        if (tmp_resource)
-        /*
-          - group object table and application resource definition see oc_knc.c, post handler
-          - POST /k with write on GA 39
-          - if the first GO href entry does not have a matching application resource
-            option 1 :
-            1. first GO is GO5 -> no application resource
-            2. stop and return
-            option 2 (used):
-            1. first GO is GO5 -> no application resource
-            2. search GO table for next href with GA included -> GO6 -> AR3
-            3. update AR3
-            4. return
-        */
-        {
-          // get GO c-flags
-          const oc_cflag_mask_t cflags = oc_core_get_cflags_from_group_object_table_index(go_table_index_where_ga_is_used);
-
-          if (cflags & OC_CFLAG_WRITE && tmp_resource->put_handler.cb)
-          { /*
-            
-            - update the resource internally, BUT only all GOs with w-cflag set
-
-              Note that a GO resource that uses if.i and if.o together, will NOT be able to create, see
-              oc_ri_add_resource(), the stack will reject it. So the originator is always a single point (an input with a transmitting GO),
-              never one resource acting as input and output at once (on interface mask level).
-            
-            - the w- and t-cflags live in the GO table, NOT IN THE INTERFACE MASK, so the GO of the ORIGINATOR resource may carry both.
-              If it does, the 'loopback' walk finds that GO too and updates THIS originator resource, even if the point may have already
-              another value from the application (such as on a high frequent data producer)
-
-              This is a (wrong or intended) application behavior, set by the mac/user and will NOT be prevented here. 
-              
-
-            */
-
-            // copy in CBOR object the CBOR encoded resource data from original write request
-            oc_rep_t* cbor_object_ptr;
-            
-            // oc_rep_t nodes are allocated via calloc inside oc_parse_rep.
-            oc_parse_rep(resource_value_buffer, resource_value_size, &cbor_object_ptr);
-
-            /*
-              prepare request from "void" with data needed for the application callback PUT
-              NOTE:
-              - no response object/buffer is needed
-              - set only data that are not zero, C99 ensures the rest is '0'/'NULL'
-            */  
-            
-            oc_request_t new_request = 
-            {
-              .request_payload = cbor_object_ptr,
-              .resource = tmp_resource,
-              .request_method = COAP_PUT,
-              .content_format = APPLICATION_CBOR,
-              .accept = APPLICATION_CBOR,
-              .uri_path = oc_string(go_href),
-              .uri_path_len = oc_string_len(go_href)
-            };
-
-            // call application handler with own interface/user data (it makes no sense to call it with a fix vale)
-            tmp_resource->put_handler.cb(&new_request, tmp_resource->put_handler.interface_mask, tmp_resource->put_handler.user_data);
-
-            oc_free_rep(cbor_object_ptr);
-          }
-        }
-
-        // get NEXT GO array index (NOT GO table id) with the GA included (out of last...max GO table entries)
-        go_table_index_where_ga_is_used = oc_core_find_next_go_table_index_with_ga(sending_ga, go_table_index_where_ga_is_used);
-      }
-
-      // release the guard only in that call that was setting it (first), nested calls must not clear it
-      if (!nested_write)
-      {
-        g_iam_in_the_internal_go_update_loopback_mode = false;
-      }
-
-      /*
-        /p notification - send possible notification to subscribers of the original 
-                          resource, forward path on application triggered write requests 
-                          (/k notification - see 'coap_notify_k_observers')
-       
-      */
-      oc_notify_observers(org_resource);
+      // forward path on application triggered write requests
+      notify_p_observers(org_resource, dispatched);
 
       // release value buffer, free ignores NULL ptr
       free(resource_value_buffer);
@@ -920,8 +928,18 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
   // no sending, this is not automatically an error
   // - the 'resource path' cannot be found, the caller writes to 'something'
   // - the t-flag is not set
+  // the /p observers do not depend on s-mode
+  if (srv_type == 'w')
+  {
+    notify_p_observers(org_resource, dispatched);
+  }
   OC_WRN("sending for the resource path %s not possible, path not found or cflags not in 't' mode", resource_path);
   return -1;
+}
+
+int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, char srv_type)
+{
+  return oc_send_s_mode_mc_or_uc_message_dispatched(scope, resource_path, srv_type, NULL);
 }
 
 /* CoAP Discovery for IPv6 Resolution */
