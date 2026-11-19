@@ -16,6 +16,7 @@
 #                                           [--server-logs] [--coap-debug]
 #                                           [--oscore-debug] [--group-debug]
 #                                           [--time-scale 0.05] [--slow]
+#                                           [--massif]
 #                                           [--] [pytest-args...]
 #
 #   --tier      conformance -> the conformance-test template, played by the
@@ -34,6 +35,10 @@
 #               -k is a substring match, so `-k 5.6` also picks 5.5.5.6 and
 #               5.5.6.1, which then run without their sibling preparation
 #               TestCases and fail spuriously.
+#   --massif    Run the DUT under Valgrind Massif (the nightly *-massif jobs):
+#               build/massif/<tier>.<pid>.out per tier and its ms_print report
+#               <tier>.<pid>.txt (heap graph with the peak), as in CI. Longer
+#               timeouts, since Valgrind slows the DUT down.
 #   Everything after the options (or after `--`) goes to pytest unchanged,
 #   e.g. `-x`, `--tb=long`, `tests/runtime/test_observe.py`.
 #
@@ -52,6 +57,7 @@ COAP_DBG=0
 GROUP_DBG=0
 TIME_SCALE=0.05
 SLOW=""
+MASSIF=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --tier)         TIER="$2"; shift 2 ;;
@@ -67,8 +73,9 @@ while [ $# -gt 0 ]; do
     --time-scale)   TIME_SCALE="$2"; shift 2 ;;
     --time-scale=*) TIME_SCALE="${1#*=}"; shift ;;
     --slow)         SLOW=1; shift ;;
+    --massif)       MASSIF=build/massif; shift ;;
     --)             shift; break ;;
-    -h|--help)      sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)      sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)              break ;;
   esac
 done
@@ -133,6 +140,8 @@ sleep 1
 echo "DUT ${DUT_ADDR} (netns dut, veth-dut) <-> tool ${TOOL_ADDR} (veth-test)"
 
 echo "=== Building runtime_test_server ($PRESET) ==="
+# The build volume outlives the tree: a kept cache would hold old CACHE defaults (same as cmake --fresh, objects stay).
+rm -f "build/$PRESET/CMakeCache.txt"
 cmake --preset="$PRESET" -DOC_DEBUG_ENABLED=OFF -DOC_PRINT_ENABLED=OFF -DOC_DEBUG_OSCORE_ENABLED=OFF
 cmake --build --preset="$PRESET" --target runtime_test_server
 
@@ -149,6 +158,15 @@ export RUNTIME_TEST_TIME_SCALE="$TIME_SCALE"
 export KNX_TEST_DEBUG_OSCORE="$OSCORE_DBG" KNX_TEST_DEBUG_COAP="$COAP_DBG"
 export KNX_TEST_DEBUG_GROUP="$GROUP_DBG" KNX_TEST_DEBUG_MDNS="$GROUP_DBG"
 [ -n "$SLOW" ] && export RUN_SLOW_TESTS=1
+
+# Same values and wrappers as .gitlab-ci.yml's .massif block.
+MASSIF_TOOL=""
+if [ -n "$MASSIF" ]; then
+  apt-get install -y -qq valgrind > /dev/null 2>&1
+  mkdir -p "$MASSIF"
+  MASSIF_TOOL="valgrind --tool=massif --alloc-fn=oc_mmem_alloc --alloc-fn=_oc_new_string --alloc-fn=_oc_new_byte_string --alloc-fn=_oc_alloc_string --alloc-fn=_oc_new_array --alloc-fn=_oc_alloc_string_array"
+  export COAP_TIMEOUT=20 SERVER_STARTUP_TIMEOUT=120 SERVER_STOP_TIMEOUT=60
+fi
 
 # KNX's files (template, comment scheme, ...) in the cache, as EITT fetches
 # them; run-in-docker mounts the host's cache, so offline is fine once filled.
@@ -189,9 +207,14 @@ per_tier() {
 }
 
 worst=0
+NETNS_PREFIX="$RUNTIME_TEST_SERVER_PREFIX"
 for path in "${PATHS[@]}"; do
   echo "=== pytest $path ==="
   rc=0
+  name=$( [ "$path" = conformance ] && echo conformance || echo runtime )
+  if [ -n "$MASSIF" ]; then
+    export RUNTIME_TEST_SERVER_PREFIX="$NETNS_PREFIX $MASSIF_TOOL --massif-out-file=$MASSIF/$name.%p.out"
+  fi
   if [ "$path" = conformance ]; then
     tier_args conformance "$@"
     python3 "$TOOL/run_sequences.py" \
@@ -200,6 +223,12 @@ for path in "${PATHS[@]}"; do
   else
     tier_args runtime "$@"
     python3 -m pytest -rfE "$path" "${TIER_ARGS[@]}" || rc=$?
+  fi
+  if [ -n "$MASSIF" ]; then
+    for f in "$MASSIF"/$name.*.out; do
+      if [ -f "$f" ] && ms_print "$f" > "${f%.out}.txt"; then head -n 34 "${f%.out}.txt"
+      else echo "no massif profile for $name" >&2; rc=1; fi
+    done
   fi
   if [ "$rc" -gt "$worst" ]; then worst=$rc; fi
 done

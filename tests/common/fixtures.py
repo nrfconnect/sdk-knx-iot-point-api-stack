@@ -469,6 +469,8 @@ if _external_dut and not os.environ.get("DEVICE_HOST"):
 
 SERVER_READY_SENTINEL = "RUNTIME_TEST_SERVER_READY"
 SERVER_STARTUP_TIMEOUT = int(os.environ.get("SERVER_STARTUP_TIMEOUT", "15"))
+# A server under Valgrind writes its profile on exit, which takes longer.
+SERVER_STOP_TIMEOUT = int(os.environ.get("SERVER_STOP_TIMEOUT", "5"))
 
 # Shared state: the port detected from the server's startup output.
 _detected_port: int = 0
@@ -588,7 +590,7 @@ def server_process():
         proc.send_signal(signal.SIGINT)
 
     try:
-        proc.wait(timeout=5)
+        proc.wait(timeout=SERVER_STOP_TIMEOUT)
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait()
