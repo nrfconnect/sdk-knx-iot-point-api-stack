@@ -303,7 +303,7 @@ config KNXIOT_LOG_LEVEL
     range 0 4 if KNXIOT_DEBUG
     help
       Follows the Zephyr log level convention (CONFIG_<MODULE>_LOG_LEVEL).
-      Corresponds to CMake: OC_PRINT_ENABLED (level > 0) / OC_DEBUG_ENABLED (level 4).
+      Corresponds to CMake: OC_PRINT_ENABLED (level > 0 and LOG=y) / OC_DEBUG_ENABLED (level 4).
       0 = OFF   - no logging
       1 = ERR   - errors only
       2 = WRN   - warnings and errors

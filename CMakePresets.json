@@ -103,6 +103,16 @@
       "description": "Target the Windows Subsystem for Linux (WSL) or a remote Linux system."
     },
     {
+      "name": "linux-plain-sender-gcc",
+      "inherits": "linux-debug-gcc",
+      "displayName": "Linux Plain Sender (GCC)",
+      "description": "Build check without the publisher table. KNX_GPT_MAX_ENTRIES is empty, as on Zephyr and ESP-IDF in this configuration.",
+      "cacheVariables": {
+        "OC_PUBLISHER_TABLE_ENABLED": false,
+        "KNX_GPT_MAX_ENTRIES": ""
+      }
+    },
+    {
       "name": "windows-cross-debug",
       "inherits": ["common-config", "mingw64-common-config", "debug-common-config"],
       "displayName": "Windows Debug (Cross-compile MinGW)",
@@ -249,6 +259,12 @@
       "inherits": "linux-common-config",
       "displayName": "Linux Release (GCC)",
       "configurePreset": "linux-release-gcc"
+    },
+    {
+      "name": "linux-plain-sender-gcc",
+      "inherits": "linux-common-config",
+      "displayName": "Linux Plain Sender (GCC)",
+      "configurePreset": "linux-plain-sender-gcc"
     },
     {
       "name": "windows-cross-debug",

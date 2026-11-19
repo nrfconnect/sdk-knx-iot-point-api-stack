@@ -272,8 +272,13 @@ target_compile_definitions(${COMPONENT_LIB} PUBLIC
     KNX_RESPONSE_TIME_SECONDS=${CONFIG_KNX_RESET_PROCESS_TIME_S}
 )
 
-# OC_PRINT is enabled whenever the log level is above 0 (mirrors the Zephyr build).
-if(CONFIG_KNXIOT_LOG_LEVEL GREATER 0)
+# OC_PRINT is enabled when the log level is above 0 and the output has a sink,
+# as in the Zephyr build. With native logging the sink is the ESP-IDF log
+# component: CONFIG_LOG_MAXIMUM_LEVEL 0 ("No output") compiles every ESP_LOGx
+# out, and OC_PRINT would only keep print helpers such as the CBOR-to-JSON
+# dump in the image. Without native logging OC_PRINT is the printf switch.
+if(CONFIG_KNXIOT_LOG_LEVEL GREATER 0 AND
+   (NOT CONFIG_KNXIOT_LOG_PLATFORM_NATIVE OR CONFIG_LOG_MAXIMUM_LEVEL GREATER 0))
     target_compile_definitions(${COMPONENT_LIB} PUBLIC OC_PRINT)
 endif()
 

@@ -378,10 +378,12 @@ zephyr_compile_definitions(
 # OC_PRINT_ENABLED → OC_PRINT, OC_DEBUG_ENABLED → OC_DEBUG (internal names).
 # OC_PRINT is driven by CONFIG_KNXIOT_LOG_LEVEL (controls which Zephyr log
 # calls are compiled into the module; set to 4 to include LOG_DBG calls).
+# It also needs CONFIG_LOG: without it every log call is empty, and OC_PRINT
+# would only keep print helpers such as the CBOR-to-JSON dump in the image.
 # OC_DEBUG is driven by CONFIG_KNXIOT_DEBUG (compile-time flag that enables
 # debug code paths — independent of the runtime log level, which is controlled
 # via the Zephyr log shell: "log enable dbg <module>").
-if(CONFIG_KNXIOT_LOG_LEVEL GREATER 0)
+if(CONFIG_LOG AND CONFIG_KNXIOT_LOG_LEVEL GREATER 0)
     zephyr_compile_definitions(OC_PRINT)
 endif()
 zephyr_library_compile_definitions(

@@ -18,8 +18,13 @@
 #include "oc_knx_sec.h"
 
 #ifndef OC_MAX_REPLAY_RECORDS
-// number belongs to publishers from that we MAY get an inbound message, if less than that the oldest will be evicted.   
-#define OC_MAX_REPLAY_RECORDS (KNX_GPT_MAX_ENTRIES)
+  // number belongs to publishers from that we MAY get an inbound message, if less than that the oldest will be evicted.
+  // Without a publisher table (a plain sender) its size is not defined (Zephyr, ESP-IDF), the recipient table is used.
+  #ifdef OC_PUBLISHER_TABLE
+    #define OC_MAX_REPLAY_RECORDS (KNX_GPT_MAX_ENTRIES)
+  #else
+    #define OC_MAX_REPLAY_RECORDS (KNX_GRT_MAX_ENTRIES)
+  #endif
 #endif
 
 typedef struct oc_replay_record

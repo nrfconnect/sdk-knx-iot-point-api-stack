@@ -40,8 +40,14 @@
  * level is CONFIG_LOG_DEFAULT_LEVEL regardless, to activate debug output at
  * runtime raise the level of the tag:
  *   esp_log_level_set(KNX_LOG_TAG, ESP_LOG_DEBUG);
+ * Exception: CONFIG_LOG_MAXIMUM_LEVEL 0 ("No output") turns logging off for the whole
+ * image, the twin of CONFIG_LOG=n on Zephyr, and the stack then compiles no log calls.
  */
-#define LOG_LOCAL_LEVEL CONFIG_KNXIOT_LOG_LEVEL
+#if CONFIG_LOG_MAXIMUM_LEVEL == 0
+  #define LOG_LOCAL_LEVEL 0
+#else
+  #define LOG_LOCAL_LEVEL CONFIG_KNXIOT_LOG_LEVEL
+#endif
 #include "esp_log.h"
 
 #ifdef __cplusplus
@@ -94,11 +100,14 @@ void knx_log_bytes_hex(const char *label, const uint8_t *bytes, size_t length);
                                  ESP_LOG_DEBUG);                                \
       } while (0)
   #else
-    #define OC_LOGbytes(bytes, length)
+    #define OC_LOGbytes(bytes, length) KNX_LOG_OFF(knx_log_bytes_hex(#bytes "\t: ", (const uint8_t*)(bytes), (size_t)((length) > 0 ? (length) : 0)))
   #endif
 #else
-  #define OC_DBG(...)
-  #define OC_LOGbytes(bytes, length)
+  /* Off: KNX_LOG_OFF (oc_log.h), so the arguments still count as used and are format
+   * checked, as on the host.
+   */
+  #define OC_DBG(...) KNX_LOG_OFF(printf(__VA_ARGS__))
+  #define OC_LOGbytes(bytes, length) KNX_LOG_OFF(knx_log_bytes_hex(#bytes "\t: ", (const uint8_t*)(bytes), (size_t)((length) > 0 ? (length) : 0)))
 #endif
 
 /* OC_DBG_OSCORE / OC_DBG_SPAKE */
@@ -119,12 +128,14 @@ void knx_log_bytes_hex(const char *label, const uint8_t *bytes, size_t length);
                                  ESP_LOG_DEBUG);                                \
       } while (0)
   #else
-    #define OC_LOGbytes_OSCORE(bytes, length)
+    #define OC_LOGbytes_OSCORE(bytes, length)                                                                                                        \
+      KNX_LOG_OFF(knx_log_bytes_hex("OSCORE: " #bytes "\t: ", (const uint8_t*)(bytes), (size_t)((length) > 0 ? (length) : 0)))
   #endif
 #else
-  #define OC_DBG_OSCORE(...)
-  #define OC_DBG_SPAKE(...)
-  #define OC_LOGbytes_OSCORE(bytes, length)
+  #define OC_DBG_OSCORE(...) KNX_LOG_OFF(printf(__VA_ARGS__))
+  #define OC_DBG_SPAKE(...) KNX_LOG_OFF(printf(__VA_ARGS__))
+  #define OC_LOGbytes_OSCORE(bytes, length)                                                                                                          \
+    KNX_LOG_OFF(knx_log_bytes_hex("OSCORE: " #bytes "\t: ", (const uint8_t*)(bytes), (size_t)((length) > 0 ? (length) : 0)))
 #endif
 
 #ifdef __cplusplus

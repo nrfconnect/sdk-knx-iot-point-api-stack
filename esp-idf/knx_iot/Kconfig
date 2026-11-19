@@ -226,6 +226,8 @@ config KNXIOT_LOG_LEVEL
     range 0 4 if KNXIOT_DEBUG
     help
       Corresponds to CMake: OC_PRINT_ENABLED (level > 0) / OC_DEBUG_ENABLED (level 4).
+      With KNXIOT_LOG_PLATFORM_NATIVE, OC_PRINT also needs LOG_MAXIMUM_LEVEL > 0:
+      at "No output" the stack compiles no log calls and no print helpers.
 
 config KNXIOT_DEBUG
     bool "Enable debug logging (unlocks level 4) and debug code paths"

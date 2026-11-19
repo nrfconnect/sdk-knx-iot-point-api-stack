@@ -72,11 +72,14 @@ void knx_log_bytes_hex(const char *label, const uint8_t *bytes, size_t length);
     #define OC_LOGbytes(bytes, length) \
       LOG_HEXDUMP_DBG(bytes, length, #bytes "\t: ")
   #else
-    #define OC_LOGbytes(bytes, length)
+    #define OC_LOGbytes(bytes, length) KNX_LOG_OFF(knx_log_bytes_hex(#bytes "\t: ", (const uint8_t*)(bytes), (size_t)((length) > 0 ? (length) : 0)))
   #endif
 #else
-  #define OC_DBG(...)
-  #define OC_LOGbytes(bytes, length)
+  /* Off: KNX_LOG_OFF (oc_log.h), so the arguments still count as used and are format
+   * checked, as on the host.
+   */
+  #define OC_DBG(...) KNX_LOG_OFF(printf(__VA_ARGS__))
+  #define OC_LOGbytes(bytes, length) KNX_LOG_OFF(knx_log_bytes_hex(#bytes "\t: ", (const uint8_t*)(bytes), (size_t)((length) > 0 ? (length) : 0)))
 #endif
 
 /* OC_DBG_OSCORE / OC_DBG_SPAKE */
@@ -92,12 +95,14 @@ void knx_log_bytes_hex(const char *label, const uint8_t *bytes, size_t length);
     #define OC_LOGbytes_OSCORE(bytes, length) \
       LOG_HEXDUMP_DBG(bytes, length, "OSCORE: " #bytes "\t: ")
   #else
-    #define OC_LOGbytes_OSCORE(bytes, length)
+    #define OC_LOGbytes_OSCORE(bytes, length)                                                                                                        \
+      KNX_LOG_OFF(knx_log_bytes_hex("OSCORE: " #bytes "\t: ", (const uint8_t*)(bytes), (size_t)((length) > 0 ? (length) : 0)))
   #endif
 #else
-  #define OC_DBG_OSCORE(...)
-  #define OC_DBG_SPAKE(...)
-  #define OC_LOGbytes_OSCORE(bytes, length)
+  #define OC_DBG_OSCORE(...) KNX_LOG_OFF(printf(__VA_ARGS__))
+  #define OC_DBG_SPAKE(...) KNX_LOG_OFF(printf(__VA_ARGS__))
+  #define OC_LOGbytes_OSCORE(bytes, length)                                                                                                          \
+    KNX_LOG_OFF(knx_log_bytes_hex("OSCORE: " #bytes "\t: ", (const uint8_t*)(bytes), (size_t)((length) > 0 ? (length) : 0)))
 #endif
 
 #ifdef __cplusplus

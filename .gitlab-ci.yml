@@ -186,6 +186,15 @@ build-gcc:
       - build/linux-debug-gcc/apps
     expire_in: 1 week
 
+# The publisher-off configuration (OC_PUBLISHER_TABLE_ENABLED=OFF, "plain
+# sender") is built nowhere else and broke unnoticed once; compile only.
+build-plain-sender:
+  stage: build
+  script:
+    - cmake --preset=linux-plain-sender-gcc
+    - cmake --build --preset=linux-plain-sender-gcc
+  dependencies: []
+
 # ----------------------------------------------------------
 # test: unit
 # ----------------------------------------------------------

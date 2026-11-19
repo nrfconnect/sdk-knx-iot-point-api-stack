@@ -166,7 +166,10 @@ static oc_group_table_t g_grt[KNX_GRT_MAX_ENTRIES];         // rcp table (to sen
 #ifdef OC_PUBLISHER_TABLE
 static oc_group_table_t g_gpt[KNX_GPT_MAX_ENTRIES];     // pub table (to receive)
 static bool g_gpt_contains_no_iid = true;               // to check if the pub table contains 'iid' entries from external projects
-bool pub_table_contains_no_iid(void) {return g_gpt_contains_no_iid;} 
+bool pub_table_contains_no_iid(void) { return g_gpt_contains_no_iid; }
+#else
+// without a pub table there are no 'iid' entries from external projects
+bool pub_table_contains_no_iid(void) { return true; }
 #endif
 
 // -externals -
@@ -982,21 +985,9 @@ const oc_resource_t core_resource_knx_fp_g_x = {NULL,
                                                 &core_resource_knx_fp_g_x_data};
 #endif
 
-// -PUBLISHER-
+// -RECIPIENT-
 
-#ifdef OC_PUBLISHER_TABLE
-
-int oc_core_find_index_in_publisher_table_from_id(int id)
-{
-  return oc_core_find_index_in_table_from_id(id, g_gpt, KNX_GPT_MAX_ENTRIES);
-}
-
-
-oc_group_table_t*  oc_find_entry_in_publisher_table(uint32_t group_address)
-{
-  return oc_find_table_entry_from_ga(g_gpt, KNX_GPT_MAX_ENTRIES, group_address);
-}
-
+// a plain sender (no publisher table) needs the recipient table as well
 oc_group_table_t* oc_find_entry_in_recipient_table(uint32_t group_address)
 {
   return oc_find_table_entry_from_ga(g_grt, KNX_GRT_MAX_ENTRIES, group_address);
@@ -1022,6 +1013,18 @@ bool oc_is_unicast_recipient_access_token(const char* at_id, size_t at_id_len)
   }
 
   return false;
+}
+
+// -PUBLISHER-
+
+#ifdef OC_PUBLISHER_TABLE
+
+int oc_core_find_index_in_publisher_table_from_id(int id) { return oc_core_find_index_in_table_from_id(id, g_gpt, KNX_GPT_MAX_ENTRIES); }
+
+
+oc_group_table_t* oc_find_entry_in_publisher_table(uint32_t group_address)
+{
+  return oc_find_table_entry_from_ga(g_gpt, KNX_GPT_MAX_ENTRIES, group_address);
 }
 
 /*
@@ -3073,6 +3076,7 @@ oc_group_table_t* oc_core_get_publisher_table_entry(int index)
 #ifdef OC_PUBLISHER_TABLE
   return index < 0 ? NULL : index >= KNX_GPT_MAX_ENTRIES ? NULL : &g_gpt[index];
 #else
+  (void)index;
   return NULL;
 #endif
 }
@@ -3253,10 +3257,9 @@ static oc_group_table_t* oc_find_table_entry_from_ga(oc_group_table_t* table, in
   return NULL;
 }
 
+#ifdef OC_PUBLISHER_TABLE
 static void oc_handle_group_multicasts(bool subscribe)
 {
-  #ifdef OC_PUBLISHER_TABLE
-
   const oc_device_info_t* const device = oc_core_get_device_info();
 
   // (re)set for new check
@@ -3310,9 +3313,8 @@ static void oc_handle_group_multicasts(bool subscribe)
       }
     }
   }
-
-  #endif
 }
+#endif
 
 void oc_register_group_multicasts(void)
 {
