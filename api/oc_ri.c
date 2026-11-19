@@ -1067,6 +1067,19 @@ static oc_status_t oc_ri_parse_request_payload(const uint8_t* payload, uint32_t 
   return parse_error == CborErrorUnexpectedEOF ? OC_STATUS_REQUEST_ENTITY_TOO_LARGE : OC_STATUS_BAD_REQUEST;
 }
 
+/*
+  the encoder is shared: a function that encodes into a buffer of its own from inside a handler (table store,
+  s-mode send) hands it back with oc_rep_restore_encoder(); one that does not leaves the response measured
+  against the wrong buffer
+*/
+static void oc_ri_check_encoder_handed_back(const oc_resource_t* resource, const uint8_t* response_buffer)
+{
+  if (oc_rep_get_encoder_buf() != response_buffer)
+  {
+    OC_ERR("encoder left on another buffer by the handler of %s, the response payload is not valid", oc_string(resource->uri));
+  }
+}
+
 bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
                                       oc_blockwise_state_t** request_state,
                                       oc_blockwise_state_t** response_state,
@@ -1309,6 +1322,8 @@ bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
       {
         error = OC_STATUS_METHOD_NOT_ALLOWED;
       }
+
+      oc_ri_check_encoder_handed_back(matching_resource, response_buffer.buffer);
     }
   }
 

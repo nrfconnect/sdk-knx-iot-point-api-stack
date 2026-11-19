@@ -1755,6 +1755,9 @@ static void oc_store_at_table_entry(oc_auth_at_t* entry)
       return;
     }
 
+    // a handler may be encoding its response while it stores, it continues on its own buffer
+    oc_rep_encoder_state_t caller_encoder;
+    oc_rep_save_encoder(&caller_encoder);
     oc_rep_new(buf, OC_MAX_APP_DATA_SIZE);
 
     // write the data
@@ -1797,6 +1800,7 @@ static void oc_store_at_table_entry(oc_auth_at_t* entry)
       }
     }
 
+    oc_rep_restore_encoder(&caller_encoder);
     free(buf);
   }
 }

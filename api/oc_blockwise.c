@@ -39,6 +39,12 @@ static oc_blockwise_state_t* oc_blockwise_init_buffer(size_t size, const char* h
     memcpy(&buffer->endpoint, endpoint, sizeof(oc_endpoint_t));
     buffer->endpoint.next = NULL;
     oc_new_string(&buffer->href, href, href_len);
+    if (!oc_string(buffer->href))
+    {
+      free(buffer->buffer);
+      free(buffer);
+      return NULL;
+    }
     return buffer;
   }
   OC_WRN("block-wise buffers exhausted");
@@ -324,7 +330,8 @@ bool oc_blockwise_handle_block(oc_blockwise_state_t* buffer, uint32_t incoming_b
     return false;
   }
 
-  if (buffer->next_block_offset == incoming_block_offset)
+  // an empty block has no payload pointer
+  if (buffer->next_block_offset == incoming_block_offset && incoming_block_size > 0)
   {
     memcpy(&buffer->buffer[buffer->next_block_offset], incoming_block, incoming_block_size);
 

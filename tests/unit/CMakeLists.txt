@@ -315,6 +315,21 @@ target_link_options(test_oc_network_events PRIVATE
     -Wl,--wrap=_oc_signal_event_loop
 )
 kis_add_test(test_oc_main            test_oc_main.cpp)
+# oc_main_init() without storage, network or crypto: the wraps make the bootstrap
+# steps no-ops and record when the DNS-SD registration runs.
+kis_add_test(test_oc_main_init       test_oc_main_init.cpp)
+target_link_options(test_oc_main_init PRIVATE
+    -Wl,--wrap=knx_dns_sd_update_service
+    -Wl,--wrap=oc_spake2plus_init_data
+    -Wl,--wrap=oc_knx_load_device
+    -Wl,--wrap=oc_knx_load_fingerprint
+    -Wl,--wrap=oc_register_group_multicasts
+    -Wl,--wrap=oc_unregister_group_multicasts
+    -Wl,--wrap=oc_network_refresh_endpoints
+    -Wl,--wrap=oc_init_datapoints_at_initialization
+    -Wl,--wrap=knx_dns_sd_stop
+    -Wl,--wrap=oc_connectivity_shutdown
+)
 kis_add_test(test_oc_core_res        test_oc_core_res.cpp)
 kis_add_test(test_spake2plus         test_spake2plus.cpp)
 kis_add_test(test_app_precalculated_spake test_app_precalculated_spake.cpp)

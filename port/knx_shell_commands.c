@@ -29,14 +29,6 @@
 #include "port/oc_storage.h"
 #include "port/knx_shell_commands.h"
 
-extern const char* knx_iot_get_application_name(void);
-
-/* Application-provided password callback (declared here to avoid pulling in the
- * full application header; the app must define this function).
- * TODO FIXME: move this declaration to a shared port header (e.g. port/oc_app.h)
- * so all port files can include it instead of duplicating the extern. */
-extern const char* app_get_password(void);
-
 /* Number parsing, the twins of the Zephyr shell_strtol(), shell_strtoul() and
  * shell_strtoull(): The whole string must be a number in the given base, *err is set to
  * -ERANGE on overflow and to -EINVAL for any other invalid input (including a leading '-'

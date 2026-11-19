@@ -97,8 +97,11 @@ static int HKDF_Expand(const uint8_t *prk, const uint8_t *info, uint8_t info_len
   // Buffer to hold the output of all iterations: T = T(1) | T(2) | T(3) | ... | T(N)
   uint8_t okm_buffer[HKDF_OUTPUT_MAXLEN];
 
-  // Iteration T(1)
-  memcpy(iter_buffer, info, info_len);
+  // Iteration T(1), an empty info may be NULL (memcpy needs valid pointers even for 0 bytes)
+  if (info_len > 0)
+  {
+    memcpy(iter_buffer, info, info_len);
+  }
   iter_buffer[info_len] = 0x01;
   // HMAC_SHA256() returns an output of size HMAC_SHA256_HASHLEN
   HMAC_SHA256(prk, HMAC_SHA256_HASHLEN, iter_buffer, info_len + 1,
@@ -110,7 +113,10 @@ static int HKDF_Expand(const uint8_t *prk, const uint8_t *info, uint8_t info_len
   {
     memcpy(iter_buffer, &okm_buffer[(i - 1) * HMAC_SHA256_HASHLEN],
             HMAC_SHA256_HASHLEN);
-    memcpy(&iter_buffer[HMAC_SHA256_HASHLEN], info, info_len);
+    if (info_len > 0)
+    {
+      memcpy(&iter_buffer[HMAC_SHA256_HASHLEN], info, info_len);
+    }
     iter_buffer[HMAC_SHA256_HASHLEN + info_len] = i + 1;
     HMAC_SHA256(prk, HMAC_SHA256_HASHLEN, iter_buffer,
             HMAC_SHA256_HASHLEN + info_len + 1,
@@ -141,11 +147,13 @@ int HKDF_SHA256(const uint8_t *salt, uint8_t salt_len, const uint8_t *ikm, uint8
 
   Preconditions, not checked here: id_len <= OSCORE_SENDER_ID_LEN (7), piv_len <= 5 and nonce_len == OSCORE_AEAD_NONCE_LEN.
   KNX IoT sends and accepts a PIV of 1 ... 4 bytes only (32-bit SSN, OSCORE_SSN_PIV_LEN_MAX, rejected by the OSCORE option
-  parser otherwise), but the PIV field in the nonce stays 5 bytes wide, hence the literal 5 below is deliberately NOT
-  OSCORE_PIV_LEN (that is the size of the PIV buffers).
+  parser otherwise), but the PIV field in the nonce stays 5 bytes wide, hence OSCORE_NONCE_PIV_FIELD_LEN is deliberately
+  NOT OSCORE_PIV_LEN (that is the size of the PIV buffers).
 
   Padding = the zeros from memset: the PIV is copied to the END of the nonce, so a shorter PIV leaves zero bytes in front of it.
 */
+#define OSCORE_NONCE_PIV_FIELD_LEN (5) // width of the PIV field in the AEAD nonce, RFC 8613 clause 5.2
+
 void oc_oscore_AEAD_nonce(uint8_t *id, uint8_t id_len, uint8_t *piv, uint8_t piv_len, uint8_t *civ, uint8_t *nonce, uint8_t nonce_len)
 {
   OC_DBG_OSCORE("### computing AEAD nonce ###");
@@ -171,8 +179,17 @@ void oc_oscore_AEAD_nonce(uint8_t *id, uint8_t id_len, uint8_t *piv, uint8_t piv
   // +------------------------------------------------+
   
   memset(nonce, 0, nonce_len);                          // all padding bytes are zero
-  memcpy(nonce + (nonce_len - piv_len), piv, piv_len);  // Partial IV right aligned in the last 5 bytes (bytes 8 ... 12), piv_len <= 5 bytes: zero padded in front
-  memcpy(nonce + (nonce_len - 5 - id_len), id, id_len); // Sender ID right aligned in bytes 1 ... 7, i.e. ending directly before the 5 byte PIV field: zero padded in front
+  // an empty id/piv may be NULL (memcpy needs valid pointers even for 0 bytes)
+  if (piv_len > 0)
+  {
+    memcpy(nonce + (nonce_len - piv_len), piv,
+           piv_len); // Partial IV right aligned in the last 5 bytes (bytes 8 ... 12), piv_len <= 5 bytes: zero padded in front
+  }
+  if (id_len > 0)
+  {
+    memcpy(nonce + (nonce_len - OSCORE_NONCE_PIV_FIELD_LEN - id_len), id,
+           id_len); // Sender ID right aligned in bytes 1 ... 7, i.e. ending directly before the 5 byte PIV field: zero padded in front
+  }
 
   nonce[0] = (uint8_t)id_len;         // 1st byte = length of the Sender ID
   for (int i = 0; i < nonce_len; i++) // XOR with the Common IV
@@ -208,12 +225,12 @@ int oc_oscore_compose_AAD(uint8_t *kid, uint8_t kid_len, uint8_t *piv, uint8_t p
   err |= cbor_encoder_create_array(&a, &alg, 1);
   err |= cbor_encode_int(&alg, 10);
   err |= cbor_encoder_close_container(&a, &alg);
-  // request_kid: set in requests
-  err |= cbor_encode_byte_string(&a, kid, kid_len);
+  // request_kid: set in requests (an empty kid may be NULL, tinycbor memcpy's from it)
+  err |= cbor_encode_byte_string(&a, kid_len > 0 ? kid : (const uint8_t*)"", kid_len);
   // request_piv: set in requests and notification responses
-  err |= cbor_encode_byte_string(&a, piv, piv_len);
-  // options: Class I options, none defined
-  err |= cbor_encode_byte_string(&a, NULL, 0);
+  err |= cbor_encode_byte_string(&a, piv_len > 0 ? piv : (const uint8_t*)"", piv_len);
+  // options: Class I options, none defined (non-NULL: tinycbor memcpy's from it)
+  err |= cbor_encode_byte_string(&a, (const uint8_t*)"", 0);
   err |= cbor_encoder_close_container(&e, &a);
 
   if (err != CborNoError)
@@ -230,7 +247,7 @@ int oc_oscore_compose_AAD(uint8_t *kid, uint8_t kid_len, uint8_t *piv, uint8_t p
   // "Encrypt0" for a COSE_Encrypt0 message
   err |= cbor_encode_text_string(&a, "Encrypt0", 8);
   // No protected attributes: so empty map (RFC 8152 Section 5.3)
-  err |= cbor_encode_byte_string(&a, NULL, 0);
+  err |= cbor_encode_byte_string(&a, (const uint8_t*)"", 0);
   // external_aad: encode aad_array as a bstr
   err |= cbor_encode_byte_string(&a, aad_array, aad_array_len);
   err |= cbor_encoder_close_container(&e, &a);

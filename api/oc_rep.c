@@ -206,6 +206,21 @@ static void oc_parse_rep_value_array(CborValue *value, oc_rep_t **rep,
   the next pointer of the first object.
 */
 
+// rejects a negative value below INT64_MIN, an unsigned one above INT64_MAX keeps its bits (64-bit iid/fid)
+static CborError oc_rep_get_int64(const CborValue* value, int64_t* result)
+{
+  uint64_t raw;
+  cbor_value_get_raw_integer(value, &raw);
+  if (cbor_value_is_negative_integer(value))
+  {
+    if (raw > INT64_MAX)
+      return CborErrorDataTooLarge;
+    raw = ~raw; // -1 - raw
+  }
+  *result = (int64_t)raw;
+  return CborNoError;
+}
+
 static void
 oc_parse_single_entity(CborValue *value, oc_rep_t **rep, CborError *err)
 {
@@ -226,7 +241,7 @@ oc_parse_single_entity(CborValue *value, oc_rep_t **rep, CborError *err)
     // skip over CBOR tags, goto get_tagged value
   } break;
   case CborIntegerType:
-    *err |= cbor_value_get_int64(value, &cur->value.integer);
+    *err |= oc_rep_get_int64(value, &cur->value.integer);
     cur->type = OC_REP_INT;
     break;
   case CborBooleanType:
@@ -322,9 +337,14 @@ oc_parse_rep_value(CborValue *value, oc_rep_t **rep, CborError *err)
       return;
   } else if (cbor_value_is_integer(value)) {
     /* key as integer */
-    *err |= cbor_value_get_int(value, &cur->iname);
-    if (*err != CborNoError)
+    int64_t key = 0;
+    *err |= oc_rep_get_int64(value, &key);
+    cur->iname = (int)key;
+    if (*err != CborNoError || cur->iname != key)
+    {
+      *err |= CborErrorDataTooLarge;
       return;
+    }
   } else {
     *err = CborErrorIllegalType;
     return;
@@ -582,7 +602,7 @@ static void oc_parse_rep_value_array(CborValue *value, oc_rep_t **rep, CborError
           *err |= CborErrorIllegalType;
           return;
         }
-        *err |= cbor_value_get_int64(&array, oc_int_array(cur->value.array) + k);
+        *err |= oc_rep_get_int64(&array, oc_int_array(cur->value.array) + k);
       } break;
       case OC_REP_BOOL: {
         if (k == 0) {
@@ -1272,17 +1292,25 @@ oc_rep_i_get_mixed_array(oc_rep_t *rep, int key, oc_rep_t **value)
  * regardless of the buf_size. (total_char_print is expected to be larger than
  * or equal to buf_size if the buffer is too small.)
  */
-#define OC_JSON_UPDATE_BUFFER_AND_TOTAL                                        \
-  do {                                                                         \
-    total_char_printed += num_char_printed;                                    \
-    if (num_char_printed < buf_size && buf != NULL) {                          \
-      buf += num_char_printed;                                                 \
-      buf_size -= num_char_printed;                                            \
-    } else {                                                                   \
-      buf += buf_size;                                                         \
-      buf_size = 0;                                                            \
-    }                                                                          \
-  } while (0);
+#define OC_JSON_UPDATE_BUFFER_AND_TOTAL                                                                                                              \
+  do                                                                                                                                                 \
+  {                                                                                                                                                  \
+    total_char_printed += num_char_printed;                                                                                                          \
+    if (num_char_printed < buf_size && buf != NULL)                                                                                                  \
+    {                                                                                                                                                \
+      buf += num_char_printed;                                                                                                                       \
+      buf_size -= num_char_printed;                                                                                                                  \
+    }                                                                                                                                                \
+    else                                                                                                                                             \
+    {                                                                                                                                                \
+      if (buf != NULL)                                                                                                                               \
+      {                                                                                                                                              \
+        buf += buf_size;                                                                                                                             \
+      }                                                                                                                                              \
+      buf_size = 0;                                                                                                                                  \
+    }                                                                                                                                                \
+  }                                                                                                                                                  \
+  while (0);
 
 /*
  * Internal function used to complete the oc_rep_to_json function
@@ -1332,7 +1360,10 @@ oc_rep_to_json_base64_encoded_byte_string(char *buf, size_t buf_size,
     num_char_printed = output_len;
     OC_JSON_UPDATE_BUFFER_AND_TOTAL;
   } else {
-    buf += buf_size;
+    if (buf != NULL)
+    {
+      buf += buf_size;
+    }
     buf_size = 0;
     total_char_printed += (b64_buf_size - 1);
   }

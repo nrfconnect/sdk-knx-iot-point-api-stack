@@ -67,12 +67,10 @@ oc_oscore_context_t* oc_oscore_find_context_by_kid_and_kid_context(uint8_t* kid,
 
   while (ctx) 
   {
-    // received frame kid (Sender ID) and kid_context (ID Context) 
-    // must both match in size and value to an oscore context 
-    if (kid_len == ctx->recipient_id_len 
-        && memcmp(kid, ctx->recipient_id, kid_len) == 0 
-        && kid_ctx_len == ctx->id_context_len 
-        && memcmp(kid_ctx, ctx->id_context, kid_ctx_len) == 0) 
+    // received frame kid (Sender ID) and kid_context (ID Context)
+    // must both match in size and value to an oscore context, an empty kid_context may be NULL
+    if (kid_len == ctx->recipient_id_len && memcmp(kid, ctx->recipient_id, kid_len) == 0 && kid_ctx_len == ctx->id_context_len &&
+        (kid_ctx_len == 0 || memcmp(kid_ctx, ctx->id_context, kid_ctx_len) == 0))
     {
 
       OC_INF("found OSCORE Recipient ID context");

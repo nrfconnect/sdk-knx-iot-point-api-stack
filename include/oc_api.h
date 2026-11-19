@@ -275,7 +275,9 @@ extern "C"
    * Blocks arrive in order and without gaps: a download starts with block_offset 0
    * and each following block_offset equals the number of bytes passed before.
    * The stack rejects blocks that would leave a gap and passes only the new bytes
-   * of a repeated or overlapping block.
+   * of a repeated or overlapping block. A block at offset 0 always starts a new
+   * download, also when it repeats the first block: the application gets
+   * block_offset 0 again and must restart its image.
    *
    * @param[in] response the instance of an internal struct that is used to track
    *                     the state of the separate response

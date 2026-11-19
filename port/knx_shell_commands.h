@@ -53,3 +53,7 @@ int knx_shell_command_run(size_t argc, char** argv);
  * shell_error()). */
 void knx_shell_print(const char* fmt, ...) KNX_SHELL_PRINTF_LIKE(1, 2);
 void knx_shell_error(const char* fmt, ...) KNX_SHELL_PRINTF_LIKE(1, 2);
+
+/* Provided by the application. */
+const char* knx_iot_get_application_name(void);
+const char* app_get_password(void);

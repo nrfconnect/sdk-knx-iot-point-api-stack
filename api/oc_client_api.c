@@ -168,7 +168,8 @@ int oc_lf_get_entry_uri(const char *payload, int payload_len, int entry,
     }
   }
 
-  *uri = &line[begin_uri];
+  // no line found (line stays NULL): no arithmetic on the NULL pointer, the uri is empty
+  *uri = line != NULL ? &line[begin_uri] : NULL;
   *uri_len = end_uri - begin_uri;
 
   return 1;

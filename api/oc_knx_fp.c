@@ -389,6 +389,12 @@ static int oc_core_items_used_in_rcp_table(void)
 
 bool oc_belongs_href_to_resource(oc_string_t href, bool discoverable)
 {
+  // an entry without href (e.g. loaded unvalidated from storage) belongs to no resource
+  if (oc_string(href) == NULL)
+  {
+    return false;
+  }
+
   for (const oc_resource_t* resource = oc_ri_get_app_resources(); resource; resource = resource->next)
   {
     if (discoverable)
@@ -2435,6 +2441,9 @@ void oc_store_group_object_table_entry(int entry)
   if (!buf)
     return;
 
+  // a handler may be encoding its response while it stores, it continues on its own buffer
+  oc_rep_encoder_state_t caller_encoder;
+  oc_rep_save_encoder(&caller_encoder);
   oc_rep_new(buf, OC_MAX_APP_DATA_SIZE);
 
   // write the data in CBOR format
@@ -2462,6 +2471,7 @@ void oc_store_group_object_table_entry(int entry)
       OC_ERR("written %d != %d (to be written)", (int)written_size, size);
     }
   }
+  oc_rep_restore_encoder(&caller_encoder);
   free(buf);
 }
 
@@ -2735,6 +2745,9 @@ static void oc_store_group_table_entry(int entry, char* store, const oc_group_ta
     return;
   }
 
+  // a handler may be encoding its response while it stores, it continues on its own buffer
+  oc_rep_encoder_state_t caller_encoder;
+  oc_rep_save_encoder(&caller_encoder);
   oc_rep_new(buf, OC_MAX_APP_DATA_SIZE);
 
   // write the data in CBOR format
@@ -2771,6 +2784,7 @@ static void oc_store_group_table_entry(int entry, char* store, const oc_group_ta
     }
   }
 
+  oc_rep_restore_encoder(&caller_encoder);
   free(buf);
 }
 

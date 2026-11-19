@@ -450,6 +450,26 @@ TEST_F(GoTableHref, GetHrefOutOfBoundsReturnsEmpty)
             0u);
 }
 
+/* a store from inside a handler encodes into a buffer of its own, the handler's response continues on its buffer */
+TEST_F(GoTableHref, StoreEntryHandsTheEncoderBackToTheCaller)
+{
+  uint32_t ga[] = {1};
+  set_entry(0, 1, "/p/a", ga, 1);
+  uint8_t response[64];
+  oc_rep_new(response, (int)sizeof(response));
+
+  oc_rep_begin_root_object();
+  oc_rep_i_set_int(root, 1, 7);
+  oc_store_group_object_table_entry(0);
+  oc_rep_i_set_int(root, 2, 8);
+  oc_rep_end_root_object();
+
+  EXPECT_EQ(oc_rep_get_encoder_buf(), response);
+  /* {1: 7, 2: 8}, the root map has an indefinite length */
+  const uint8_t expected[] = {0xbf, 0x01, 0x07, 0x02, 0x08, 0xff};
+  ASSERT_EQ(oc_rep_get_encoded_payload_size(), (int)sizeof(expected));
+  EXPECT_EQ(0, memcmp(response, expected, sizeof(expected)));
+}
 
 TEST_F(GoTableHref, GetHrefReturnsStoredString)
 {
@@ -669,6 +689,15 @@ TEST_F(BelongsHref, NonDiscoverableSkippedWhenDiscoverableRequested)
   /* discoverable=false -> it is considered -> true */
   EXPECT_TRUE(oc_belongs_href_to_resource(href, false));
   oc_free_string(&href);
+}
+
+TEST_F(BelongsHref, NullHrefReturnsFalse)
+{
+  /* a group object entry loaded from storage may carry no href at all */
+  add_resource("/p/x", true);
+  const oc_string_t href = {0};
+  EXPECT_FALSE(oc_belongs_href_to_resource(href, true));
+  EXPECT_FALSE(oc_belongs_href_to_resource(href, false));
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

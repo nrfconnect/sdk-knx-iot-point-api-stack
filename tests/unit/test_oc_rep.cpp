@@ -559,6 +559,24 @@ TEST_F(OcRepTest, ToJson_NullBuf_ReturnsSizeNeeded)
   EXPECT_GT(needed, 0u);
 }
 
+TEST_F(OcRepTest, ToJson_NullBuf_ByteString_ReturnsExactSize)
+{
+  /* the size query (NULL, 0) must not do arithmetic on the NULL buffer, also
+     not in the base64 branch of a byte string (UBSan: zero offset to null) */
+  const uint8_t bytes[] = {0x01, 0x02, 0x03, 0x04, 0x05};
+  oc_rep_new(buf, sizeof(buf));
+  oc_rep_begin_root_object();
+  oc_rep_i_set_byte_string(root, 1, bytes, sizeof(bytes));
+  int rc = encode_and_parse();
+  ASSERT_EQ(rc, CborNoError);
+
+  const size_t needed = oc_rep_to_json(rep, nullptr, 0, true);
+  std::vector<char> json(needed + 1);
+  const size_t written = oc_rep_to_json(rep, json.data(), json.size(), true);
+  EXPECT_EQ(needed, written);
+  EXPECT_EQ(strlen(json.data()), written);
+}
+
 TEST_F(OcRepTest, ToJson_BoolFalse)
 {
   oc_rep_new(buf, sizeof(buf));
@@ -987,10 +1005,48 @@ TEST_F(OcRepTest, ParseRep_DuplicateIntegerKeyInNestedMap)
   EXPECT_EQ(last_ga, 9999);
 }
 
+/* Integers outside the int64 range (found by fuzz_dev_put) */
 
+TEST_F(OcRepTest, ParseRep_NegativeIntBelowInt64Min_IsRejected)
+{
+  /* { 1: -2^63 - 1 } */
+  const uint8_t payload[] = {0xa1, 0x01, 0x3b, 0x80, 0, 0, 0, 0, 0, 0, 0};
+  EXPECT_NE(oc_parse_rep(payload, sizeof(payload), &rep), CborNoError);
+}
 
+TEST_F(OcRepTest, ParseRep_NegativeIntArrayItemBelowInt64Min_IsRejected)
+{
+  /* { 1: [ -1, -2^64 ] } */
+  const uint8_t payload[] = {0xa1, 0x01, 0x82, 0x20, 0x3b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+  EXPECT_NE(oc_parse_rep(payload, sizeof(payload), &rep), CborNoError);
+}
 
+TEST_F(OcRepTest, ParseRep_Int64Min_IsAccepted)
+{
+  /* { 1: -2^63 } */
+  const uint8_t payload[] = {0xa1, 0x01, 0x3b, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+  ASSERT_EQ(oc_parse_rep(payload, sizeof(payload), &rep), CborNoError);
+  int64_t value = 0;
+  EXPECT_TRUE(oc_rep_i_get_int(rep, 1, &value));
+  EXPECT_EQ(value, INT64_MIN);
+}
 
+TEST_F(OcRepTest, ParseRep_Uint64AboveInt64Max_KeepsBitPattern)
+{
+  /* { 1: 2^64 - 1 }: a 64-bit iid is read back as uint64 */
+  const uint8_t payload[] = {0xa1, 0x01, 0x1b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+  ASSERT_EQ(oc_parse_rep(payload, sizeof(payload), &rep), CborNoError);
+  int64_t value = 0;
+  EXPECT_TRUE(oc_rep_i_get_int(rep, 1, &value));
+  EXPECT_EQ((uint64_t)value, UINT64_MAX);
+}
+
+TEST_F(OcRepTest, ParseRep_IntKeyAboveIntMax_IsRejected)
+{
+  /* { 2^32 + 1: 0 } would otherwise be truncated to key 1 */
+  const uint8_t payload[] = {0xa1, 0x1b, 0, 0, 0, 0x01, 0, 0, 0, 0x01, 0x00};
+  EXPECT_NE(oc_parse_rep(payload, sizeof(payload), &rep), CborNoError);
+}
 
 /* Nesting depth (KNX_CBOR_MAX_DEPTH): the parse recurses per level, so a deeper
    payload is rejected before any node is allocated */
