@@ -9,13 +9,14 @@
  * definition core_resource_sub.delete_handler.cb, so the test invokes it via
  * that function pointer. The handler is driven with a hand-built
  * oc_request_t/oc_response_t and a real observer added through
- * coap_observe_handler (same approach as test_coap_observe.cpp).
+ * oc_knx_observe_handler (same approach as test_coap_observe.cpp).
  */
 
 #include <gtest/gtest.h>
 
 extern "C" {
 #include <string.h>
+#include "api/oc_knx_observe.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/constants.h"
 #include "messaging/coap/observe.h"
@@ -82,7 +83,7 @@ static int sub_add_observer(oc_resource_t *resource, oc_endpoint_t *ep,
   memset(&res, 0, sizeof(res));
   res.code = CONTENT_2_05;
 
-  return coap_observe_handler(&req, &res, resource, 0, ep);
+  return oc_knx_observe_handler(&req, &res, resource, 0, ep);
 }
 
 /* Build an oc_request_t with a response buffer the handler can write into. */

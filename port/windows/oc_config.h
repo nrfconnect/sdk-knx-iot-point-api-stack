@@ -24,9 +24,6 @@ typedef uint64_t oc_clock_time_t;
 // Max inactivity timeout before tearing down DTLS connection.
 #define OC_DTLS_INACTIVITY_TIMEOUT (300)
 
-// Maximum number of concurrent requests
-#define OC_MAX_NUM_CONCURRENT_REQUESTS (20)
-
 // Add support for dns lookup to the endpoint.
 #define OC_DNS_LOOKUP
 

@@ -192,14 +192,31 @@ extern "C" {
    * Used before the request payload is parsed, so a request without access is answered without
    * parsing it. A token with a <ga> list still needs oc_knx_sec_check_acl() on the parsed payload.
    *
+   * @param method invocation method for this call
+   * @param resource the resource being called
+   * @param endpoint the endpoint that calls for an operation
+   *
    * @return OC_STATUS_OK the scopes match (or the resource is unsecured for this method), otherwise the error code
    *         of oc_knx_sec_check_acl() (4.05, 4.01 or 4.03)
    */
   oc_status_t oc_knx_sec_check_acl_scope(coap_method_t method, const oc_resource_t* resource, const oc_endpoint_t* endpoint);
 
-	/**
-	 * @brief returns AT entry with OSCORE ID
-	 *
+  /**
+   * @brief check if a notification of the resource may be sent to an observer, based on the observer's
+   *        current access token and the GET scope of the resource
+   *
+   * @param resource the observed resource
+   * @param endpoint the observer endpoint (holds the access token used at registration)
+   * @param group_address the group address carried by the notification, checked for a token with a <ga> list
+   *
+   * @return true the observer may receive the notification
+   * @return false the observer has no (longer) access
+   */
+  bool oc_knx_sec_check_notify_acl(const oc_resource_t* resource, const oc_endpoint_t* endpoint, uint32_t group_address);
+
+  /**
+   * @brief returns AT entry with OSCORE ID
+   *
    * @param pkt coap paket including the OSCORE ID (kid) and OSCORE ID Context (kid_context)
    *
    * @return NULL : AT entry not found

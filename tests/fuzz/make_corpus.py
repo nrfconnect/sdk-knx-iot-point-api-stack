@@ -518,6 +518,7 @@ def corpus_mdns():
     }
 
 
+    # /k from peer 0 plus /p/o from peers 0..6 fills COAP_MAX_OBSERVERS (8)
 CORPORA = {
     "coap_parse": corpus_coap_parse,
     "oscore_options": corpus_oscore_options,

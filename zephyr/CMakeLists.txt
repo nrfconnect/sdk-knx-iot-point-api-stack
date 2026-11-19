@@ -168,6 +168,7 @@ set(API_SOURCES
     ${STACK_ROOT}/api/oc_knx_fp.c
     ${STACK_ROOT}/api/oc_knx_helpers.c
     ${STACK_ROOT}/api/oc_knx_hooks.c
+    ${STACK_ROOT}/api/oc_knx_observe.c
     ${STACK_ROOT}/api/oc_knx_p.c
     ${STACK_ROOT}/api/oc_knx_sec.c
     ${STACK_ROOT}/api/oc_knx_swu.c
@@ -372,6 +373,7 @@ zephyr_compile_definitions(
 ## Security
 zephyr_compile_definitions(
     KNX_ECHO_RING_SIZE=${CONFIG_KNXIOT_ECHO_RING_SIZE}
+    COAP_MAX_OBSERVERS=${CONFIG_KNXIOT_COAP_MAX_OBSERVERS}
     KNX_NET_MAX_RX_PENDING=${CONFIG_KNXIOT_NET_MAX_RX_PENDING}
     COAP_MAX_OPEN_TRANSACTIONS=${CONFIG_KNXIOT_COAP_MAX_OPEN_TRANSACTIONS}
     KNX_CBOR_MAX_DEPTH=${CONFIG_KNXIOT_CBOR_MAX_DEPTH}

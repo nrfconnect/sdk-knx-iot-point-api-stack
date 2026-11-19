@@ -113,6 +113,7 @@ set(KNX_ATT_MAX_ENTRIES "20" CACHE STRING "Maximum number of access token table 
 set(KNX_PAGE_SIZE "20" CACHE STRING "Server default page size for pagination")
 set(KNX_PAYLOAD_SIZE "768" CACHE STRING "Application payload bytes per CoAP exchange (buffer size, see below)" FORCE)
 set(KNX_ECHO_RING_SIZE "16" CACHE STRING "Echo ring size, used buffers to defend against replayed 4.01 unicast echo responses")
+set(KNX_COAP_MAX_OBSERVERS "8" CACHE STRING "Maximum number of CoAP observe relationships (all resources together)")
 set(KNX_NET_MAX_RX_PENDING "8" CACHE STRING "Received messages that may wait for the event loop, a message beyond it is dropped")
 set(KNX_COAP_MAX_OPEN_TRANSACTIONS "32" CACHE STRING "Maximum number of open CoAP transactions (requests and responses awaiting send or ACK)")
 set(KNX_CBOR_MAX_DEPTH "8" CACHE STRING "Maximum nesting depth of a received CBOR payload, deeper payloads are rejected before parsing (passed to the built-in TinyCBOR as CBOR_PARSER_MAX_RECURSIONS)")
@@ -227,6 +228,7 @@ set(API_SOURCES
     ${PROJECT_SOURCE_DIR}/api/oc_knx_fp.c
     ${PROJECT_SOURCE_DIR}/api/oc_knx_helpers.c
     ${PROJECT_SOURCE_DIR}/api/oc_knx_hooks.c
+    ${PROJECT_SOURCE_DIR}/api/oc_knx_observe.c
     ${PROJECT_SOURCE_DIR}/api/oc_knx_p.c
     ${PROJECT_SOURCE_DIR}/api/oc_knx_sec.c
     ${PROJECT_SOURCE_DIR}/api/oc_knx_swu.c
@@ -371,6 +373,7 @@ target_compile_definitions(kis-common INTERFACE
     KNX_ATT_MAX_ENTRIES=${KNX_ATT_MAX_ENTRIES} # access token table size
     KNX_PAGE_SIZE=${KNX_PAGE_SIZE}             # server default page size
     KNX_ECHO_RING_SIZE=${KNX_ECHO_RING_SIZE}   # echo ring size
+    COAP_MAX_OBSERVERS=${KNX_COAP_MAX_OBSERVERS}    # observe relationships
     KNX_NET_MAX_RX_PENDING=${KNX_NET_MAX_RX_PENDING}   # received messages waiting for the event loop
     COAP_MAX_OPEN_TRANSACTIONS=${KNX_COAP_MAX_OPEN_TRANSACTIONS} # open CoAP transactions
     KNX_CBOR_MAX_DEPTH=${KNX_CBOR_MAX_DEPTH}   # nesting depth of a received CBOR payload

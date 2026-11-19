@@ -22,15 +22,16 @@
 #include "messaging/coap/oc_coap.h"
 #include "messaging/coap/observe.h"
 
-#include "port/oc_random.h"
+#include "api/oc_knx_observe.h"
+#include "oc_api.h"
 #include "oc_buffer.h"
 #include "oc_core_res.h"
 #include "oc_events.h"
-#include "oc_network_events.h"
-#include "oc_signal_event_loop.h"
-#include "oc_api.h"
-#include "oc_ri.h"
 #include "oc_knx_sec.h"
+#include "oc_network_events.h"
+#include "oc_ri.h"
+#include "oc_signal_event_loop.h"
+#include "port/oc_random.h"
 
 #include "oc_blockwise.h"
 
@@ -1369,30 +1370,30 @@ bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
       {
         /*
           Register: attempt to add the requesting client as an observer.
-          'coap_observe_handler' below parses "lt" and "non" query parameters 
+          'oc_knx_observe_handler' below checks the "lt", "non" and "u" query parameters
           (KNX 2.5.9.3/4 + 2.5.11.6 -- applies to ALL KNX IoT observe registrations, not just /k).
-          
-          (a) returns -2 if 'lt' is missing or 'lt' value is not in range (observer is removed internally)
-          (b) returns -1 on invalid request/response codes, no memory, or other error (observer is not added)
-          (c) returns 0 on adding a NEW observe, on removing existing an observe (0: but not found)
-          (d) returns 1 on add a REFRESHED observe (from an existing, before deleted observe)
-        
+
+          (a) COAP_OBSERVE_REJECTED if 'lt' is missing or not in range, or 'u' is not a boolean (nothing registered)
+          (b) COAP_OBSERVE_FAILED on invalid request/response codes or a full observer list (observer is not added)
+          (c) COAP_OBSERVE_ADDED on adding a NEW observe
+          (d) COAP_OBSERVE_REPLACED on a REFRESHED observe (an existing observe of the client was replaced)
         */
 
-        int observe_result = coap_observe_handler(request, response, matching_resource, block2_size, endpoint);
+        int observe_result = oc_knx_observe_handler(request, response, matching_resource, block2_size, endpoint);
 
-        if (observe_result == -2)
+        if (observe_result == COAP_OBSERVE_REJECTED)
         { // (a)
-          
+          response_buffer.response_length = 0;
+          response_buffer.content_format = CONTENT_NONE;
           response_buffer.code = oc_status_code(OC_STATUS_BAD_REQUEST);
         }
-        else if (observe_result >= 0)
-        { // (c) or (d) added new or refreshed observer 
-          
-          /* 
-             - set observe option + value in response to the observer's 
-             - assigned current sequence number that assigned to the observer 
-               (RFC 7641 Section 3.1, 4.4 - not ness. a '0' must be the first value)
+        else if (observe_result >= COAP_OBSERVE_ADDED)
+        { // (c) or (d) added new or refreshed observer
+
+          /*
+             - set observe option + value in response to the observer's
+             - assigned current sequence number that assigned to the observer
+               (the registration response is the first notification, RFC 7641 Section 4.2 - not ness. a '0' must be the first value)
           */
           coap_set_header_observe(response, get_observe_counter());
 
@@ -1418,17 +1419,17 @@ bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
           If the observe option is set to deregister (OC_OBSERVE_DEREGISTER), make an attempt to remove the
           requesting client from the list of observers. In addition, remove the resource from the list periodic
           GET callbacks if it is periodic observable.
-          
-          (e) returns 1 on removed PRESENT observe 
+
+          (e) COAP_OBSERVE_REPLACED (1) on removed PRESENT observe
 
         */
 
-        if (coap_observe_handler(request, response, matching_resource, block2_size, endpoint) > 0)
+        if (oc_knx_observe_handler(request, response, matching_resource, block2_size, endpoint) > 0)
         { // (e)
 
           /*
             the periodic callback exists ONCE per resource, not per observer
-            - coap_observe_handler() above removed only THIS client's observer (same endpoint + token, RFC 7641), and
+            - oc_knx_observe_handler() above removed only THIS client's observer (same endpoint + token, RFC 7641), and
               decreased num_observers
             - each periodic tick notifies every observer still in the list: the deregistered client gets nothing more,
               the other observers keep their notifications
@@ -1514,9 +1515,9 @@ bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
              both with POST, the actual service type is part of the s-mode payload (st='r/w/a')
 
              - multicast ->  calls 'oc_ignore_request' which sets OC_IGNORE, not processed here
-                             (consequently only on self-triggered request a notification is sent, 
-                              see 'coap_notify_k_observers')
-             
+                             (consequently only on self-triggered request a notification is sent,
+                              see 'oc_knx_notify_k_observers')
+
              - unicast   ->  calls below 'oc_notify_observers' which sends a notification to all observers of the resource,
                              no delay (it was a unicast, hence no other devices firing notifications based on this request)
 

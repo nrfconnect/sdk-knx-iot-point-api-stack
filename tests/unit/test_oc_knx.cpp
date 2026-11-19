@@ -18,6 +18,7 @@ extern "C"
 {
 #include "api/oc_knx_client.h"
 #include "api/oc_knx_dev.h" /* KNX_STORAGE_KEY_FINGERPRINT */
+#include "api/oc_knx_observe.h"
 #include "include/oc_knx.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/observe.h"
@@ -307,7 +308,7 @@ static int add_k_observer(uint16_t port)
   memset(&res, 0, sizeof(res));
   res.code = CONTENT_2_05;
 
-  return coap_observe_handler(&req, &res, &core_resource_knx_k, 0, &ep);
+  return oc_knx_observe_handler(&req, &res, &core_resource_knx_k, 0, &ep);
 }
 
 static int k_observers(void)

@@ -88,6 +88,10 @@ function(kis_add_test TEST_NAME TEST_SOURCE)
 endfunction()
 
 # ── Test targets ───────────────────────────────────────────────────────────────
+# Layering: messaging/, security/ and port/ reach the KNX layer only through their *_knx_hooks.h
+add_test(NAME LayeringCheck.LowerLayersUseOnlyTheirKnxHooks
+         COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${PROJECT_SOURCE_DIR}/cmake/check_layering.cmake)
+
 # Pure-function tests (no platform/network dependencies)
 kis_add_test(test_oc_knx_hooks test_oc_knx_hooks.cpp)
 kis_add_test(test_oc_base64  test_oc_base64.cpp)
@@ -189,7 +193,12 @@ target_link_options(test_coap_observe PRIVATE
     -Wl,--wrap=oc_main_initialized
     -Wl,--wrap=oc_etimer_restart
     -Wl,--wrap=coap_send_message
+    -Wl,--wrap=malloc
     -Wl,--wrap=calloc
+    -Wl,--wrap=oc_clock_time
+    -Wl,--wrap=oc_ri_add_timed_event_callback_ticks
+    -Wl,--wrap=oc_ri_remove_timed_event_callback
+    -Wl,--wrap=oc_ri_get_app_resource_by_resource_path
 )
 kis_add_test(test_smode_refcount     test_smode_refcount.cpp)
 kis_add_test(test_smode_send_refcount test_smode_send_refcount.cpp)
@@ -212,7 +221,7 @@ target_link_options(test_smode_issue PRIVATE
     -Wl,--wrap=oc_etimer_restart
     -Wl,--wrap=oc_allocate_message
     -Wl,--wrap=coap_new_transaction_with_message
-    -Wl,--wrap=coap_notify_k_observers
+    -Wl,--wrap=oc_knx_notify_k_observers
 )
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(test_smode_issue PRIVATE -fpermissive)

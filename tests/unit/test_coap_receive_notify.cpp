@@ -24,9 +24,7 @@
 #include <vector>
 
 extern "C" {
-#include "oc_api.h"
-#include "oc_buffer.h"
-#include "oc_ri.h"
+#include "api/oc_knx_observe.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/engine.h"
 #include "messaging/coap/observe.h"
@@ -204,7 +202,7 @@ protected:
     coap_packet_t rsp;
     memset(&rsp, 0, sizeof(rsp));
     rsp.code = CONTENT_2_05;
-    ASSERT_EQ(coap_observe_handler(&req, &rsp, res, 0, ep), 0);
+    ASSERT_EQ(oc_knx_observe_handler(&req, &rsp, res, 0, ep), 0);
     ASSERT_EQ(res->runtime_data->num_observers, 1);
   }
 };

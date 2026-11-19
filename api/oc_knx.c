@@ -684,7 +684,7 @@ static void oc_core_knx_k_get_handler(oc_request_t* request, oc_interface_mask_t
     KNX 2.5.9.1: FIRST GET and no observe option (a) or with observe option (b) return both only the notification of {4: <ia>}
 
     (b)
-    - subsequent observe notifications with full s-mode payload are handled by 'coap_notify_k_observers'
+    - subsequent observe notifications with full s-mode payload are handled by 'oc_knx_notify_k_observers'
     - handling of 'Observe' ?lt=86400 or ?non=true is done in 'oc_ri_invoke_coap_entity_handler'
 
       GET coap://[fd00::1]/k?lt=3600&non=true

@@ -21,109 +21,100 @@
 
 #include "oc_blockwise.h"
 #include "oc_coap.h"
-#include "oc_endpoint.h"
-#include "oc_knx_helpers.h"
-#include "oc_rep.h"
-#include "oc_ri.h"
-#include "api/oc_knx_sec.h"
+  #include "oc_endpoint.h"
+  #include "oc_rep.h"
+  #include "oc_ri.h"
 
-// RFC 7641 Section 3.4: Observe option is at most 3 bytes (0 to 2^24-1)
-#define OBSERVE_COUNTER_MASK 0x00FFFFFF
+  // the Observe option is at most 3 bytes (RFC 7641 Section 2), so sequence numbers wrap at 2^24
+  #define OBSERVE_COUNTER_MASK 0x00FFFFFF
 
 /*
   Global seed used to give each new observer a unique starting Observe sequence number.
-  - See RFC 7641 Section 3.4 for the Observe option value range and sequence number wrap-around handling.
-  - Seeded at OC_OBSERVE_NOTIFICATIONS (3); add_observer pre-increments before use, so the first assigned
+  - Seeded at OC_OBSERVE_NOTIFICATIONS (3); next_observe_seq() advances before use, so the first assigned
     value is OC_OBSERVE_NOTIFICATIONS + 1. A sequence number therefore never reuses the reserved 0/1/2 values.
 */
 static uint32_t observe_counter = OC_OBSERVE_NOTIFICATIONS;
 uint32_t get_observe_counter(void) { return observe_counter; }
 
+// observers in use, oldest first (oc_list_add appends)
 OC_LIST(observers_list);
 
-static void coap_remove_observer(coap_observer_t* o);
-static void coap_remove_expired_observers(void);
+// static pool, observers_list holds at most COAP_MAX_OBSERVERS of these entries
+static coap_observer_t g_observers[COAP_MAX_OBSERVERS];
 
-// removes ONE existing observer for the given client endpoint and resource URI, if any, and returns 1 if found and removed, 0 if not found
-static int coap_remove_observer_handle_by_uri(const oc_endpoint_t* endpoint, const char* uri, int uri_len)
+// key of the match callbacks below, only the fields a callback reads are set
+typedef struct
 {
-  coap_observer_t* obs = (coap_observer_t*)oc_list_head(observers_list);
+  const oc_endpoint_t* endpoint;
+  const oc_resource_t* resource;
+  const uint8_t* token;
+  size_t token_len;
+  uint16_t mid;
+} observer_key_t;
 
-  while (obs)
-  {
-    coap_observer_t* next = obs->next;
-
-    if (oc_endpoint_compare(&obs->endpoint, endpoint) == 0
-        && oc_string_len(obs->url) == (size_t)uri_len
-        && memcmp(oc_string(obs->url), uri, uri_len) == 0)
-    {
-      coap_remove_observer(obs);
-      OC_DBG("removed 1 observer");
-      return 1;
-    }
-
-    obs = next;
-  }
-
-  OC_DBG("removed 0 observer");
-  return 0;
+/*
+  next 24-bit sequence number, the values must strictly increase (RFC 7641 Sections 3.4 and 4.4);
+  on wrap-around it restarts at OC_OBSERVE_NOTIFICATIONS (3), so it never reuses the reserved 0/1/2 values
+*/
+static uint32_t next_observe_seq(uint32_t seq)
+{
+  seq = (seq + 1) & OBSERVE_COUNTER_MASK;
+  return seq ? seq : OC_OBSERVE_NOTIFICATIONS;
 }
 
-
-static int add_observer(const oc_resource_t* resource, uint16_t block2_size,
-                        const oc_endpoint_t* endpoint, const uint8_t* token, size_t token_len,
-                        const char* uri, size_t uri_len)
+// same IP address and same OSCORE identity; an unsecured request carries no identity beyond its port
+static bool is_same_oscore_client(const oc_endpoint_t* a, const oc_endpoint_t* b)
 {
-  const int duplicate = coap_remove_observer_handle_by_uri(endpoint, uri, (int)uri_len);
-
-  coap_observer_t* o = calloc(1, sizeof(coap_observer_t));
-
-  if (o)
-  {
-    oc_new_string(&o->url, uri, uri_len);
-    memcpy(&o->endpoint, endpoint, sizeof(oc_endpoint_t));
-    o->token_len = (uint8_t)token_len;
-    memcpy(o->token, token, token_len);
-    o->last_mid = 0;
-
-    /*
-      Assign a unique starting Observe sequence number to this observer, with 24-bit wrap-around per RFC 7641 Section 3.4.
-      - Each registration gets a different (increasing) starting value derived from the global counter, so a new or
-        refreshed registration for the same resource (typically with a different token) also gets a different start.
-      - The global counter lives in RAM and resets on reboot, which can weaken same-token refresh/reboot freshness
-        ordering (RFC 7641 3.4/4.4).
-    */
-    observe_counter++;
-    observe_counter &= OBSERVE_COUNTER_MASK;
-
-    // on wrap-around, restart at OC_OBSERVE_NOTIFICATIONS (3) so the value never reuses the reserved 0/1/2 values
-    observe_counter = observe_counter == 0 ? OC_OBSERVE_NOTIFICATIONS : observe_counter;
-
-    // assign this observer's starting sequence number from the global counter
-    o->obs_counter = observe_counter;
-    o->resource = resource;
-
-    o->block2_size = block2_size;
-    
-    // knx iot defaults, overridden after observe registration
-    o->lifetime = 0;                          // not set, will be updated by oc_ri after registration
-    o->created = oc_clock_time();             // time of observer creation, used for lifetime expiry check
-    o->use_con = true;                        // default in KNX IoT specification, can be overridden by "non=true" query parameter
-    resource->runtime_data->num_observers++;  // increase number of current observers for this resource
-
-    OC_DBG("adding observer (%i) for /%s [0x%02X%02X]", oc_list_length(observers_list) + 1, oc_string_checked(o->url), o->token[0], o->token[1]);
-    
-    oc_list_add(observers_list, o);
-    return duplicate;
-  }
-
-  OC_WRN("insufficient memory to add new observer");
-  return -1;
+  return (a->flags & OSCORE_DECRYPTED) && (b->flags & OSCORE_DECRYPTED) && oc_endpoint_compare_address(a, b) == 0 && a->kid_len == b->kid_len &&
+    memcmp(a->kid, b->kid, a->kid_len) == 0 && a->kid_ctx_len == b->kid_ctx_len && memcmp(a->kid_ctx, b->kid_ctx, a->kid_ctx_len) == 0;
 }
 
-static void coap_remove_observer(coap_observer_t* o)
+static bool any_observer(const coap_observer_t* obs, const void* key)
 {
-  OC_DBG("removing observer for /%s [0x%02X%02X]", oc_string_checked(o->url), o->token[0], o->token[1]);
+  (void)obs;
+  (void)key;
+  return true;
+}
+
+static bool is_expired(const coap_observer_t* obs, const void* now) { return obs->expiry && *(const oc_clock_time_t*)now > obs->expiry; }
+
+static bool same_endpoint(const coap_observer_t* obs, const void* key)
+{
+  return oc_endpoint_compare(&obs->endpoint, ((const observer_key_t*)key)->endpoint) == 0;
+}
+
+static bool same_token(const coap_observer_t* obs, const void* key)
+{
+  const observer_key_t* k = (const observer_key_t*)key;
+  return same_endpoint(obs, key) && obs->token_len == k->token_len && memcmp(obs->token, k->token, k->token_len) == 0;
+}
+
+static bool same_mid(const coap_observer_t* obs, const void* key)
+{
+  return same_endpoint(obs, key) && obs->last_mid == ((const observer_key_t*)key)->mid;
+}
+
+static bool same_resource(const coap_observer_t* obs, const void* resource) { return obs->resource == resource; }
+
+static bool same_resource_and_endpoint(const coap_observer_t* obs, const void* key)
+{
+  return obs->resource == ((const observer_key_t*)key)->resource && same_endpoint(obs, key);
+}
+
+/*
+  A client restarting on a new source port leaves its old registration behind until its lifetime ends, so when the
+  list is full the same OSCORE client takes over its own oldest registration of the same resource instead of being
+  rejected. Below the limit both stay, so one client may observe from several sockets.
+*/
+static bool same_resource_and_client(const coap_observer_t* obs, const void* key)
+{
+  const observer_key_t* k = (const observer_key_t*)key;
+  return obs->resource == k->resource && is_same_oscore_client(&obs->endpoint, k->endpoint);
+}
+
+static void remove_observer(coap_observer_t* o)
+{
+  OC_DBG("removing observer for %s", oc_string_checked(o->resource->uri));
 
   oc_blockwise_state_t* response_state = oc_blockwise_find_response_buffer(
     oc_string(o->resource->uri) + 1, oc_string_len(o->resource->uri) - 1,
@@ -134,140 +125,269 @@ static void coap_remove_observer(coap_observer_t* o)
   }
 
   o->resource->runtime_data->num_observers--;
-  oc_free_string(&o->url);
   oc_list_remove(observers_list, o);
-  free(o);
+
+  // back to the pool
+  memset(o, 0, sizeof(*o));
 }
 
-void coap_free_all_observers(void)
-{
-  coap_observer_t *obs = (coap_observer_t*)oc_list_head(observers_list);
-
-  while (obs)
-  {
-    coap_observer_t* next = obs->next;
-    coap_remove_observer(obs);
-    obs = next;
-  }
-}
-
-// removes ALL observers for the given client endpoint, and returns the amount of removed observers
-int coap_remove_observer_by_client(const oc_endpoint_t* endpoint)
+int coap_remove_observers(coap_observer_match_t match, const void* key, bool all)
 {
   int removed = 0;
-  coap_observer_t *obs = (coap_observer_t*)oc_list_head(observers_list);
-
-  OC_DBG("Unregistering observers for client at: ");
-  PRINTipaddr(*endpoint);
+  coap_observer_t* obs = (coap_observer_t*)oc_list_head(observers_list);
 
   while (obs)
   {
+    // saved, the observer may be removed below
     coap_observer_t* next = obs->next;
-    if (oc_endpoint_compare(&obs->endpoint, endpoint) == 0)
+    if (match(obs, key))
     {
-      coap_remove_observer(obs);
+      remove_observer(obs);
       removed++;
+      if (!all)
+      {
+        break;
+      }
     }
     obs = next;
   }
 
-  OC_DBG("Removed %d observers", removed);
   return removed;
+}
+
+coap_observer_t* coap_get_observers(void)
+{
+  const oc_clock_time_t now = oc_clock_time();
+  (void)coap_remove_observers(is_expired, &now, true);
+  return (coap_observer_t*)oc_list_head(observers_list);
+}
+
+
+int coap_add_observer(const oc_resource_t* resource, uint16_t block2_size, const oc_endpoint_t* endpoint, const coap_packet_t* request,
+                      uint32_t lifetime_s, bool use_con, coap_observer_t** added)
+{
+  *added = NULL;
+
+  // drops the expired observers, a free entry is found also with lapsed registrations in the list
+  (void)coap_get_observers();
+
+  const observer_key_t key = {.endpoint = endpoint, .resource = resource};
+  int replaced = coap_remove_observers(same_resource_and_endpoint, &key, false);
+
+  if (oc_list_length(observers_list) >= COAP_MAX_OBSERVERS)
+  {
+    replaced = coap_remove_observers(same_resource_and_client, &key, false);
+    if (!replaced)
+    {
+      OC_WRN("observer limit (%d) reached, registration rejected", COAP_MAX_OBSERVERS);
+      return COAP_OBSERVE_FAILED;
+    }
+  }
+
+  // a free entry exists, the list is below COAP_MAX_OBSERVERS (bounded anyway, should list and pool ever disagree)
+  coap_observer_t* o = g_observers;
+  while (o < g_observers + COAP_MAX_OBSERVERS && o->resource)
+  {
+    o++;
+  }
+  if (o == g_observers + COAP_MAX_OBSERVERS)
+  {
+    OC_ERR("observer pool has no free entry although the list is not full");
+    return COAP_OBSERVE_FAILED;
+  }
+
+  o->resource = resource;
+  o->endpoint = *endpoint;
+  o->token_len = request->token_len;
+  memcpy(o->token, request->token, request->token_len);
+  o->block2_size = block2_size;
+  o->use_con = use_con;
+  o->expiry = lifetime_s ? oc_clock_time() + (oc_clock_time_t)lifetime_s * OC_CLOCK_SECOND : 0;
+
+  /*
+    Each registration gets a different (increasing) starting value derived from the global counter, so a new or
+    refreshed registration for the same resource (typically with a different token) also gets a different start.
+    The global counter lives in RAM and resets on reboot, which can weaken same-token refresh/reboot freshness ordering.
+  */
+  observe_counter = next_observe_seq(observe_counter);
+  o->obs_counter = observe_counter;
+
+  resource->runtime_data->num_observers++;
+  oc_list_add(observers_list, o);
+  OC_DBG("adding observer (%d) for %s", oc_list_length(observers_list), oc_string_checked(resource->uri));
+
+  *added = o;
+  return replaced ? COAP_OBSERVE_REPLACED : COAP_OBSERVE_ADDED;
+}
+
+void coap_free_all_observers(void) { (void)coap_remove_observers(any_observer, NULL, true); }
+
+// removes ALL observers for the given client endpoint, and returns the amount of removed observers
+int coap_remove_observer_by_client(const oc_endpoint_t* endpoint)
+{
+  OC_DBG("Unregistering observers for client at: ");
+  PRINTipaddr(*endpoint);
+
+  const observer_key_t key = {.endpoint = endpoint};
+  return coap_remove_observers(same_endpoint, &key, true);
 }
 
 // removes ONE observer for the given client endpoint and request token, and returns 1 if found and removed, 0 if not found
 int coap_remove_observer_by_token(const oc_endpoint_t* endpoint, const uint8_t* token, size_t token_len)
 {
-  OC_DBG("unregistering observer for request token 0x%02X%02X ...", token[0], token[1]);
-
-  for (coap_observer_t* obs = (coap_observer_t*)oc_list_head(observers_list); obs; obs = obs->next)
-  {
-    if (oc_endpoint_compare(&obs->endpoint, endpoint) == 0 
-        && obs->token_len == token_len 
-        && memcmp(obs->token, token, token_len) == 0)
-    {
-      coap_remove_observer(obs);
-      OC_DBG("removed 1 observer");
-      return 1;
-    }
-  }
-
-  OC_DBG("removed 0 observer");
-  return 0;
+  const observer_key_t key = {.endpoint = endpoint, .token = token, .token_len = token_len};
+  return coap_remove_observers(same_token, &key, false);
 }
 
 // removes ONE observer for the given client endpoint and request MID, and returns 1 if found and removed, 0 if not found
 int coap_remove_observer_by_mid(const oc_endpoint_t* endpoint, uint16_t mid)
 {
-  OC_DBG("unregistering observers for request MID %u", mid);
-
-  for (coap_observer_t* obs = (coap_observer_t*)oc_list_head(observers_list); obs; obs = obs->next)
-  {
-    if (oc_endpoint_compare(&obs->endpoint, endpoint) == 0 
-        && obs->last_mid == mid)
-    {
-      coap_remove_observer(obs);
-      OC_DBG("removed 1 observer");
-      return 1;
-    }
-  }
-
-  OC_DBG("removed 0 observer");
-  return 0;
-}
-
-// removes ALL observers for the given access token, and returns the amount of removed observers
-int coap_remove_observers_by_access_token(const oc_auth_at_t* at)
-{
-  int removed = 0;
-  coap_observer_t* obs = (coap_observer_t*)oc_list_head(observers_list);
-
-  while (at && obs)
-  {
-    // save tmp copy of next pointer, since obs might be removed in the if block below
-    coap_observer_t* next = obs->next;
-
-    if (obs->endpoint.access_token.inbound == at)
-    {
-      coap_remove_observer(obs);
-      removed++;
-    }
-    obs = next;
-  }
-
-  OC_DBG("removed %d observers of a deleted access token", removed);
-  return removed;
+  const observer_key_t key = {.endpoint = endpoint, .mid = mid};
+  return coap_remove_observers(same_mid, &key, false);
 }
 
 // removes ALL observers for the given resource, and returns the amount of removed observers
-int coap_remove_observer_by_resource(const oc_resource_t* rsc)
+int coap_remove_observer_by_resource(const oc_resource_t* rsc) { return coap_remove_observers(same_resource, rsc, true); }
+
+/*
+  sends the notification to the observer, returns true when it is queued
+  - a 2.xx notification carries the next sequence number, advanced before use so a notification never repeats
+    the value of the registration response
+  - any other code carries the deregister value; note: RFC 7641 Section 4.2 asks for no Observe option there
+*/
+static bool send_notification(coap_observer_t* obs, coap_packet_t* notification)
 {
-  int removed = 0;
-  coap_observer_t *obs = (coap_observer_t*)oc_list_head(observers_list);
-
-  while (obs)
+  coap_transaction_t* transaction = coap_new_transaction(notification->mid, obs->token, obs->token_len, &obs->endpoint);
+  if (!transaction)
   {
-    // save tmp copy of next pointer, since obs might be removed in the if block below
-    coap_observer_t* next = obs->next;
-    
-    if (obs->resource == rsc 
-        && oc_string(rsc->uri)
-        && oc_string_len(obs->url) == oc_string_len(rsc->uri) - 1 
-        && memcmp(oc_string(obs->url), oc_string(rsc->uri) + 1, oc_string_len(rsc->uri) - 1) == 0)
-    {
-      coap_remove_observer(obs);
-      removed++;
-    }
-
-    // restore to next observer in list
-    obs = next;
+    return false;
   }
 
-  return removed;
+  coap_set_token(notification, obs->token, obs->token_len);
+  if (notification->code < BAD_REQUEST_4_00)
+  {
+    obs->obs_counter = next_observe_seq(obs->obs_counter);
+    coap_set_header_observe(notification, obs->obs_counter);
+  }
+  else
+  {
+    coap_set_header_observe(notification, OC_OBSERVE_DEREGISTER);
+  }
+  obs->last_mid = notification->mid;
+
+  transaction->message->length = coap_serialize_message(notification, transaction->message->data);
+  if (transaction->message->length > 0)
+  {
+    coap_send_transaction(transaction);
+    return true;
+  }
+  coap_clear_transaction(transaction);
+  return false;
 }
 
-int coap_notify_observers(const oc_resource_t* resource, oc_response_buffer_t* response_buf, const oc_endpoint_t* endpoint)
+void coap_send_observe_payload(coap_observer_t* obs, const uint8_t* payload, size_t payload_len)
 {
+  coap_packet_t notification[1];
+  coap_udp_init_message(notification, obs->use_con ? COAP_TYPE_CON : COAP_TYPE_NON, CONTENT_2_05, coap_get_next_mid());
+  coap_set_header_content_format(notification, APPLICATION_CBOR);
+  coap_set_payload(notification, payload, payload_len);
+  (void)send_notification(obs, notification);
+}
+
+/*
+  puts the first block of the payload into a new blockwise buffer of the observer; false skips the observer (no
+  blockwise buffer is left), the remaining observers are still notified
+  - buffer key = URI path WITHOUT the leading '/', the follow-up GET looks the buffer up by its Uri-Path options
+  - a buffer of an earlier notification to this observer (finished or not) is replaced by the newer state, only the
+    newest notification matters and its own ETag tells the client the old body is gone (RFC 7641 4.2)
+*/
+static bool set_first_block(coap_observer_t* obs, coap_packet_t* notification, const oc_response_buffer_t* response_buf)
+{
+  const char* href = oc_string(obs->resource->uri) + 1;
+  const size_t href_len = oc_string_len(obs->resource->uri) - 1;
+
+  oc_blockwise_state_t* response_state = oc_blockwise_find_response_buffer(href, href_len, &obs->endpoint, COAP_GET, NULL, 0, OC_BLOCKWISE_SERVER);
+  if (response_state)
+  {
+    oc_blockwise_free_response_buffer(response_state);
+  }
+
+  response_state = oc_blockwise_alloc_response_buffer(href, href_len, &obs->endpoint, COAP_GET, OC_BLOCKWISE_SERVER, response_buf->content_format);
+  if (!response_state)
+  {
+    OC_WRN("coap_notify_observers: no block-wise buffer, observer skipped");
+    return false;
+  }
+
+  notification->type = COAP_TYPE_CON;
+  memcpy(response_state->buffer, response_buf->buffer, response_buf->response_length);
+  response_state->payload_size = (uint32_t)response_buf->response_length;
+  uint32_t payload_size = 0;
+  const uint8_t* payload = oc_blockwise_dispatch_block(response_state, 0, obs->block2_size, &payload_size);
+  if (payload)
+  {
+    coap_set_payload(notification, payload, payload_size);
+    coap_set_header_block2(notification, 0, 1, obs->block2_size);
+    coap_set_header_size2(notification, response_state->payload_size);
+    coap_set_header_etag(notification, ((oc_blockwise_response_state_t*)response_state)->etag, COAP_ETAG_LEN);
+  }
+  return true;
+}
+
+/*
+  builds the notification of the response (first block when it exceeds the observer's block size) and sends it,
+  returns true when it is queued
+*/
+static bool send_observer_notification(coap_observer_t* obs, const oc_response_buffer_t* response_buf)
+{
+  OC_DBG("notifying observer");
+
+  // CON by default, NON when the observer registered so
+  coap_packet_t notification[1];
+  coap_udp_init_message(notification, obs->use_con ? COAP_TYPE_CON : COAP_TYPE_NON, CONTENT_2_05, coap_get_next_mid());
+
+  if (response_buf->response_length > obs->block2_size)
+  {
+    if (!set_first_block(obs, notification, response_buf))
+    {
+      return false;
+    }
+  }
+  else
+  {
+    if (obs->use_con && obs->obs_counter % COAP_OBSERVE_REFRESH_INTERVAL == 0)
+    {
+      // periodic CON to verify client is still alive (RFC 7641 Section 4.5); skip for NON observers
+      OC_DBG("coap_observe_notify: forcing CON notification to check for client liveness");
+      notification->type = COAP_TYPE_CON;
+    }
+
+    coap_set_payload(notification, response_buf->buffer, response_buf->response_length);
+  }
+
+  // final code from GET handler
+  coap_set_status_code(notification, response_buf->code);
+
+  // CONTENT_NONE removes the option
+  coap_set_header_content_format(notification, response_buf->content_format);
+
+  // the heartbeat interval via Max-Age, so the subscriber can detect stale values (KNX spec 2.6.10.2)
+  if (obs->resource->observe_period_seconds > 0)
+  {
+    coap_set_header_max_age(notification, obs->resource->observe_period_seconds);
+  }
+
+  return send_notification(obs, notification);
+}
+
+/*
+  returns the number of registered observers of the resource (contract of coap_notify_observers), and in
+  'dispatched' the number of notifications actually queued for sending
+*/
+static int notify_observers(const oc_resource_t* resource, oc_response_buffer_t* response_buf, const oc_endpoint_t* endpoint, int* dispatched)
+{
+  *dispatched = 0;
+
   if (!resource)
   {
     OC_WRN("no resource passed; returning");
@@ -279,11 +399,6 @@ int coap_notify_observers(const oc_resource_t* resource, oc_response_buffer_t* r
     OC_INF("no observers present");
     return 0;
   }
-
-  // remove expired observers before sending notifications (stale notifications are only deleted here, no cyclic check)
-  coap_remove_expired_observers();
-
-  oc_blockwise_state_t* response_state = NULL;
 
   /*
       prepare request from "void" with data needed for the application callback GET to retrieve the 
@@ -336,182 +451,41 @@ int coap_notify_observers(const oc_resource_t* resource, oc_response_buffer_t* r
     response_buf = &response_buffer;
   }
 
-  // iterate over observers
-  coap_observer_t* obs = (coap_observer_t*)oc_list_head(observers_list);
-  while (obs)
+  // iterate over observers, expired ones are removed first
+  for (coap_observer_t* obs = coap_get_observers(); obs; obs = obs->next)
   {
-    if (obs->resource == resource && (!endpoint || oc_endpoint_compare(&obs->endpoint, endpoint) == 0))
-    { // !endpoint (NULL) means : observer endpoint don't care , just notify on a matching resource; otherwise notify only if the endpoint also matches
-
-      /*
-        RFC 7641 3.1: the registration GET response itself serves as the first notification of current state.
-
-        For if.o resources (/p/...) the piggybacked registration GET response already contains the current
-        datapoint value, e.g.:
-          { 1: true }   -- current value of the datapoint (boolean 'on'), prepared by get_handler.cb
-      */
-
-      // it will be a separate CON response (CAN be overwritten from NULL ONLY in GET handler)
-      if (response_obj.separate_response)
-      {
-        /* 
-           create an artificial CoAP request to be used for generating the separate CON response,
-           with same token and URI path as the original registration GET request from the observer (RFC 7641 3.1)
-        */
-        coap_packet_t request_virtual[1];
-
-        coap_udp_init_message(request_virtual, COAP_TYPE_NON, COAP_GET, 0);
-        memcpy(request_virtual->token, obs->token, obs->token_len);
-        request_virtual->token_len = obs->token_len;
-        coap_set_header_uri_path(request_virtual, oc_string(resource->uri), oc_string_len(resource->uri));
-
-        OC_DBG("creating separate (CON) response for notification");
-
-        if (coap_separate_accept(request_virtual, response_obj.separate_response, &obs->endpoint, obs->obs_counter, obs->block2_size) == 1)
-        {
-          response_obj.separate_response->active = true;
-        }
-      }
-      else
-      { // response_buf is always non-NULL here: either passed by caller or set above after calling GET handler
-        OC_DBG("notifying observer");
-
-        // build notification with the raw inbound CBOR payload
-        coap_packet_t notification[1];
-        const coap_message_type_t msg_type = obs->use_con ? COAP_TYPE_CON : COAP_TYPE_NON;
-        const uint16_t mid = coap_get_next_mid();
-
-        // false: this observer is skipped (no transaction), the loop still goes on to the next observer
-        bool send = true;
-
-        // KNX spec 2.5.9.4: use CON by default; NON when observer registered with "non=true"
-        coap_udp_init_message(notification, msg_type, CONTENT_2_05, mid);
-
-        if (response_buf->response_length > obs->block2_size)
-        {
-          notification->type = COAP_TYPE_CON;
-          /*
-            buffer key = URI path WITHOUT the leading '/' (+1 skips it, -1 drops it from the length), here and in the alloc below
-            - resource uri always starts with '/' (oc_check_uri asserts it), e.g. "/p/1"
-            - the follow-up GET looks the buffer up in coap_receive() by its Uri-Path options, which carry no leading '/' -> "p/1"
-            -> both must match, otherwise the client's Block2 request does not find this buffer
-          */
-          response_state = oc_blockwise_find_response_buffer(
-            oc_string(obs->resource->uri) + 1,
-            oc_string_len(obs->resource->uri) - 1,
-            &obs->endpoint, COAP_GET,
-            NULL, 0, OC_BLOCKWISE_SERVER);
-          /*
-            a buffer of an earlier notification to this observer (finished or not) is replaced by the newer state
-            - RFC 7641 4.2: only the newest notification matters; its own ETag tells the client the old body is gone
-            - keeping an unfinished buffer and skipping the observer would drop the new value
-          */
-          if (response_state)
-          {
-            oc_blockwise_free_response_buffer(response_state);
-          }
-
-          response_state = oc_blockwise_alloc_response_buffer(
-            oc_string(obs->resource->uri) + 1, // exclude leading '/', as this is how the URI path is stored in the request buffer, see oc_blockwise_alloc_request_buffer
-            oc_string_len(obs->resource->uri) - 1, // exclude leading '/' = -1
-            &obs->endpoint, COAP_GET,
-            OC_BLOCKWISE_SERVER, response_buf->content_format);
-
-          if (!response_state)
-          {
-            // out of memory, skip only this observer, the remaining observers are still notified
-            OC_WRN("coap_notify_observers: no block-wise buffer, observer skipped");
-            send = false;
-          }
-          else
-          {
-            memcpy(response_state->buffer, response_buf->buffer, response_buf->response_length);
-            response_state->payload_size = (uint32_t)response_buf->response_length;
-            uint32_t payload_size = 0;
-            const uint8_t* payload = oc_blockwise_dispatch_block(response_state, 0, obs->block2_size, &payload_size);
-            if (payload)
-            {
-              coap_set_payload(notification, payload, payload_size);
-              coap_set_header_block2(notification, 0, 1, obs->block2_size);
-              coap_set_header_size2(notification, response_state->payload_size);
-              oc_blockwise_response_state_t* bwt_res_state = (oc_blockwise_response_state_t*)response_state;
-              coap_set_header_etag(notification, bwt_res_state->etag, COAP_ETAG_LEN);
-            }
-          }
-        }
-        else
-        { // payload fits
-
-          if (obs->use_con && obs->obs_counter % COAP_OBSERVE_REFRESH_INTERVAL == 0)
-          {
-            // RFC 7641 4.5: periodic CON to verify client is still alive; skip for NON observers
-            OC_DBG("coap_observe_notify: forcing CON notification to check for client liveness");
-            notification->type = COAP_TYPE_CON;
-          }
-
-          coap_set_payload(notification, response_buf->buffer, response_buf->response_length);
-        }
-
-        // final code from GET handler, may be changed by separate response handler if separate_response is set above
-        coap_set_status_code(notification, response_buf->code);
-
-        // CONTENT_NONE removes the option from CoAP ...
-        coap_set_header_content_format(notification, response_buf->content_format);
-
-        // // value 0 means no caching, hence explicit caching for response expected (spec 2.6.10.2), here a subscriber can detect stale values
-        if (obs->resource->observe_period_seconds > 0)
-        {
-          coap_set_header_max_age(notification, obs->resource->observe_period_seconds);
-        }
-
-        coap_set_token(notification, obs->token, obs->token_len);
-
-        // skip out of memory observers, but don't skip observer past this list entry that already owns memory 
-        coap_transaction_t* transaction = send ? coap_new_transaction(mid, obs->token, obs->token_len, &obs->endpoint) : NULL;
-        if (transaction)
-        {
-          if (notification->code < BAD_REQUEST_4_00 && obs->resource->runtime_data->num_observers)
-          {
-            /*
-              Advance the per-observer sequence number BEFORE use so a notification never reuses the value
-              already sent in the registration response (RFC 7641 3.4/4.4: the value must strictly increase).
-              Each observation relationship has its own counter (initialized from the global counter).
-            */
-            obs->obs_counter++;
-            obs->obs_counter &= OBSERVE_COUNTER_MASK;
-
-            // on wrap-around, restart at OC_OBSERVE_NOTIFICATIONS (3) so the value never reuses the reserved 0/1/2 values
-            obs->obs_counter = obs->obs_counter == 0 ? OC_OBSERVE_NOTIFICATIONS : obs->obs_counter;
-
-            coap_set_header_observe(notification, obs->obs_counter);
-          }
-          else
-          {
-            /*
-               notification with error response code or no more observers for this resource,
-               do not set Observe option to avoid client confusion and unnecessary retransmissions
-               -> de-register
-            */
-            coap_set_header_observe(notification, OC_OBSERVE_DEREGISTER);
-          }
-
-          obs->last_mid = mid;
-
-          transaction->message->length = coap_serialize_message(notification, transaction->message->data);
-          if (transaction->message->length > 0)
-          {
-            coap_send_transaction(transaction);
-          }
-          else
-          {
-            coap_clear_transaction(transaction);
-          }
-        }
-      }
-      
+    // !endpoint (NULL) means : observer endpoint don't care , just notify on a matching resource; otherwise notify only if the endpoint also matches
+    if (obs->resource != resource || (endpoint && oc_endpoint_compare(&obs->endpoint, endpoint) != 0))
+    {
+      continue;
     }
 
-    obs = obs->next;
+    // it will be a separate CON response (CAN be overwritten from NULL ONLY in GET handler)
+    if (response_obj.separate_response)
+    {
+      // artificial request with the token and URI path of the registration, to build the separate CON response
+      coap_packet_t request_virtual[1];
+
+      coap_udp_init_message(request_virtual, COAP_TYPE_NON, COAP_GET, 0);
+      memcpy(request_virtual->token, obs->token, obs->token_len);
+      request_virtual->token_len = obs->token_len;
+      coap_set_header_uri_path(request_virtual, oc_string(resource->uri), oc_string_len(resource->uri));
+
+      OC_DBG("creating separate (CON) response for notification");
+
+      if (coap_separate_accept(request_virtual, response_obj.separate_response, &obs->endpoint, obs->obs_counter, obs->block2_size) == 1)
+      {
+        response_obj.separate_response->active = true;
+        (*dispatched)++;
+      }
+      continue;
+    }
+
+    // response_buf is always non-NULL here: either passed by caller or set above after calling GET handler
+    if (send_observer_notification(obs, response_buf))
+    {
+      (*dispatched)++;
+    }
   }
 
   free(response_buffer.buffer);
@@ -519,180 +493,17 @@ int coap_notify_observers(const oc_resource_t* resource, oc_response_buffer_t* r
   return resource->runtime_data->num_observers;
 }
 
-int coap_observe_handler(void* request, void* response, const oc_resource_t* resource, uint16_t block2_size, oc_endpoint_t* endpoint)
+int coap_notify_observers(const oc_resource_t* resource, oc_response_buffer_t* response_buf, const oc_endpoint_t* endpoint)
 {
-  coap_packet_t* const coap_req = (coap_packet_t*)request;
-  coap_packet_t* const coap_res = (coap_packet_t*)response;
-
-  // registration/ de-registration  result
-  int result = -1;
-
-  if (coap_req->code == COAP_GET && coap_res->code < BAD_REQUEST_4_00)
-  {
-    // a GET with a positive response
-    if (IS_OPTION(coap_req, COAP_OPTION_OBSERVE))
-    {
-      if (coap_req->observe == OC_OBSERVE_REGISTER)
-      { // register
-
-        result = add_observer(
-           resource, block2_size, endpoint, coap_req->token, coap_req->token_len, 
-           coap_req->uri_path, coap_req->uri_path_len);
-
-        if (result >= 0)
-        { // added new or refreshed observe relationship
-          coap_observer_t* obs = (coap_observer_t*)oc_list_tail(observers_list);
-          if (obs)
-          {
-            /*
-              /k, clause 2.5.9.3: "lt" SHALL + "non" MAY query parameters apply to KNX IoT CoAP Observe registrations. 
-              "lt" is REQUIRED; reject without it.
-
-              /p/ clause 2.5.11.6: "lt" SHALL + "non" MAY (= assumed, no specification hint) query parameters apply KNX IoT CoAP Observe registrations. 
-              "lt" is REQUIRED; reject without it.
-            */
-
-            // parse "lt" (lifetime) -- KNX spec 2.5.11.6: REQUIRED for all observe registrations
-            const char* lt_value = NULL;
-            const int lt_len = coap_get_query_variable(request, "lt", &lt_value);
-
-            if (lt_len <= 0)
-            {
-              OC_WRN("observe register rejected: missing 'lt' query parameter");
-              coap_remove_observer(obs);
-              return -2;
-            }
-
-            /*
-              KNX spec 2.5.11.6: device SHALL support a minimum lifetime of 86400s (24h).
-              This means any value up to 86400 is valid; reject values above the supported maximum.
-              Note that 'lt_value' points into the request buffer and is NOT NUL terminated.
-            */
-            int lifetime = 0;
-            if (!oc_parse_sint32_from_base10_string(lt_value, lt_len, &lifetime) || lifetime == 0 || lifetime > 86400)
-            {
-              OC_WRN("observe register rejected: unsupported 'lt' value");
-              coap_remove_observer(obs);
-              return -2;
-            }
-
-            obs->lifetime = (uint32_t)lifetime;
-
-            // parse "non" (non-confirmable) -- KNX spec 2.5.11.6
-            const char* non_value = NULL;
-            const int non_len = coap_get_query_variable(request, "non", &non_value);
-
-            // default is CON (use_con = true); only set NON when "non=true" (4 chars)
-            obs->use_con = !(non_len == 4 && strncmp(non_value, "true", 4) == 0);
-          }
-        }
-      }
-      else if (coap_req->observe == OC_OBSERVE_DEREGISTER)
-      { // deregister
-        result = coap_remove_observer_by_token(endpoint, coap_req->token, coap_req->token_len);
-      }
-    }
-  }
-  return result;
+  int dispatched;
+  return notify_observers(resource, response_buf, endpoint, &dispatched);
 }
 
-static void coap_remove_expired_observers(void)
+int coap_notify_observers_dispatched(const oc_resource_t* resource, oc_response_buffer_t* response_buf, const oc_endpoint_t* endpoint)
 {
-  const oc_clock_time_t now = oc_clock_time();
-  coap_observer_t* obs = (coap_observer_t*)oc_list_head(observers_list);
-
-  while (obs)
-  {
-    coap_observer_t* next = obs->next;
-    if (obs->lifetime > 0)
-    {
-      const oc_clock_time_t elapsed = now - obs->created;
-      if (elapsed > (oc_clock_time_t)obs->lifetime * OC_CLOCK_SECOND)
-      {
-        OC_DBG("removing expired observer for /%s", oc_string_checked(obs->url));
-        coap_remove_observer(obs);
-      }
-    }
-    obs = next;
-  }
-}
-
-void coap_notify_k_observers(const uint8_t* payload, size_t payload_len, uint32_t group_address)
-{
-  // double guard, normally not called with one of these cond.
-  if (!payload || payload_len == 0)
-  {
-    return;
-  }
-
-  extern const oc_resource_t core_resource_knx_k;
-
-  // remove expired observers before sending notifications (stale notifications are only deleted here, no cyclic check)
-  coap_remove_expired_observers();
-
-  // iterate over observers
-  coap_observer_t* obs = (coap_observer_t*)oc_list_head(observers_list);
-  while (obs)
-  {
-    /*
-      only subscribers whose access token (the one of the subscription request) covers the group address
-      (spec 3.5.4.1: the publisher SHALL only send notifications with the group addresses in that token's scope)
-      - if.g.s (OC_ACL_G) : all group addresses
-      - <ga> (OC_ACL_GA)  : the group addresses in its list
-    */
-    const oc_auth_at_t* at = obs->endpoint.access_token.inbound;
-    const bool ga_granted = at && (at->scope & OC_ACL_G || (at->scope & OC_ACL_GA && check_access_token_for_group_address(at, group_address)));
-
-    if (obs->resource == &core_resource_knx_k && ga_granted)
-    {
-      const uint16_t mid = coap_get_next_mid();
-
-      coap_transaction_t* transaction = coap_new_transaction(mid, obs->token, obs->token_len, &obs->endpoint);
-      if (transaction)
-      { 
-        
-        coap_packet_t notification[1];
-
-        // KNX spec 2.5.9.4: use CON by default; NON when observer registered with "non=true"
-        const coap_message_type_t msg_type = obs->use_con ? COAP_TYPE_CON : COAP_TYPE_NON;
-
-        coap_udp_init_message(notification, msg_type, CONTENT_2_05, mid);
-
-        // build notification with the fully-formed S-Mode envelope payload (same bytes as the sent S-Mode message)
-        coap_set_header_content_format(notification, APPLICATION_CBOR);
-        coap_set_token(notification, obs->token, obs->token_len);
-        coap_set_payload(notification, payload, payload_len);
-        
-        /*
-          Advance the per-observer sequence number BEFORE use so a notification never reuses the value
-          already sent in the registration response (RFC 7641 3.4/4.4: the value must strictly increase).
-          Each observation relationship has its own counter (initialized from the global counter).
-        */
-        obs->obs_counter++;
-        obs->obs_counter &= OBSERVE_COUNTER_MASK;
-
-        // on wrap-around, restart at OC_OBSERVE_NOTIFICATIONS (3) so the value never reuses the reserved 0/1/2 values
-        obs->obs_counter = obs->obs_counter == 0 ? OC_OBSERVE_NOTIFICATIONS : obs->obs_counter;
-
-        coap_set_header_observe(notification, obs->obs_counter);
-
-        obs->last_mid = mid;
-
-        transaction->message->length = coap_serialize_message(notification, transaction->message->data);
-        if (transaction->message->length > 0)
-        {
-          coap_send_transaction(transaction);
-        }
-        else
-        {
-          coap_clear_transaction(transaction);
-        }
-      }
-      
-    }
-
-    obs = obs->next;
-  }
+  int dispatched;
+  (void)notify_observers(resource, response_buf, endpoint, &dispatched);
+  return dispatched;
 }
 
 #endif

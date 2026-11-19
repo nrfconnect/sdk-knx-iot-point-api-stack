@@ -87,6 +87,11 @@ config KNXIOT_ATT_MAX_ENTRIES
     int "Access Token (AT) table max entries"
     default 20
 
+config KNXIOT_COAP_MAX_OBSERVERS
+    int "Maximum number of observe relationships (all resources)"
+    default 8
+    range 1 255
+
 config KNXIOT_NET_MAX_RX_PENDING
     int "Received messages waiting for the event loop"
     default 8

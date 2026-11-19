@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "api/oc_knx_dev.h"
+#include "api/oc_knx_observe.h"
 #include "messaging/coap/observe.h"
 #include "messaging/coap/oscore_constants.h"
 #include "oc_api.h"
@@ -363,6 +364,9 @@ const oc_resource_t core_resource_knx_auth_o = {NULL,
 */
 static void oc_free_at_table_entry_ram(oc_auth_at_t* entry)
 {
+  // observations of this token end with it, a later token in this slot must not inherit them
+  oc_knx_remove_observers_of_access_token(entry);
+
   // id 
   oc_free_string(&entry->id);
   oc_new_string(&entry->id, "", 0);
@@ -2173,6 +2177,11 @@ void oc_init_oscore_from_storage(const bool read_ssn_from_storage)
   }
 }
 
+/*
+  Common part of the request and the notification access check: the method has a handler, and the resource scope of
+  the method and the scope of the endpoint's access token match. 'caller_acl_scope' is then the token scope
+  (OC_ACL_NONE for an unsecured resource), a <ga> token still needs the group address check of the caller.
+*/
 static oc_status_t acl_scope_status(coap_method_t method, const oc_resource_t* resource, const oc_endpoint_t* endpoint,
                                     oc_acl_mask_t* caller_acl_scope)
 {
@@ -2225,6 +2234,7 @@ static oc_status_t acl_scope_status(coap_method_t method, const oc_resource_t* r
     (see resource definitions, e.g.; auth/o GET = if.p/d/c for linked-list)
   */
 
+  // read on every call: for a notification the access token may have been changed or deleted since the registration
   *caller_acl_scope = oc_at_get_scope_mask(endpoint->access_token.inbound);
 
   // bitwise 'and' -> at least one scope from access token and resource must match, otherwise 4.03
@@ -2360,6 +2370,14 @@ oc_status_t oc_knx_sec_check_acl(coap_method_t method, const oc_resource_t* reso
 
   // acl scopes + method OK (O0, O1, O2 with all ga's covered or a 'sia' only payload)
   return OC_STATUS_OK;
+}
+
+bool oc_knx_sec_check_notify_acl(const oc_resource_t* resource, const oc_endpoint_t* endpoint, uint32_t group_address)
+{
+  oc_acl_mask_t caller_acl_scope;
+
+  return acl_scope_status(COAP_GET, resource, endpoint, &caller_acl_scope) == OC_STATUS_OK &&
+    (caller_acl_scope != OC_ACL_GA || check_access_token_for_group_address(endpoint->access_token.inbound, group_address));
 }
 
 oc_status_t oc_knx_sec_check_acl_scope(coap_method_t method, const oc_resource_t* resource, const oc_endpoint_t* endpoint)

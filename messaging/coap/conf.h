@@ -154,10 +154,13 @@ extern "C" {
   #define COAP_MAX_HEADER_SIZE (COAP_MAX_OUTER_HEADER_SIZE + COAP_MAX_INNER_HEADER_SIZE)
 #endif
 
-// number of observer slots (each takes about xxx bytes)
+// maximum number of observe relationships; a registration beyond it is answered without the Observe option (RFC 7641 4.1)
 #ifndef COAP_MAX_OBSERVERS
-  #define COAP_MAX_OBSERVERS  (OC_MAX_APP_RESOURCES + OC_MAX_NUM_CONCURRENT_REQUESTS)
-#endif 
+  #define COAP_MAX_OBSERVERS (8)
+#endif
+#if COAP_MAX_OBSERVERS < 1
+  #error "COAP_MAX_OBSERVERS must be at least 1 (the observer pool is an array of this size)"
+#endif
 
 // interval in notifies in which NON notifies are changed to CON notifies to check client
 #define COAP_OBSERVE_REFRESH_INTERVAL 5

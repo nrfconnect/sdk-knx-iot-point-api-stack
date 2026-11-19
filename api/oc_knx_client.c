@@ -18,11 +18,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "observe.h"
-#include "oc_buffer.h"
+#include "api/oc_knx_observe.h"
 #include "messaging/coap/coap.h"
+#include "messaging/coap/conf.h"
+#include "messaging/coap/observe.h"
 #include "messaging/coap/transactions.h"
-#include "conf.h"
+#include "oc_buffer.h"
 #include "port/oc_random.h"
 #define __STDC_FORMAT_MACROS  // defined to use format specifiers also in C++
 
@@ -483,7 +484,7 @@ static void oc_issue_s_mode_message(const oc_endpoint_t* endpoint, const char* p
     // the Group Message event for the /k observers, after the s-mode message
     if (service_type == 'w' && size <= OC_MAX_OBSERVE_SIZE)
     {
-      coap_notify_k_observers(k_event, (size_t)size, group_address);
+      oc_knx_notify_k_observers(k_event, (size_t)size, group_address);
     }
   }
   else

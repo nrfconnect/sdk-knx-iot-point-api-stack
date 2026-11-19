@@ -35,7 +35,7 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include "messaging/coap/observe.h"
+#include "api/oc_knx_observe.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/observe.h"
 #include "oc_core_res.h" /* oc_core_get_device_info, oc_device_info_t */
@@ -595,7 +595,7 @@ static int add_k_observer(uint16_t port)
   memset(&res, 0, sizeof(res));
   res.code = CONTENT_2_05;
 
-  return coap_observe_handler(&req, &res, &core_resource_knx_k, 0, &ep);
+  return oc_knx_observe_handler(&req, &res, &core_resource_knx_k, 0, &ep);
 }
 
 static int k_observers(void)

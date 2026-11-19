@@ -60,6 +60,7 @@ overlaps").
 | oc_knx_helpers.c | test_oc_knx_helpers.cpp | DONE |
 | oc_knx_p.c | test_oc_knx_p.cpp | DONE (helper integration-level) |
 | oc_knx_sec.c | test_oc_knx_sec.cpp | DONE |
+| oc_knx_publisher.c | test_oc_knx_publisher.cpp | DONE |
 | oc_knx_sub.c | test_oc_knx_sub.cpp | DONE |
 | oc_knx_swu.c | test_oc_knx_swu.cpp | DONE |
 | oc_main.c | test_oc_main.cpp + test_oc_buffer_settings.cpp | DONE |
@@ -293,7 +294,7 @@ The `AtTable` fixture scrubs every slot via
   cases are also what covers `check_access_token_for_group_address`.
   `SecAcl.GaScopeRejectsForeignGaAnywhereInOneSMap` and
   `SecAcl.GaScopeRejectsForeignGaInASecondSMap` pin the F-026 fix.
-- `check_access_token_for_group_address` is public now (second caller: the `/k` observer filter in `coap_notify_k_observers`,
+- `check_access_token_for_group_address` is public now (second caller: the `/k` observer filter in `oc_knx_notify_k_observers`,
   `if.g.s` checked inline there): `CoapObserve.NotifyKObserversOnlyToSubscribersWithTheGroupAddressInScope` (`test_coap_observe.cpp`).
 
 INTEGRATION (concrete reasons): `oc_oscore_set_auth_shared`,
@@ -841,8 +842,8 @@ functions push a message onto the outbound process queue and are integration-lev
 | coap.c: coap_get_header_uri_query | DONE — set/get + leading-`?` skip + no-option→0 |
 | coap.c: coap_set_header_location_query | DONE — stores value, sets option, skips leading `?` |
 | observe.c: get_observe_counter | DONE — ≥ OC_OBSERVE_FIRST_NOTIFICATION_VALUE, side-effect-free |
-| observe.c: coap_remove_observers_by_access_token | DONE — all observers of the token, others kept, NULL → 0 (`RemoveObserversByAccessTokenRemovesOnlyThatTokensObservers`); called from `oc_delete_at_table_entry` |
-| observe.c: coap_notify_k_observers | DONE — guards (NULL/empty payload, no observers); only observers whose subscription token covers the GA (`NotifyKObserversOnlyToSubscribersWithTheGroupAddressInScope`); called after a successful s-mode write (`test_smode_issue.cpp`) |
+| oc_knx_observe.c: oc_knx_remove_observers_of_access_token | DONE — all observers of the token, others kept (`RemoveObserversByAccessTokenRemovesOnlyThatTokensObservers`); called from `oc_delete_at_table_entry` |
+| oc_knx_observe.c: oc_knx_notify_k_observers | DONE — guards (NULL/empty payload, no observers); only observers whose subscription token covers the GA (`NotifyKObserversOnlyToSubscribersWithTheGroupAddressInScope`); called after a successful s-mode write (`test_smode_issue.cpp`) |
 | oscore.c: oscore_is_oscore_message | DONE — detects option 9, rejects other option / no options |
 | transactions.c: coap_new_transaction_with_message | DONE — adopts the caller's message (no copy), mid/token, registers in list (`NewTransactionWithMessage*`, `test_coap_transactions.cpp`); used by the s-mode send and the regenerated 'echo re-request' (the re-request of a unicast original takes a plain `coap_new_transaction` and is serialized from the original); s-mode send (`HandOver_*`, `test_smode_send_refcount.cpp`; one allocation per send, `test_oc_client_api.cpp`) |
 | transactions.c: coap_register_as_transaction_handler | DONE — smoke (records OC_PROCESS_CURRENT; no externally observable state in a unit context) |

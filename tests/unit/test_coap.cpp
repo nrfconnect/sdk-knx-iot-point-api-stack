@@ -1420,6 +1420,27 @@ TEST_F(CoapTest, GetQueryVariable_MissingName_ReturnsZero)
   EXPECT_EQ(out, nullptr);
 }
 
+// a name without '=' is present with an empty value, a longer name sharing the prefix is not a match
+TEST_F(CoapTest, GetQueryVariable_BareNameIsPresentWithEmptyValue)
+{
+  init_con_get();
+  const char* out = nullptr;
+
+  coap_set_header_uri_query(&pkt, "u&lt=60");
+  EXPECT_EQ(coap_get_query_variable(&pkt, "u", &out), 0);
+  EXPECT_NE(out, nullptr);
+
+  out = nullptr;
+  coap_set_header_uri_query(&pkt, "lt=60&u");
+  EXPECT_EQ(coap_get_query_variable(&pkt, "u", &out), 0);
+  EXPECT_NE(out, nullptr);
+
+  out = nullptr;
+  coap_set_header_uri_query(&pkt, "ua=1&xu");
+  EXPECT_EQ(coap_get_query_variable(&pkt, "u", &out), 0);
+  EXPECT_EQ(out, nullptr);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * Uri-Query header get
  * ═══════════════════════════════════════════════════════════════════════════ */

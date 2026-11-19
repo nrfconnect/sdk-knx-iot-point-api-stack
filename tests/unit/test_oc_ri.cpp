@@ -22,17 +22,7 @@
 #include <cstring>
 
 extern "C" {
-#include "oc_ri.h"
-#include "oc_knx.h"
-#include "oc_helpers.h"
-#include "oc_rep.h"
-#include "oc_client_state.h"
-#include "oc_blockwise.h"
-#include "messaging/coap/observe.h"
-#include "port/oc_random.h"
-#include "port/oc_network_events_mutex.h"
-#include "messaging/coap/oc_coap.h"
-#include "util/oc_mmem.h"
+#include "api/oc_knx_observe.h"
 #include "api/oc_knx_sec.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/observe.h"
@@ -869,7 +859,7 @@ TEST(RiDeleteResource, RemovesObserversBeforeFreeingResource)
   endpoint.flags = IPV6;
   endpoint.addr.ipv6.port = 5683;
   endpoint.addr.ipv6.address[15] = 1;
-  ASSERT_EQ(coap_observe_handler(&request, &response, r, 0, &endpoint), 0);
+  ASSERT_EQ(oc_knx_observe_handler(&request, &response, r, 0, &endpoint), 0);
   ASSERT_EQ(r->runtime_data->num_observers, 1);
   g_removed_observer_resources = 0;
   g_removed_observers = 0;
@@ -1251,6 +1241,32 @@ TEST(RiEntityHandlerPaths, GetHandlerPayloadSetsResponseLength)
                             nullptr, 0, CONTENT_NONE, &response_code));
   EXPECT_EQ(response_code, CONTENT_2_05);
   g_ri_emit_payload = false;
+}
+
+TEST(RiEntityHandlerPaths, RejectedObserveRegistrationHasNoPayload)
+{
+  RiEntityResource fixture;
+  fixture.resource->properties = (oc_resource_properties_t)(fixture.resource->properties | OC_OBSERVABLE);
+  g_ri_emit_payload = true;
+
+  coap_packet_t request;
+  coap_packet_t response;
+  memset(&request, 0, sizeof(request));
+  memset(&response, 0, sizeof(response));
+  coap_udp_init_message(&request, COAP_TYPE_CON, COAP_GET, 1);
+  coap_set_header_uri_path(&request, "unit", 4);
+  coap_set_header_observe(&request, OC_OBSERVE_REGISTER);
+
+  oc_blockwise_state_t* request_state = nullptr;
+  oc_blockwise_state_t* response_state = nullptr;
+  bool clear_transaction = false;
+  oc_ri_invoke_coap_entity_handler(&request, &response, &request_state, &response_state, 64, &fixture.endpoint, &clear_transaction);
+  g_ri_emit_payload = false;
+
+  EXPECT_EQ(response.code, BAD_REQUEST_4_00);
+  EXPECT_FALSE(IS_OPTION(&response, COAP_OPTION_CONTENT_FORMAT));
+  ASSERT_NE(response_state, nullptr);
+  EXPECT_EQ(response_state->payload_size, 0u);
 }
 
 TEST(RiEntityHandlerPaths, UnsupportedMethodReturnsMethodNotAllowed)

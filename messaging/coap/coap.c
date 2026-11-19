@@ -354,6 +354,7 @@ static void coap_merge_multi_option(char** dst, size_t* dst_len,
 
 
 // returns the length of the variable value, and sets *output to point to the start of the value in the buffer
+// a name without '=' is present with an empty value
 static int coap_get_variable(const char* buffer, size_t length, const char* name, const char** output) 
 {
   
@@ -363,15 +364,18 @@ static int coap_get_variable(const char* buffer, size_t length, const char* name
   // initialize the output buffer first
   *output = 0;
 
-  for (const char* start = buffer; start + name_len < end; start++) 
+  for (const char* start = buffer; start + name_len <= end; start++)
   {
-    if ((start == buffer || start[-1] == '&') 
-        && start[name_len] == '='
-        && strncmp(name, start, name_len) == 0) 
+    if ((start == buffer || start[-1] == '&') && (start + name_len == end || start[name_len] == '=' || start[name_len] == '&') &&
+        strncmp(name, start, name_len) == 0)
     {
 
       // point start to variable value
-      start += name_len + 1;
+      start += name_len;
+      if (start < end && *start == '=')
+      {
+        start++;
+      }
 
       // point end to the end of the value
       const char* value_end = (const char*)memchr(start, '&', end - start);

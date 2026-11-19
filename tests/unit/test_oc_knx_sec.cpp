@@ -23,6 +23,7 @@
 extern "C" {
 #include <string.h>
 #include "api/oc_knx_dev.h"
+#include "api/oc_knx_observe.h"
 #include "api/oc_knx_sec.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/constants.h"
@@ -227,7 +228,7 @@ static int subscribe_k(uint16_t port, const oc_auth_at_t *at)
   memset(&res, 0, sizeof(res));
   res.code = CONTENT_2_05;
 
-  return coap_observe_handler(&req, &res, &core_resource_knx_k, 0, &ep);
+  return oc_knx_observe_handler(&req, &res, &core_resource_knx_k, 0, &ep);
 }
 
 /*
@@ -2154,13 +2155,76 @@ TEST_F(SecAcl, GaScopeSiaWithGaBearingNonSMapObjectDenied)
 
 /* ─────────────── oc_knx_sec_check_notify_acl — at notification time ─────── */
 
+TEST_F(SecAcl, NotifyUnsecuredResourceAllowedWithoutOscore)
+{
+  res.get_handler.acl_scope_mask = OC_ACL_NONE;
+  ep.flags = (enum transport_flags)0;
+  ep.access_token.inbound = nullptr;
 
+  EXPECT_TRUE(oc_knx_sec_check_notify_acl(&res, &ep, 1));
+}
 
+TEST_F(SecAcl, NotifyNullResourceDenied) { EXPECT_FALSE(oc_knx_sec_check_notify_acl(nullptr, &ep, 1)); }
 
+TEST_F(SecAcl, NotifySecureResourceWithoutOscoreDenied)
+{
+  res.get_handler.acl_scope_mask = (oc_acl_mask_t)(OC_ACL_G | OC_ACL_GA);
+  token.scope = OC_ACL_G;
+  ep.flags = OSCORE;
 
+  EXPECT_FALSE(oc_knx_sec_check_notify_acl(&res, &ep, 1));
 
+  // unsecured observer: no OSCORE at all and no access token
+  ep.flags = (enum transport_flags)0;
+  ep.access_token.inbound = nullptr;
+  EXPECT_FALSE(oc_knx_sec_check_notify_acl(&res, &ep, 1));
+}
 
+TEST_F(SecAcl, NotifyDeletedTokenDenied)
+{
+  res.get_handler.acl_scope_mask = (oc_acl_mask_t)(OC_ACL_G | OC_ACL_GA);
+  token.scope = OC_ACL_NONE;
 
+  EXPECT_FALSE(oc_knx_sec_check_notify_acl(&res, &ep, 1));
+}
+
+TEST_F(SecAcl, NotifyDisjointScopeDenied)
+{
+  res.get_handler.acl_scope_mask = (oc_acl_mask_t)(OC_ACL_G | OC_ACL_GA);
+  token.scope = OC_ACL_P;
+
+  EXPECT_FALSE(oc_knx_sec_check_notify_acl(&res, &ep, 1));
+}
+
+TEST_F(SecAcl, NotifyGroupScopeAllowsAnyGroupAddress)
+{
+  res.get_handler.acl_scope_mask = (oc_acl_mask_t)(OC_ACL_G | OC_ACL_GA);
+  token.scope = OC_ACL_G;
+
+  EXPECT_TRUE(oc_knx_sec_check_notify_acl(&res, &ep, 0xFFFFFFFF));
+}
+
+TEST_F(SecAcl, NotifyGaScopeChecksGroupAddressList)
+{
+  res.get_handler.acl_scope_mask = (oc_acl_mask_t)(OC_ACL_G | OC_ACL_GA);
+  token.scope = OC_ACL_GA;
+  ga_list[0] = 11;
+  ga_list[1] = 44;
+  token.ga = ga_list;
+  token.ga_len = 2;
+
+  EXPECT_TRUE(oc_knx_sec_check_notify_acl(&res, &ep, 11));
+  EXPECT_TRUE(oc_knx_sec_check_notify_acl(&res, &ep, 44));
+  EXPECT_FALSE(oc_knx_sec_check_notify_acl(&res, &ep, 55));
+}
+
+TEST_F(SecAcl, NotifyGaScopeWithEmptyGroupAddressListDenied)
+{
+  res.get_handler.acl_scope_mask = (oc_acl_mask_t)(OC_ACL_G | OC_ACL_GA);
+  token.scope = OC_ACL_GA;
+
+  EXPECT_FALSE(oc_knx_sec_check_notify_acl(&res, &ep, 0));
+}
 
 
 /*
