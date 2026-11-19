@@ -14,7 +14,7 @@
 #                                       [--server-logs] [--coap-debug]
 #                                       [--oscore-debug] [--group-debug]
 #                                       [--time-scale 0.05] [--slow]
-#                                       [--run-record FILE]
+#                                       [--run-record FILE] [--massif]
 #                                       [--] [pytest-args...]
 #
 #   --tier          conformance | runtime | tool | all (default: both device
@@ -27,9 +27,13 @@
 #                   respected) instead of committed HEAD, which is the default.
 #   --no-cache      Skip the persistent build/pip cache volumes (knx-rt-build,
 #                   knx-rt-pip) and build from scratch: slower, but the way to
-#                   rule out a stale artifact after a preset change.
+#                   rule out a stale artifact. CMakeCache.txt is recreated on
+#                   every run anyway, so preset changes need no --no-cache.
 #   --run-record F  Write a run record to <repo>/artifacts/F (git-ignored); with
 #                   --tier all one per tier: F.conformance.krr.jsonl, F.runtime.krr.jsonl.
+#   --massif        Run the DUT under Valgrind Massif (the nightly *-massif jobs);
+#                   the heap profiles and their ms_print reports land in
+#                   <repo>/build/massif/, the same path as in CI.
 #   Everything after the options (or after `--`) goes to pytest unchanged.
 #
 # Examples:
@@ -46,6 +50,7 @@ IMAGE=itgesellschaft/knxiot-knx-ci:latest
 UNCOMMITTED=0
 NOCACHE=0
 RUNREC=""
+MASSIF=0
 INNER_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -55,7 +60,8 @@ while [ $# -gt 0 ]; do
     --image=*)      IMAGE="${1#*=}"; shift ;;
     --run-record)   RUNREC="$2"; shift 2 ;;
     --run-record=*) RUNREC="${1#*=}"; shift ;;
-    -h|--help)      sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --massif)       MASSIF=1; shift ;;
+    -h|--help)      sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     --)             INNER_ARGS+=("$@"); break ;;
     *)              INNER_ARGS+=("$1"); shift ;;
   esac
@@ -81,9 +87,10 @@ fi
 PKG="$(mktemp -t knx-runtime-XXXXXX.tar)"
 trap 'rm -f "$PKG" "$PKG.list" "$PKG.sub"' EXIT
 if [ "$UNCOMMITTED" = 1 ]; then
+  # --cached also lists tracked files deleted in the working tree, tar fails on them
   { git ls-files --cached --others --exclude-standard | grep -vx "$SUB"
     git -C "$SUB" ls-files --cached --others --exclude-standard | sed "s#^#$SUB/#"
-  } > "$PKG.list"
+  } | while IFS= read -r f; do if [ -e "$f" ]; then printf '%s\n' "$f"; fi; done > "$PKG.list"
   "$TAR" -cf "$PKG" -T "$PKG.list"
   SOURCE="working tree (uncommitted + untracked)"
 else
@@ -109,6 +116,14 @@ if [ -n "$RUNREC" ]; then
   mkdir -p "$REPO_ROOT/artifacts"
   MOUNTS+=(-v "$REPO_ROOT/artifacts:/w/artifacts")
   INNER_ARGS+=("--run-record=/w/artifacts/$RUNREC")
+fi
+if [ "$MASSIF" = 1 ]; then
+  # The host's build/massif over the container's build/massif (inside the
+  # build volume): the profiles reach the host at the path CI uses.
+  mkdir -p "$REPO_ROOT/build/massif"
+  MOUNTS+=(-v "$REPO_ROOT/build/massif:/w/build/massif")
+  # an option of run-local-ci.sh: it has to come before the pytest arguments
+  INNER_ARGS=(--massif "${INNER_ARGS[@]+"${INNER_ARGS[@]}"}")
 fi
 # The tar carries no .git, so the record learns the engine's commit (the
 # test tool's) from here.

@@ -98,5 +98,24 @@ a Linux CI runner can call it directly.
 The tool's GUI runs on the tester's machine against a real device
 (`python -m web.backend` in `tests/iot-test-tool`, see the tool's README).
 
+### Heap peak
+
+`-Massif` (`--massif`) runs the DUT under Valgrind Massif, as the nightly
+`runtime-massif` / `conformance-massif` jobs do:
+
+```powershell
+.\tests\common\tools\run-in-docker.ps1 -Tier runtime -Massif -IncludeUncommitted
+```
+
+The profiles (`<tier>.<pid>.out`) and their `ms_print` reports
+(`<tier>.<pid>.txt`) land in `build/massif/`, the same path as in CI. A report
+starts with the heap over time and its peak, followed by the allocation trees
+of the detailed snapshots, the peak among them. The stack's allocation wrappers
+are `--alloc-fn`, so a site in a tree is the code that asked for the memory.
+The figures are 64-bit host values, a trend to follow; the 32-bit target model
+is `docs/memory_breakdown.md`. Valgrind slows the DUT down, so the runner
+lengthens the CoAP, start-up and stop timeouts (`SERVER_STOP_TIMEOUT` gives the
+DUT time to write its profile on exit).
+
 See [`runtime/README.md`](runtime/README.md) for the runner's options and
 gotchas.

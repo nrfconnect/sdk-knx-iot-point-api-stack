@@ -600,3 +600,61 @@ conformance-asan-memcheck:
   variables:
     MEMCHECK_NAME: conformance
     MEMCHECK_COMMAND: python3 tests/iot-test-tool/run_sequences.py --dut-command "ip netns exec dut build/linux-test-asan/tests/runtime_test_server" --overrides tests/conformance
+
+# ----------------------------------------------------------
+# device-test: heap peak (nightly)
+# The DUT (the same build as runtime-gcc) under Valgrind Massif while a device
+# tier plays against it. ms_print turns each profile into <tier>.<pid>.txt:
+# the heap over time with its peak (its head goes to the log) and the
+# allocation trees of the detailed snapshots. The stack's allocation wrappers
+# are --alloc-fn, so a site in a tree is the code that asked for the memory.
+# Figures are 64-bit host values (8 B pointers): follow them as a trend, the
+# 32-bit target model is docs/memory_breakdown.md, section 7. Massif slows the
+# DUT down, so the CoAP, start-up and stop timeouts are longer than in
+# runtime-gcc; the pytest tally is informational, the job fails only without
+# a profile. Profiles and reports are artifacts.
+# Locally: run-in-docker.ps1 -Massif (run-in-docker.sh --massif).
+# ----------------------------------------------------------
+.massif:
+  extends:
+    - .device-test
+    - .nightly
+    - .knx-files
+  allow_failure: true
+  variables:
+    RUNTIME_TEST_SERVER: build/linux-test-gcc/tests/runtime_test_server
+    MASSIF: "valgrind --tool=massif --alloc-fn=oc_mmem_alloc --alloc-fn=_oc_new_string --alloc-fn=_oc_new_byte_string --alloc-fn=_oc_alloc_string --alloc-fn=_oc_new_array --alloc-fn=_oc_alloc_string_array"
+    COAP_TIMEOUT: "20"
+    SERVER_STARTUP_TIMEOUT: "120"
+    SERVER_STOP_TIMEOUT: "60"
+  script:
+    - !reference [.device-network, script]
+    - apt-get install -y -qq valgrind > /dev/null 2>&1
+    - cmake --preset=linux-test-gcc -DOC_DEBUG_ENABLED=OFF -DOC_PRINT_ENABLED=OFF -DOC_DEBUG_OSCORE_ENABLED=OFF
+    - cmake --build --preset=linux-test-gcc --target runtime_test_server
+    - !reference [.python-deps, script]
+    - !reference [.knx-files, script]
+    - mkdir -p build/massif
+    - eval "$MASSIF_COMMAND -rfE -v --tb=short --junit-xml=build/massif/${MASSIF_NAME}-report.xml" 2>&1 | tee build/massif/${MASSIF_NAME}.log || true
+    - ls build/massif/${MASSIF_NAME}.*.out
+    - for f in build/massif/${MASSIF_NAME}.*.out; do ms_print "$f" > "${f%.out}.txt"; head -n 34 "${f%.out}.txt"; done
+  artifacts:
+    access: developer
+    when: always
+    paths:
+      - build/massif/
+    reports:
+      junit: build/massif/${MASSIF_NAME}-report.xml
+    expire_in: 4 weeks
+
+runtime-massif:
+  extends: .massif
+  variables:
+    MASSIF_NAME: runtime
+    MASSIF_COMMAND: RUNTIME_TEST_SERVER_PREFIX="ip netns exec dut $MASSIF --massif-out-file=build/massif/runtime.%p.out" python3 -m pytest tests/runtime/
+
+conformance-massif:
+  extends: .massif
+  variables:
+    MASSIF_NAME: conformance
+    MASSIF_COMMAND: python3 tests/iot-test-tool/run_sequences.py --dut-command "ip netns exec dut $MASSIF --massif-out-file=build/massif/conformance.%p.out build/linux-test-gcc/tests/runtime_test_server" --overrides tests/conformance

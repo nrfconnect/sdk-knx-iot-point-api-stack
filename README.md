@@ -84,7 +84,16 @@ cmake --preset linux-debug-gcc
 cmake --build --preset linux-debug-gcc
 ```
 
-Test-enabled presets are also available, including `windows-test-gcc`, `linux-test-gcc`, and `linux-test-asan`.
+Test-enabled presets are also available, including `windows-test-gcc`, `linux-test-gcc`, `linux-test-asan` and `linux-test-asan-clang`. Both sanitizer test presets run with `UBSAN_OPTIONS=halt_on_error=1`, so any UndefinedBehaviorSanitizer report fails the test that triggered it; `linux-test-asan-clang` builds the same suite with clang, whose UBSan also catches what GCC's misses (such as arithmetic on a NULL pointer).
+
+#### In Docker
+
+To build and test on Linux without installing a toolchain, use the CI image in [`docker/Dockerfile`](docker/Dockerfile). [docs/docker.md](docs/docker.md) describes all jobs:
+
+```bash
+docker build -t knx-iot-stack -f docker/Dockerfile .
+docker run --rm knx-iot-stack     # build + unit tiers (gcc, ASan, clang ASan), as in CI
+```
 
 ### Usage
 
