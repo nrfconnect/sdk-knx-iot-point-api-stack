@@ -12,9 +12,10 @@
 #include <gtest/gtest.h>
 #include <cstring>
 
-extern "C" {
-#include "messaging/coap/engine.h"
+extern "C"
+{
 #include "messaging/coap/coap.h"
+#include "messaging/coap/engine.h"
 #include "oc_buffer.h"
 }
 
@@ -34,13 +35,20 @@ static void make_udp_packet(coap_packet_t *pkt, oc_endpoint_t *ep,
 /* ═══════════════════════════════════════════════════════════════════════════
  * oc_coap_check_if_duplicate_and_if_not_add_to_history
  *
- * The function uses a static circular buffer of 75 entries.
+ * The function uses a static circular buffer of OC_REQUEST_HISTORY_SIZE (32)\n * entries, cleared before each test.
  * First call with a given (mid, port, address) → returns false (fresh).
  * Second call with same → returns true (duplicate).
  * Different (mid, port, address) → returns false.
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-TEST(DuplicateDetection, FreshMessageReturnsFalse)
+class DuplicateDetection : public ::testing::Test
+{
+protected:
+  void SetUp() override { oc_coap_clear_request_history(); }
+  void TearDown() override { oc_coap_clear_request_history(); }
+};
+
+TEST_F(DuplicateDetection, FreshMessageReturnsFalse)
 {
   coap_packet_t pkt;
   oc_endpoint_t ep;
@@ -51,7 +59,7 @@ TEST(DuplicateDetection, FreshMessageReturnsFalse)
   EXPECT_FALSE(dup);
 }
 
-TEST(DuplicateDetection, SameMessageIsDuplicate)
+TEST_F(DuplicateDetection, SameMessageIsDuplicate)
 {
   coap_packet_t pkt;
   oc_endpoint_t ep;
@@ -63,7 +71,7 @@ TEST(DuplicateDetection, SameMessageIsDuplicate)
   EXPECT_TRUE(oc_coap_check_if_duplicate_and_if_not_add_to_history(&pkt, &ep));
 }
 
-TEST(DuplicateDetection, DifferentMidIsNotDuplicate)
+TEST_F(DuplicateDetection, DifferentMidIsNotDuplicate)
 {
   coap_packet_t pkt;
   oc_endpoint_t ep;
@@ -75,7 +83,7 @@ TEST(DuplicateDetection, DifferentMidIsNotDuplicate)
   EXPECT_FALSE(oc_coap_check_if_duplicate_and_if_not_add_to_history(&pkt, &ep));
 }
 
-TEST(DuplicateDetection, DifferentPortIsNotDuplicate)
+TEST_F(DuplicateDetection, DifferentPortIsNotDuplicate)
 {
   coap_packet_t pkt;
   oc_endpoint_t ep;
@@ -87,7 +95,7 @@ TEST(DuplicateDetection, DifferentPortIsNotDuplicate)
   EXPECT_FALSE(oc_coap_check_if_duplicate_and_if_not_add_to_history(&pkt, &ep));
 }
 
-TEST(DuplicateDetection, DifferentAddressIsNotDuplicate)
+TEST_F(DuplicateDetection, DifferentAddressIsNotDuplicate)
 {
   coap_packet_t pkt;
   oc_endpoint_t ep;
@@ -99,24 +107,23 @@ TEST(DuplicateDetection, DifferentAddressIsNotDuplicate)
   EXPECT_FALSE(oc_coap_check_if_duplicate_and_if_not_add_to_history(&pkt, &ep));
 }
 
-TEST(DuplicateDetection, HistoryWrapsAround)
+TEST_F(DuplicateDetection, HistoryWrapsAround)
 {
-  /* Insert 76 unique entries: the first 75 fill the buffer, the 76th
-   * overwrites history[0] (base_mid+0).  Re-checking base_mid+0 should
-   * then return false (fresh) because it was evicted by entry 75. */
+  /* one entry more than the history holds overwrites the oldest one (base_mid),
+   * the newer ones are still detected */
+  const int history_size = 32; /* OC_REQUEST_HISTORY_SIZE, private to engine.c */
   coap_packet_t pkt;
   oc_endpoint_t ep;
-
-  /* Use a base MID range that doesn't collide with other tests */
   const uint16_t base_mid = 50000;
 
-  for (int i = 0; i < 76; i++) {
+  for (int i = 0; i <= history_size; i++)
+  {
     make_udp_packet(&pkt, &ep, base_mid + (uint16_t)i, 9999, 0xFE);
     EXPECT_FALSE(oc_coap_check_if_duplicate_and_if_not_add_to_history(&pkt, &ep));
   }
 
-  /* Entry 0 (base_mid) was overwritten by entry 75 (base_mid+75).
-   * Re-check base_mid → should be fresh now */
+  make_udp_packet(&pkt, &ep, base_mid + 2, 9999, 0xFE);
+  EXPECT_TRUE(oc_coap_check_if_duplicate_and_if_not_add_to_history(&pkt, &ep));
   make_udp_packet(&pkt, &ep, base_mid, 9999, 0xFE);
   EXPECT_FALSE(oc_coap_check_if_duplicate_and_if_not_add_to_history(&pkt, &ep));
 }
@@ -134,6 +141,7 @@ TEST(ClearRequestHistory, WipedMessageBecomesFreshAgain)
   coap_packet_t pkt;
   oc_endpoint_t ep;
   make_udp_packet(&pkt, &ep, 12345, 7777, 0xAB);
+  oc_coap_clear_request_history();
 
   /* First sighting → fresh, now stored in history */
   EXPECT_FALSE(oc_coap_check_if_duplicate_and_if_not_add_to_history(&pkt, &ep));

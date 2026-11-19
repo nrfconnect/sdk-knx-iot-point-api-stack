@@ -293,6 +293,17 @@ target_link_options(test_oc_client_api PRIVATE
     -Wl,--wrap=oc_allocate_message
 )
 kis_add_test(test_oc_knx_client      test_oc_knx_client.cpp)
+kis_add_test(test_read_on_init       test_read_on_init.cpp)
+# The timed-event registry (to reach the static callback), the network scope
+# and the s-mode senders are replaced, so the read-on-init gate runs without
+# event loop or network.
+target_link_options(test_read_on_init PRIVATE
+    -Wl,--wrap=oc_ri_add_timed_event_callback_ticks
+    -Wl,--wrap=oc_ri_remove_timed_event_callback
+    -Wl,--wrap=oc_connectivity_get_network_scope
+    -Wl,--wrap=oc_send_s_mode_multicast_message
+    -Wl,--wrap=oc_send_s_mode_unicast_message
+)
 kis_add_test(test_oc_network_events  test_oc_network_events.cpp)
 target_link_options(test_oc_network_events PRIVATE
     -Wl,--wrap=oc_receive_message

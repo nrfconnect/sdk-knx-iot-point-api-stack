@@ -450,6 +450,7 @@ TEST_F(GoTableHref, GetHrefOutOfBoundsReturnsEmpty)
             0u);
 }
 
+
 TEST_F(GoTableHref, GetHrefReturnsStoredString)
 {
   uint32_t ga[] = { 1 };
@@ -1020,7 +1021,7 @@ protected:
   }
 
   /* Invoke a handler with a freshly zeroed request/response pair. `uri_path`
-     is the invoked path (no leading '/'), needed by the /fp/x/* wildcard
+     is the invoked path (no leading '/'), needed by the wildcard /fp/x/<id>
      handlers to extract the entry id. */
   int invoke(const oc_resource_t &res, oc_request_callback_t cb,
              oc_content_format_t accept, oc_interface_mask_t iface,

@@ -90,16 +90,7 @@ static void oc_knx_swu_protocol_get_handler(oc_request_t* request, oc_interface_
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
-  {
-    return;
-  }
-
-  oc_rep_begin_root_object();
-  oc_rep_i_set_int(root, 1, swu_device.protocol);
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_int(request, swu_device.protocol);
 }
 
 static void oc_knx_swu_protocol_put_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
@@ -153,16 +144,7 @@ static void oc_knx_swu_hwref_get_handler(oc_request_t* request, oc_interface_mas
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
-  {
-    return;
-  }
-
-  oc_rep_begin_root_object();
-  oc_rep_i_set_text_string(root, 1, swu_device.hwref);
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_text(request, swu_device.hwref);
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
@@ -190,16 +172,7 @@ static void oc_knx_swu_method_get_handler(oc_request_t* request, oc_interface_ma
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
-  {
-    return;
-  }
-
-  oc_rep_begin_root_object();
-  oc_rep_i_set_int(root, 1, swu_device.update_method);
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_int(request, swu_device.update_method);
 }
 
 static void oc_knx_swu_method_put_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
@@ -316,16 +289,7 @@ static void oc_knx_swu_result_get_handler(oc_request_t* request, oc_interface_ma
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
-  {
-    return;
-  }
-
-  oc_rep_begin_root_object();
-  oc_rep_i_set_int(root, 1, swu_device.result);
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_int(request, swu_device.result);
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
@@ -352,16 +316,7 @@ static void oc_knx_swu_state_get_handler(oc_request_t* request, oc_interface_mas
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
-  {
-    return;
-  }
-
-  oc_rep_begin_root_object();
-  oc_rep_i_set_int(root, 1, swu_device.state);
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_int(request, swu_device.state);
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
@@ -733,19 +688,8 @@ static void oc_knx_swu_bytes_get_handler(oc_request_t* request, oc_interface_mas
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
-  {
-    return;
-  }
-
   // only accessible in DOWNLOADING state (per KNX IoT specification)
-  const uint32_t bytes = swu_device.state == OC_SWU_STATE_DOWNLOADING ? swu_device.received_pkg_bytes : 0;
-  
-  oc_rep_begin_root_object();
-  oc_rep_i_set_uint(root, 1, bytes);
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_uint(request, swu_device.state == OC_SWU_STATE_DOWNLOADING ? swu_device.received_pkg_bytes : 0);
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'

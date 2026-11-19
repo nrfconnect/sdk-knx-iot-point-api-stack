@@ -15,7 +15,10 @@
 #include <cerrno>
 #include <cstring>
 #include <gtest/gtest.h>
+#include <string>
 #include <vector>
+
+#include "test_helpers_storage.h"
 
 extern "C" {
 #include <string.h>
@@ -327,7 +330,6 @@ TEST_F(AtTable, FindAndRemovePaseTokenClearsOnlyPaseEntries)
  * skipped without touching storage.
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-static const char *kSecStoreDir = "knx_storage_sec_unit_test";
 static const int kSsnSlot = 6;
 
 /* Helper: build the SSN storage key of an AT-table slot the way the production code does. */
@@ -339,23 +341,19 @@ static void ssn_storage_key(int index, char *key)
 class AtSsnStorage : public AtTable {
 protected:
   char key_[KNX_STORAGE_KEY_SSNT_ENTRY_SIZE];
-
-  static void SetUpTestSuite()
-  {
-    /* mkdir returns 0 on create, -1 if it already exists - both fine. */
-    oc_storage_config(kSecStoreDir);
-  }
+  std::string storage_dir_;
 
   void SetUp() override
   {
     AtTable::SetUp();
+    storage_dir_ = test_helpers::config_per_test_storage("as_");
     ssn_storage_key(kSsnSlot, key_);
     oc_storage_erase(key_);
   }
 
   void TearDown() override
   {
-    oc_storage_erase(key_);
+    test_helpers::remove_tree(storage_dir_);
     AtTable::TearDown();
   }
 };
@@ -467,10 +465,12 @@ protected:
   oc_request_t request;
   oc_response_t response;
   oc_response_buffer_t response_buffer;
+  std::string storage_dir_;
 
   /* the osndelay PUT handler stores the value, so storage must be configured */
-  static void SetUpTestSuite() { oc_storage_config(kSecStoreDir); }
+  void SetUp() override { storage_dir_ = test_helpers::config_per_test_storage("sh_"); }
 
+  void TearDown() override { test_helpers::remove_tree(storage_dir_); }
 
   int invoke(const oc_resource_t &res, oc_request_callback_t cb,
              oc_content_format_t accept, oc_interface_mask_t iface,
@@ -594,8 +594,6 @@ TEST(OscoreConfig, OsnDelaySetAndStoreFailsKeepsRam)
   oc_storage_config("sec_missing_parent/sec_osn");
   EXPECT_EQ(set_and_store_oscore_osn_delay_ms(777), -EIO);
   EXPECT_EQ(oc_core_get_device_info()->osn_delay, original);
-
-  oc_storage_config(kSecStoreDir);
 }
 
 /* ──────────────────────────── /auth/o/replwdo GET ────────────────────────── */
@@ -669,7 +667,7 @@ TEST_F(SecHandlers, AtDeleteClearsTable)
             oc_status_code(OC_STATUS_DELETED));
 }
 
-/* ──────────────────────── /auth/at/* GET + DELETE ──────────────────────── */
+/* ──────────────────────── /auth/at/<id> GET + DELETE ──────────────────────── */
 
 TEST_F(SecHandlers, AtEntryGetWrongAcceptBadRequest)
 {
@@ -758,6 +756,7 @@ protected:
       payload = nullptr;
     }
     oc_free_at_table_ram();
+    SecHandlers::TearDown();
   }
 
   int post_at(const uint8_t *cbor, size_t len)
@@ -2152,6 +2151,16 @@ TEST_F(SecAcl, GaScopeSiaWithGaBearingNonSMapObjectDenied)
 
   EXPECT_EQ(oc_knx_sec_check_acl(COAP_POST, &res, &ep, &sia), OC_STATUS_FORBIDDEN);
 }
+
+/* ─────────────── oc_knx_sec_check_notify_acl — at notification time ─────── */
+
+
+
+
+
+
+
+
 
 
 /*

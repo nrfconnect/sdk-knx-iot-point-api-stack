@@ -32,18 +32,7 @@ static void oc_core_dev_sn_get_handler(oc_request_t* request, oc_interface_mask_
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR)) {
-    return;
-  }
-
-  const oc_device_info_t* const  device = oc_core_get_device_info();
-
-  // cbor with payload: serial number
-  oc_rep_begin_root_object();
-  oc_rep_i_set_text_string(root, 1, device->serialnumber);  // note, stack init must be done, otherwise sn is NULL
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_text(request, oc_core_get_device_info()->serialnumber); // note, stack init must be done, otherwise sn is NULL
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
@@ -71,22 +60,7 @@ static void oc_core_dev_hwv_get_handler(oc_request_t* request, oc_interface_mask
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR)) 
-  {
-    return;
-  }
-
-  OC_INF("oc_core_dev_hwv_get_handler");
-
-  const oc_device_info_t* const  device = oc_core_get_device_info();
- 
-  // cbor with payload: [ major, minor, patch ]
-  const uint64_t array[3] = {device->hwv->major, device->hwv->minor, device->hwv->patch};
-  oc_rep_begin_root_object();
-  oc_rep_i_set_int_array(root, 1, array, 3); // note, stack init must be done, otherwise hwv is NULL
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_version(request, oc_core_get_device_info()->hwv); // note, stack init must be done, otherwise hwv is NULL
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
@@ -109,25 +83,12 @@ const oc_resource_t core_resource_dev_hwv = {
         true,
         &core_resource_dev_hwv_data};
 
-static void oc_core_dev_fwv_get_handler(oc_request_t* request, 
-        oc_interface_mask_t iface_mask, void* data) {
+static void oc_core_dev_fwv_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
+{
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR)) {
-    return;
-  }
-
-  OC_INF("oc_core_dev_fwv_get_handler - start");
-  const oc_device_info_t* const  device = oc_core_get_device_info();
-  
-  // cbor with payload: [ major, minor, patch ]
-  const uint64_t array[3] = {device->fwv.major, device->fwv.minor, device->fwv.patch};
-  oc_rep_begin_root_object();
-  oc_rep_i_set_int_array(root, 1, array, 3); // note, stack init must be done, otherwise fwv is 0,0,0
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_version(request, &oc_core_get_device_info()->fwv); // note, stack init must be done, otherwise fwv is 0,0,0
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
@@ -155,18 +116,7 @@ static void oc_core_dev_hwt_get_handler(oc_request_t* request, oc_interface_mask
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR)) 
-  {
-    return;
-  }
-
-  const oc_device_info_t* const device = oc_core_get_device_info();
-  
-  oc_rep_begin_root_object();
-  oc_rep_i_set_text_string(root, 1, device->hwt); // note, stack init must be done, otherwise hwt is NULL
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_text(request, oc_core_get_device_info()->hwt); // note, stack init must be done, otherwise hwt is NULL
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
@@ -194,18 +144,7 @@ static void oc_core_dev_order_number_get_handler(oc_request_t* request, oc_inter
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR)) 
-  {
-    return;
-  }
-
-  const oc_device_info_t* const  device = oc_core_get_device_info();
-  
-  oc_rep_begin_root_object();
-  oc_rep_i_set_text_string(root, 1, device->order_number); // note, stack init must be done, otherwise model is NULL
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_text(request, oc_core_get_device_info()->order_number); // note, stack init must be done, otherwise model is NULL
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
@@ -233,24 +172,11 @@ static void oc_core_dev_hostname_get_handler(oc_request_t* request, oc_interface
   (void)data;
   (void)iface_mask;
 
-  OC_INF("oc_core_dev_hostname_get_handler - start");
-
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR)) 
-  {
-    return;
-  }
-
-  const oc_device_info_t* const  device = oc_core_get_device_info();
-
   // the stored host name is the label only, 'dev/hname' reports the fully qualified name such as 'knx-{sn}.local' (spec 2.6.1.2.3)
   char hostname[HNAME_MAX_SIZE + sizeof(HNAME_DOMAIN)];
-  (void)snprintf(hostname, sizeof(hostname), "%s" HNAME_DOMAIN, oc_string_checked(device->iot_hostname));
+  (void)snprintf(hostname, sizeof(hostname), "%s" HNAME_DOMAIN, oc_string_checked(oc_core_get_device_info()->iot_hostname));
 
-  oc_rep_begin_root_object();
-  oc_rep_i_set_text_string(root, 1, hostname);
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_text(request, hostname);
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
@@ -278,18 +204,7 @@ static void oc_core_dev_iid_get_handler(oc_request_t* request, oc_interface_mask
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR)) 
-  {
-    return;
-  }
-
-  const oc_device_info_t* const  device = oc_core_get_device_info();
-  
-  oc_rep_begin_root_object();
-  oc_rep_i_set_int(root, 1, device->iid); // note, stack init must be done, otherwise iid is 0
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_int(request, (int64_t)oc_core_get_device_info()->iid); // note, stack init must be done, otherwise iid is 0
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
@@ -433,20 +348,7 @@ static void oc_core_dev_pm_get_handler(oc_request_t* request, oc_interface_mask_
   (void)data;
   (void)iface_mask;
 
-  OC_INF("calling dev/pm GET handler");
-
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR)) 
-  {
-    return;
-  }
-
-  const oc_device_info_t* const  device = oc_core_get_device_info();
-
-  oc_rep_begin_root_object();
-  oc_rep_i_set_boolean(root, 1, device->pm); // knx PRG mode
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_bool(request, oc_core_get_device_info()->pm); // knx PRG mode
 }
 
 static void oc_core_dev_pm_put_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data) 
@@ -622,19 +524,7 @@ static void oc_core_dev_sa_get_handler(oc_request_t* request, oc_interface_mask_
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
-  {
-    return;
-  }
-
-  const oc_device_info_t* const  device = oc_core_get_device_info();
-  const int64_t sa = device->ia >> 8; // hi byte
-
-  oc_rep_begin_root_object();
-  oc_rep_i_set_int(root, 1, sa);
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_int(request, oc_core_get_device_info()->ia >> 8); // hi byte
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
@@ -663,19 +553,7 @@ static void oc_core_dev_da_get_handler(oc_request_t* request, oc_interface_mask_
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
-  {
-    return;
-  }
-
-  const oc_device_info_t* const  device = oc_core_get_device_info();
-  const int64_t da = device->ia & 0xFF; // lo byte
-
-  oc_rep_begin_root_object();
-  oc_rep_i_set_int(root, 1, da);
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_int(request, oc_core_get_device_info()->ia & 0xFF); // lo byte
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
@@ -703,18 +581,7 @@ static void oc_core_dev_fid_get_handler(oc_request_t* request, oc_interface_mask
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR)) 
-  {
-    return;
-  }
-
-  const oc_device_info_t* const  device = oc_core_get_device_info();
-  
-  oc_rep_begin_root_object();
-  oc_rep_i_set_int(root, 1, device->fid);
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_int(request, (int64_t)oc_core_get_device_info()->fid);
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
@@ -780,16 +647,7 @@ static void oc_core_dev_mport_get_handler(oc_request_t* request, oc_interface_ma
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
-  {
-    return;
-  }
-  
-  oc_rep_begin_root_object();
-  oc_rep_i_set_int(root, 1, COAP_DEFAULT_PORT);
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_int(request, COAP_DEFAULT_PORT);
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'
@@ -817,20 +675,7 @@ static void oc_core_ap_x_get_handler(oc_request_t* request, oc_interface_mask_t 
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR)) 
-  {
-    return;
-  }
-
-  const oc_device_info_t* const  device = oc_core_get_device_info();
-
-  // cbor with payload: [ major, minor, patch ]
-  const uint64_t array[3] = {device->apv.major, device->apv.minor, device->apv.patch};
-  oc_rep_begin_root_object();
-  oc_rep_i_set_int_array(root, 1, array, 3); // note, stack init must be done, otherwise apv is 0,0,0
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_version(request, &oc_core_get_device_info()->apv); // note, stack init must be done, otherwise apv is 0,0,0
 }
 
 static void oc_core_ap_x_put_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data) 
@@ -1005,19 +850,7 @@ static void oc_core_dev_mid_get_handler(oc_request_t* request, oc_interface_mask
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR)) 
-  {
-    return;
-  }
-
-  const oc_device_info_t* const  device = oc_core_get_device_info();
-  
-  oc_rep_begin_root_object();
-  oc_rep_i_set_int(root, 1, device->mid); // note, stack init must be done, otherwise mid is 0
-  oc_rep_end_root_object();
-
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
-  
+  oc_knx_get_response_int(request, oc_core_get_device_info()->mid); // note, stack init must be done, otherwise mid is 0
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'

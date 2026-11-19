@@ -164,19 +164,7 @@ static void oc_core_knx_auth_o_osndelay_get_handler(oc_request_t* request, oc_in
   (void)data;
   (void)iface_mask;
 
-  OC_INF("oc_core_knx_auth_o_osndelay_get_handler");
-
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
-  {
-    return;
-  }
-
-  oc_rep_begin_root_object();
-  oc_rep_i_set_uint(root, 1, oc_core_get_device_info()->osn_delay);
-  oc_rep_end_root_object();
-
-  OC_INF("oc_core_knx_auth_o_osndelay_get_handler - done");
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_uint(request, oc_core_get_device_info()->osn_delay);
 }
 
 static void oc_core_knx_auth_o_osndelay_put_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
@@ -247,17 +235,7 @@ static void oc_core_knx_auth_o_replwdo_get_handler(oc_request_t* request, oc_int
   (void)data;
   (void)iface_mask;
 
-  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
-  {
-    return;
-  }
-
-  oc_rep_begin_root_object();
-  oc_rep_i_set_uint(root, 1, OSCORE_REPLAY_WINDOW_SIZE);
-  oc_rep_end_root_object();
-
-  OC_INF("oc_core_knx_auth_o_replwdo_get_handler - done");
-  oc_prepare_cbor_response(request, OC_STATUS_OK);
+  oc_knx_get_response_uint(request, OSCORE_REPLAY_WINDOW_SIZE);
 }
 
 // resource definition, details/comments see on 'core_resource_well_known_core'

@@ -440,6 +440,7 @@ protected:
     /* start away from 0, so an expired timer never looks like an unset one */
     g_now = 100 * OC_CLOCK_SECOND;
     g_sendto_fails = false;
+    g_sendto_failures_left = 0;
     oc_ri_init();
 
     /*
@@ -496,6 +497,7 @@ protected:
   void TearDown() override
   {
     g_sendto_fails = false;
+    g_sendto_failures_left = 0;
     g_initialized = true;
     /* the sleep period is file-static state that knx_dns_sd_stop() keeps */
     if (knx_dns_sd_get_current_record().knx.sp != 0) {

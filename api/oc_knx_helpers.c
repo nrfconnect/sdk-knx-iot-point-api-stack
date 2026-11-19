@@ -375,3 +375,74 @@ int add_next_page_indicator(char* url, int next_page_num)
 }
 
 
+void oc_knx_get_response_int(oc_request_t* request, int64_t value)
+{
+  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
+  {
+    return;
+  }
+
+  oc_rep_begin_root_object();
+  oc_rep_i_set_int(root, 1, value);
+  oc_rep_end_root_object();
+
+  oc_prepare_cbor_response(request, OC_STATUS_OK);
+}
+
+void oc_knx_get_response_uint(oc_request_t* request, uint64_t value)
+{
+  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
+  {
+    return;
+  }
+
+  oc_rep_begin_root_object();
+  oc_rep_i_set_uint(root, 1, value);
+  oc_rep_end_root_object();
+
+  oc_prepare_cbor_response(request, OC_STATUS_OK);
+}
+
+void oc_knx_get_response_bool(oc_request_t* request, bool value)
+{
+  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
+  {
+    return;
+  }
+
+  oc_rep_begin_root_object();
+  oc_rep_i_set_boolean(root, 1, value);
+  oc_rep_end_root_object();
+
+  oc_prepare_cbor_response(request, OC_STATUS_OK);
+}
+
+void oc_knx_get_response_text(oc_request_t* request, const char* value)
+{
+  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
+  {
+    return;
+  }
+
+  oc_rep_begin_root_object();
+  oc_rep_i_set_text_string(root, 1, value);
+  oc_rep_end_root_object();
+
+  oc_prepare_cbor_response(request, OC_STATUS_OK);
+}
+
+void oc_knx_get_response_version(oc_request_t* request, const oc_knx_version_info_t* version)
+{
+  if (!oc_accept_header_is_ok(request, APPLICATION_CBOR))
+  {
+    return;
+  }
+
+  // [major, minor, patch]
+  const int64_t array[3] = {version->major, version->minor, version->patch};
+  oc_rep_begin_root_object();
+  oc_rep_i_set_int_array(root, 1, array, 3);
+  oc_rep_end_root_object();
+
+  oc_prepare_cbor_response(request, OC_STATUS_OK);
+}

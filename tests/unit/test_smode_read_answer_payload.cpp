@@ -48,6 +48,8 @@
 #include <cstring>
 #include <vector>
 
+#include "test_helpers_tables.h"
+
 extern "C" {
 #include "oc_api.h"
 #include "oc_core_res.h"
@@ -60,6 +62,11 @@ extern "C" {
 /* the /k resource descriptor carrying the (static) POST handler under test */
 extern const oc_resource_t core_resource_knx_k;
 }
+
+using test_helpers::clear_go_table;
+using test_helpers::clear_recipient_table;
+using test_helpers::set_go;
+using test_helpers::set_recipient;
 
 /* -- recorded transmissions ------------------------------------------------ */
 

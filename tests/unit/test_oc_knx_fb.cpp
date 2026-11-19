@@ -2,9 +2,12 @@
  * Unit tests for api/oc_knx_fb.c
  */
 
+#include <cstdlib>
 #include <gtest/gtest.h>
 #include <string>
 #include <vector>
+
+#include "test_helpers_guarded_get.h"
 
 extern "C" {
 #include "oc_ri.h"
@@ -126,28 +129,16 @@ protected:
     added.push_back(r);
   }
 
-  std::string invoke_get(const oc_resource_t &resource, const char *uri_path,
-                         const char *query, int *response_code)
-  {
-    uint8_t buffer[512] = {};
-    oc_response_buffer_t response_buffer{};
-    response_buffer.buffer = buffer;
-    response_buffer.buffer_size = sizeof(buffer);
-    oc_response_t response{};
-    response.response_buffer = &response_buffer;
-    oc_request_t request{};
-    request.response = &response;
-    request.resource = (oc_resource_t *)&resource;
-    request.accept = APPLICATION_LINK_FORMAT;
-    request.uri_path = uri_path;
-    request.uri_path_len = strlen(uri_path);
-    request.query = (char *)query;
-    request.query_len = query ? strlen(query) : 0;
-    oc_rep_new(buffer, sizeof(buffer));
+  /* the largest capacity the guarded buffer allows: the buffer minus its overflow guard
+     (= KNX_PAYLOAD_SIZE, the response buffer of a real request) */
+  static constexpr size_t kDefaultCapacity = test_helpers::kGuardedGetBufferSize - test_helpers::kOverflowGuardBytes;
 
-    resource.get_handler.cb(&request, OC_IF_LI, nullptr);
-    *response_code = response_buffer.code;
-    return std::string((char *)buffer, response_buffer.response_length);
+  std::string invoke_get(const oc_resource_t& resource, const char* uri_path, const char* query, int* response_code,
+                         size_t capacity = kDefaultCapacity)
+  {
+    const test_helpers::GuardedResponse response = test_helpers::guarded_get(resource, uri_path, query, capacity);
+    *response_code = response.code;
+    return response.payload;
   }
 };
 

@@ -11,9 +11,10 @@
 */
 #pragma once
 
-#include "oc_ri.h"
 #include <stdbool.h>
 #include <stdint.h>
+#include "oc_core_res.h"
+#include "oc_ri.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -167,6 +168,40 @@ int oc_frame_query_l(char* url, bool ps_exists, int ps, bool total_exists, int t
  */
 int oc_frame_integer(const int value);
 
+/**
+ * @brief GET responses of the one-value resources (e.g. /dev/sn, /swu/state, /auth/o/osndelay)
+ *
+ * Many core resources answer a GET with a single value under the integer key 1, e.g. {1: "00fa10010401"}.
+ * These helpers do the complete GET for such a resource, so its handler only has to name the value:
+ * - checks the Accept header (application/cbor), on a mismatch the error response is already prepared
+ * - encodes the CBOR map {1: value}
+ * - prepares the response 2.05 Content
+ *
+ * Example:
+ * ~~~{.c}
+ *     static void dev_sn_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
+ *     {
+ *       (void)iface_mask;
+ *       (void)data;
+ *       oc_knx_get_response_text(request, oc_core_get_device_info()->serialnumber);
+ *     }
+ * ~~~
+ *
+ * @note a resource whose value is not always available (e.g. 4.04 outside a state) keeps its own handler
+ */
+void oc_knx_get_response_int(oc_request_t* request, int64_t value);
+
+/** @brief see oc_knx_get_response_int(), encodes an unsigned integer */
+void oc_knx_get_response_uint(oc_request_t* request, uint64_t value);
+
+/** @brief see oc_knx_get_response_int(), encodes a boolean */
+void oc_knx_get_response_bool(oc_request_t* request, bool value);
+
+/** @brief see oc_knx_get_response_int(), encodes a text string, NULL is encoded as "" */
+void oc_knx_get_response_text(oc_request_t* request, const char* value);
+
+/** @brief see oc_knx_get_response_int(), encodes a version as array [major, minor, patch] */
+void oc_knx_get_response_version(oc_request_t* request, const oc_knx_version_info_t* version);
 /*
   entries of ONE POST collection on auth/at, fp/g, fp/p, fp/r (one limit for all four handlers)
 

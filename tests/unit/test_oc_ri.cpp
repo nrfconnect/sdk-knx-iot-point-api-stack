@@ -994,7 +994,7 @@ TEST_F(RiClientCb, GetClientCbReturnsNullForWrongMethod)
  * it can be reclaimed once no longer needed. But oc_ri_invoke_coap_entity_handler
  * itself sweeps every ref_count==0 buffer (regardless of whose request it is)
  * near the end of the function, then returns - and the caller goes on to
- * dereference *request_state/*response_state afterward (see engine.c, right
+ * dereference request_state and response_state afterward (see engine.c, right
  * after the call). If the internal sweep already freed the very buffer that
  * belongs to *this* request, that dereference is a use-after-free.
  *
@@ -1285,6 +1285,7 @@ TEST(RiEntityHandlerPaths, NonCborPayloadIsNotParsed)
   EXPECT_EQ(g_ri_get_calls, 1);
   EXPECT_EQ(response_code, CONTENT_2_05);
 }
+
 /* Order of the checks: resource lookup and the payload-free scope check come
    before the payload is parsed, so a request to an unknown path or without
    access is answered without building a CBOR tree from untrusted input. */

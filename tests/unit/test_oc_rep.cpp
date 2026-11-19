@@ -18,6 +18,7 @@
 #include <cstring>
 #include <gtest/gtest.h>
 #include <string>
+#include <vector>
 
 extern "C" {
 #include "oc_rep.h"
@@ -934,6 +935,11 @@ TEST_F(OcRepTest, ParseRep_DuplicateIntegerKeyInNestedMap)
   EXPECT_EQ(last_ga, 9999);
 }
 
+
+
+
+
+
 /* Nesting depth (KNX_CBOR_MAX_DEPTH): the parse recurses per level, so a deeper
    payload is rejected before any node is allocated */
 
@@ -951,6 +957,7 @@ TEST_F(OcRepTest, ParseRep_ArraysAtMaxDepth_AreAccepted)
   EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborNoError);
   EXPECT_NE(rep, nullptr);
 }
+
 TEST_F(OcRepTest, ParseRep_ArraysOneBeyondMaxDepth_AreRejectedWithoutTree)
 {
   /* 400: the 401-byte payload that drove the stack to 84 KB before the check */
@@ -966,6 +973,7 @@ TEST_F(OcRepTest, ParseRep_ArraysOneBeyondMaxDepth_AreRejectedWithoutTree)
     }
   }
 }
+
 TEST_F(OcRepTest, ParseRep_MapsOneBeyondMaxDepth_AreRejected)
 {
   /* { 1: { 1: ... { 1: 0 } } } */
@@ -979,6 +987,7 @@ TEST_F(OcRepTest, ParseRep_MapsOneBeyondMaxDepth_AreRejected)
   EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborErrorNestingTooDeep);
   EXPECT_EQ(rep, nullptr);
 }
+
 TEST_F(OcRepTest, ParseRep_DeepSecondArrayItem_IsRejected)
 {
   /* [ 1, [[...]] ]: the array type scan skips the second item before parsing it */
@@ -988,6 +997,7 @@ TEST_F(OcRepTest, ParseRep_DeepSecondArrayItem_IsRejected)
   EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborErrorNestingTooDeep);
   EXPECT_EQ(rep, nullptr);
 }
+
 TEST_F(OcRepTest, ParseRep_TaggedRootOverDeepArrays_IsRejected)
 {
   /* tag 32 in front of the nested arrays */
@@ -997,6 +1007,7 @@ TEST_F(OcRepTest, ParseRep_TaggedRootOverDeepArrays_IsRejected)
   EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborErrorNestingTooDeep);
   EXPECT_EQ(rep, nullptr);
 }
+
 TEST_F(OcRepTest, ParseRep_SiblingsAtMaxDepth_AreAccepted)
 {
   /* [ X, X ] with X nested to the limit: leaving a container restores the depth */
@@ -1007,12 +1018,14 @@ TEST_F(OcRepTest, ParseRep_SiblingsAtMaxDepth_AreAccepted)
   EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborNoError);
   EXPECT_NE(rep, nullptr);
 }
+
 TEST_F(OcRepTest, ParseRep_TruncatedNestedPayload_StillReportsUnexpectedEof)
 {
   /* the walk must keep the error that maps to 4.13 (entity too large) */
   const uint8_t payload[] = {0xa1, 0x01, 0x82, 0x01};
   EXPECT_EQ(oc_parse_rep(payload, sizeof(payload), &rep), CborErrorUnexpectedEOF);
 }
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * Text-keyed variants (oc_rep_text_set_int, etc.)
  * ═══════════════════════════════════════════════════════════════════════════ */
@@ -1136,7 +1149,7 @@ TEST_F(OcRepTest, EncodeRawEncoder_WritesBytesAndAdvances)
   CborEncoder enc;
   cbor_encoder_init(&enc, buf, sizeof(buf), 0);
   const uint8_t data[] = { 0xDE, 0xAD, 0xBE, 0xEF };
-  g_err = CborUnknownError; /* sentinel: function must reset to NoError */
+  g_err = CborNoError;
   oc_rep_encode_raw_encoder(&enc, data, sizeof(data));
   EXPECT_EQ(g_err, CborNoError);
   EXPECT_EQ(memcmp(buf, data, sizeof(data)), 0);

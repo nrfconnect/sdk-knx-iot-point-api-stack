@@ -233,7 +233,7 @@ static coap_status_t oscore_parse_inner_message(uint8_t* data, size_t data_len, 
     Both slot kinds share one ring lifetime and are evicted in arrival order.
 
   - Sleepy devices may have a timeout of > 5 ... 10 minutes, an auto-clearing of slots
-    after a (CoAp) timeout is not implemented, to catch especially those devices
+    after a (CoAP) timeout is not implemented, to catch especially those devices
     (otherwise the inbound echo response/own re-request would never happen).
 
   - KNOWN LIMITATION (deliberately not addressed here): because both slot kinds share one FIFO, a burst of

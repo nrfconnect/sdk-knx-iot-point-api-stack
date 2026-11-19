@@ -134,6 +134,9 @@ static inline uint16_t knx_unicast_port(void)
 /* "SP=" + up to 5 decimal digits */
 #define SP_VALUE_SIZE 8
 
+/* first two address bytes in the IPv6 link-local prefix fe80::/10 */
+#define IS_IPV6_LINK_LOCAL(b) (((b)[0] == 0xfe) && (((b)[1] & 0xc0) == 0x80))
+
 /** Values the service should advertise; written by the KNX thread, applied
  *  to the SRP entry only while the entry is not in the client's list. */
 typedef struct
@@ -332,6 +335,17 @@ static bool waiting_for_address = false;
 /** A routable address existed at the last check, see thread_state_changed(). */
 static bool routable = false;
 
+/* Removes host and services at the SRP server, the key lease is kept so the name stays ours.
+ * The caller holds the OpenThread lock. */
+static void srp_deregister(otInstance* inst)
+{
+  otError err = otSrpClientRemoveHostAndServices(inst, false, true);
+  if ((err != OT_ERROR_NONE) && (err != OT_ERROR_ALREADY))
+  {
+    OC_WRN("DNS-SD: SRP deregistration failed: %d", err);
+  }
+}
+
 /** True when the Thread interface has an address the SRP client registers and the LAN can reach.
  *  Such an address is preferred, neither link-local nor mesh-local, the rule of
  *  otSrpClientEnableAutoHostAddress(). */
@@ -349,7 +363,7 @@ static bool has_routable_address(otInstance *inst)
         }
 
         /* link-local fe80::/10 */
-        if ((bytes[0] == 0xfe) && ((bytes[1] & 0xc0) == 0x80))
+        if (IS_IPV6_LINK_LOCAL(bytes))
         {
             continue;
         }
@@ -466,12 +480,7 @@ static void thread_state_changed(otChangedFlags flags, void *ctx)
         OC_INF("DNS-SD: Routable address gone while attached, the SRP registration is withdrawn.");
         waiting_for_address = true;
         reapply = false;
-
-        otError err = otSrpClientRemoveHostAndServices(inst, false, true);
-        if ((err != OT_ERROR_NONE) && (err != OT_ERROR_ALREADY))
-        {
-            OC_WRN("DNS-SD: SRP deregistration failed: %d", err);
-        }
+        srp_deregister(inst);
     }
 }
 
@@ -613,10 +622,6 @@ void knx_dns_sd_stop(void)
 
     /* SRP goodbye: remove host and services at the server (key lease kept so
      * the name stays ours), a following update re-registers */
-    otError err = otSrpClientRemoveHostAndServices(inst, false, true);
-    if ((err != OT_ERROR_NONE) && (err != OT_ERROR_ALREADY))
-    {
-        OC_WRN("DNS-SD: SRP deregistration failed: %d", err);
-    }
+    srp_deregister(inst);
     openthread_unlock();
 }

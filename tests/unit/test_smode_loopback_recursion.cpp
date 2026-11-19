@@ -51,6 +51,8 @@
 #include <gtest/gtest.h>
 #include <cstring>
 
+#include "test_helpers_tables.h"
+
 extern "C" {
 #include "oc_api.h"
 #include "oc_core_res.h"
@@ -60,6 +62,11 @@ extern "C" {
 #include "oc_ri.h"
 #include "messaging/coap/transactions.h"
 }
+
+using test_helpers::clear_go_table;
+using test_helpers::clear_recipient_table;
+using test_helpers::set_go;
+using test_helpers::set_recipient;
 
 /* -- linker --wrap stubs -------------------------------------------------- */
 
@@ -184,66 +191,6 @@ protected:
       dev->lsm_s = m_saved_lsm;
     }
   }
-
-  static void clear_go_table()
-  {
-    int n = oc_core_get_group_object_table_total_size();
-    for (int i = 0; i < n; i++) {
-      oc_group_object_table_t *e = oc_core_get_group_object_table_entry(i);
-      if (e == nullptr) {
-        continue;
-      }
-      e->id = -1; /* empty slot sentinel */
-      e->ga = nullptr;
-      e->ga_len = 0;
-      e->cflags = OC_CFLAG_NONE;
-      oc_free_string(&e->href); /* release the href set_go() allocated (LeakSanitizer) */
-      e->href = (oc_string_t){ 0 };
-    }
-  }
-
-  static void clear_recipient_table()
-  {
-    int n = oc_core_get_recipient_table_size();
-    for (int i = 0; i < n; i++) {
-      oc_group_table_t *e = oc_core_get_recipient_table_entry(i);
-      if (e == nullptr) {
-        continue;
-      }
-      memset(e, 0, sizeof(*e));
-      e->id = -1;
-      e->ia = -1;
-    }
-  }
-
-  /* Populate GO slot `index`. The ga array and href string must outlive the call. */
-  static void set_go(int index, int32_t id, const char *href, uint32_t *ga,
-                     uint16_t ga_len, oc_cflag_mask_t cflags)
-  {
-    oc_group_object_table_t *e = oc_core_get_group_object_table_entry(index);
-    ASSERT_NE_PTR(e);
-    e->id = id;
-    e->ga = ga;
-    e->ga_len = ga_len;
-    e->cflags = cflags;
-    oc_new_string(&e->href, href, strlen(href));
-  }
-
-  /* Recipient entry making `ga` a multicast sending GA (grpid > 0). */
-  static void set_recipient(int index, int32_t id, uint32_t *ga, uint16_t ga_len,
-                            uint32_t grpid)
-  {
-    oc_group_table_t *e = oc_core_get_recipient_table_entry(index);
-    ASSERT_NE_PTR(e);
-    e->id = id;
-    e->ga = ga;
-    e->ga_len = ga_len;
-    e->grpid = grpid;
-    e->iid = -1;
-    e->ia = -1;
-  }
-
-  static void ASSERT_NE_PTR(const void *p) { ASSERT_TRUE(p != nullptr); }
 
   uint64_t m_saved_iid = 0;
   oc_lsm_state_t m_saved_lsm = LSM_S_UNLOADED;

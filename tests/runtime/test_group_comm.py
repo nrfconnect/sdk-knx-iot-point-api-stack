@@ -927,7 +927,9 @@ def _roi_network_control_available():
     # Probe: add then remove a throwaway ULA to confirm we are privileged.
     rc, _, err = _ip6_addr("add", DUT_IFACE, "fd00:5704:0:dead::1", 64)
     if rc != 0:
-        return f"cannot add IPv6 addr on {DUT_IFACE} (need --privileged): {err.strip()}"
+        # the Docker runner moves the DUT interface into its own netns and gives it a ULA; covered by test_read_on_init
+        return (f"cannot change IPv6 addresses on {DUT_IFACE} (needs a DUT without ULA in this netns, "
+                f"not the Docker runner; unit tests cover the gate): {err.strip()}")
     _ip6_addr("del", DUT_IFACE, "fd00:5704:0:dead::1", 64)
     return None
 

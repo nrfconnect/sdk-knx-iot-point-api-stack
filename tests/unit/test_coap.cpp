@@ -13,6 +13,8 @@
 #include <cstring>
 #include <vector>
 
+#include "test_helpers_coap_frame.h"
+
 extern "C" {
 #include "coap.h"
 #include "oc_buffer.h"
@@ -231,6 +233,33 @@ TEST_F(CoapTest, MaxAge_DefaultWhenNotSet)
   coap_get_header_max_age(&pkt, &age);
   EXPECT_EQ(age, COAP_DEFAULT_MAX_AGE); /* 60 */
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Max-Age option class: inner (Class E) only, never in the outer OSCORE message
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+using test_helpers::frame_find_uint_option;
+using test_helpers::outer_options_start;
+
+/* the options of an OSCORE plaintext start after the inner code byte (RFC 8613 clause 5.3) */
+static const size_t PLAINTEXT_OPTIONS_START = 1;
+
+
+
+
+
+
+
+
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Echo (RFC 9175)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+
+
+
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * ETag

@@ -46,7 +46,7 @@ struct oc_message_s
 int oc_send_buffer(oc_message_t *message);
 
 /**
- * @brief set the default (unicast) CoAp port to another value
+ * @brief set the default (unicast) CoAP port to another value
  *
  * Note: must be called before oc_connectivity_init
  * @param port  the port number to change

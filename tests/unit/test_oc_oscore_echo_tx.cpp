@@ -15,7 +15,7 @@
  *         the echo response replays the request's kid + sequence (ssn), while
  *         kid_context is a server-side random that DIFFERS per responder.
  *
- *         Single unified FIFO ring (ECHO_RING_SIZE, production default 64;
+ *         Single unified FIFO ring (ECHO_RING_SIZE, production default 16;
  *         reads the actual compiled KNX_ECHO_RING_SIZE, e.g. 16 on Zephyr):
  *
  *         Anchor slot  (kid_ctx_len == 0)  -- former whitelist role:
@@ -36,6 +36,8 @@
 #include <cstring>
 #include <cstdlib>
 #include <vector>
+
+#include "test_helpers_coap_frame.h"
 
 extern "C" {
 #include "messaging/coap/oscore.h"
@@ -316,7 +318,7 @@ TEST_F(EchoTxRingTest, SsnWrap_ZeroDoesNotMatchMaxAnchor)
   EXPECT_TRUE(consume(OSCORE_SSN_MAX));
 }
 
-/* -- Attacker scenarios
+/* -- Attacker scenarios */
 
 /*
  * One sender stores one anchor (ssn=10, kid).
@@ -1346,6 +1348,35 @@ TEST_F(OscoreEngine, OutboundMulticastRequestIsEncryptedAndSent)
   EXPECT_EQ(sender_context_->ssn, 1U);
 }
 
+/* Never started, so the events that fill the queue are discarded on delivery. */
+OC_PROCESS(queue_filler, "fills the event queue");
+OC_PROCESS_THREAD(queue_filler, ev, data)
+{
+  (void)ev;
+  (void)data;
+  OC_PROCESS_BEGIN();
+  OC_PROCESS_END();
+}
+
+static void fill_event_queue()
+{
+  while (oc_process_nevents() < OC_PROCESS_MAX_EVENTS)
+  {
+    ASSERT_EQ(oc_process_post(&queue_filler, OC_PROCESS_EVENT_MSG, nullptr), OC_PROCESS_ERR_OK);
+  }
+}
+
+static void drain_event_queue()
+{
+  for (int i = 0; i < OC_PROCESS_MAX_EVENTS + 8 && oc_process_nevents() > 0; i++)
+  {
+    oc_process_run();
+  }
+}
+
+/* A CON request is encrypted into a copy (the transaction keeps the plain one); the copy that
+   finds the event queue full is released, a leak here is reported by the AddressSanitizer build. */
+
 TEST_F(OscoreEngine, OutboundResponseIsEncryptedAndSent)
 {
   oc_message_t* message = make_outbound_response();
@@ -1364,6 +1395,21 @@ TEST_F(OscoreEngine, OutboundResponseIsEncryptedAndSent)
   EXPECT_EQ(recipient_context_->ssn, 0U);
   EXPECT_EQ(sender_context_->ssn, 0U);
 }
+
+/*
+  Max-Age is a Class E option only: the protected message carries it encrypted, the outer message
+  carries none (not even the outer Max-Age 0 RFC 8613 clause 4.1.3.1 allows), to keep it short.
+  The serializer decides this for every message (test_coap.cpp MaxAge_*); here the engine path.
+*/
+
+/* true if the outer CoAP frame (header, token, options) carries option 'number' before the payload marker */
+static bool outer_frame_has_option(const std::vector<uint8_t>& frame, uint16_t number)
+{
+  return test_helpers::outer_frame_has_option(frame.data(), frame.size(), number);
+}
+
+static const uint8_t ACK_HEADER = (uint8_t)(COAP_VERSION << COAP_HEADER_VERSION_POSITION | COAP_TYPE_ACK << COAP_HEADER_TYPE_POSITION);
+
 
 /*
   a POST /auth/at that changes the key of the token protecting the request itself is applied, but gets no 2.04

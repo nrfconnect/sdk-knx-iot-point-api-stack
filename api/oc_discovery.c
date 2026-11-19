@@ -352,28 +352,61 @@ static int frame_sn(const char* serial_number, const uint64_t iid, const uint16_
 	return response_length;
 }
 
+// the discovery query parameters, the values point into the request and are NOT NUL terminated
+typedef struct
+{
+  const char* rt;
+  int rt_len;
+  const char* ep;
+  int ep_len;
+  const char* if_;
+  int if_len;
+  const char* d;
+  int d_len;
+  bool key_match; // true if at least one query parameter KEY was found
+} wkc_query_t;
+
+static void wkc_parse_query(oc_request_t* request, wkc_query_t* query)
+{
+  const char* key; // one key pointer for a key=value 'pair'
+  size_t key_len;
+  const char* value; // one value pointer for a key=value 'pair'
+  size_t value_len;
+
+  oc_init_query_iterator();
+  while (oc_iterate_query(request, &key, &key_len, &value, &value_len) > 0)
+  { // each KEY (+ value) is stored one time per request (last wins)
+    if (strncmp(key, "rt", key_len) == 0)
+    {
+      query->rt = value;
+      query->rt_len = (int)value_len;
+      query->key_match = true;
+    }
+    else if (strncmp(key, "ep", key_len) == 0)
+    {
+      query->ep = value;
+      query->ep_len = (int)value_len;
+      query->key_match = true;
+    }
+    else if (strncmp(key, "if", key_len) == 0)
+    {
+      query->if_ = value;
+      query->if_len = (int)value_len;
+      query->key_match = true;
+    }
+    else if (strncmp(key, "d", key_len) == 0)
+    {
+      query->d = value;
+      query->d_len = (int)value_len;
+      query->key_match = true;
+    }
+  }
+}
+
 void oc_well_known_core_discovery_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {
-	(void) iface_mask;
-	(void) data;
-
-	const char* key;                 // one key pointer for a key=value 'pair'
-	size_t key_len;
-
-	const char* value;               // one value pointer for a key=value 'pair'
-	size_t value_len;
-
-	const char* rt_request = NULL;   // 'rt'
-	int rt_len = 0;
-
-	const char* ep_request = NULL;   // 'ep'
-	int ep_len = 0;
-
-	const char* if_request = NULL;   // 'if'
-	int if_len = 0;
-
-	const char* d_request = NULL;    // 'd'
-	int d_len = 0;
+  (void)iface_mask;
+  (void)data;
 
   int query_parameter_key_value_pair_matches = 0; // how many query parameter key/value pair matches where found AND added to the response
 	size_t response_length = 0;
@@ -381,46 +414,27 @@ void oc_well_known_core_discovery_handler(oc_request_t* request, oc_interface_ma
 	int query_pn = KNX_PAGE_NUMBER;
 	int query_ps = KNX_PAGE_SIZE;
 
-	bool current_page_is_full = false;							// true if response page is full, no more resources can be added
-	bool query_parameter_key_match = false;					// true if at least one query parameter KEY was found
+  bool current_page_is_full = false; // true if response page is full, no more resources can be added
 
   if (!oc_accept_header_is_ok(request, APPLICATION_LINK_FORMAT))
   {
     return;
   }
 
-	oc_init_query_iterator();
-	while (oc_iterate_query(request, &key, &key_len, &value, &value_len) > 0)
-	{ // each KEY (+ value) is stored one time per request (last wins)
+  wkc_query_t query = {0};
+  wkc_parse_query(request, &query);
+  const char* const rt_request = query.rt; // 'rt'
+  const int rt_len = query.rt_len;
+  const char* const ep_request = query.ep; // 'ep'
+  const int ep_len = query.ep_len;
+  const char* const if_request = query.if_; // 'if'
+  const int if_len = query.if_len;
+  const char* const d_request = query.d; // 'd'
+  const int d_len = query.d_len;
+  const bool query_parameter_key_match = query.key_match; // true if at least one query parameter KEY was found
 
-		if (strncmp(key, "rt", key_len) == 0)
-		{
-			rt_request = value;
-			rt_len = (int) value_len;
-			query_parameter_key_match = true;
-		}
-		else if (strncmp(key, "ep", key_len) == 0)
-		{
-			ep_request = value;
-			ep_len = (int) value_len;
-			query_parameter_key_match = true;
-		}
-		else if (strncmp(key, "if", key_len) == 0)
-		{
-			if_request = value;
-			if_len = (int) value_len;
-			query_parameter_key_match = true;
-		}
-		else if (strncmp(key, "d", key_len) == 0)
-		{
-			d_request = value;
-			d_len = (int) value_len;
-			query_parameter_key_match = true;
-		}
-	}
-
-	// get device 
-	const oc_device_info_t* const device = oc_core_get_device_info();
+  // get device
+  const oc_device_info_t* const device = oc_core_get_device_info();
 
   /*
    * multicast
