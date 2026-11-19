@@ -224,6 +224,23 @@ unit-asan:
       junit: build/linux-test-asan/report.xml
   dependencies: []
 
+# The same suite built with clang: its UBSan checks things GCC's does not (e.g.
+# arithmetic on a NULL pointer), so a defect of that kind fails here only.
+unit-asan-clang:
+  stage: test
+  script:
+    # libclang-rt-19-dev provides the asan/ubsan runtime archives the clang package lacks
+    - apt-get update -qq && apt-get install -y -qq clang libclang-rt-19-dev > /dev/null 2>&1
+    - cmake --preset=linux-test-asan-clang
+    - cmake --build --preset=linux-test-asan-clang
+    - ctest --preset=linux-test-asan-clang --output-junit report.xml
+  artifacts:
+    access: developer
+    when: always
+    reports:
+      junit: build/linux-test-asan-clang/report.xml
+  dependencies: []
+
 # ----------------------------------------------------------
 # test: unit function coverage (gcov via gcovr)
 # The same GoogleTest suite built with --coverage -O0 (ENABLE_COVERAGE). The
@@ -298,17 +315,15 @@ fuzz-seed-replay:
     - |
       status=0
       ctest --preset=linux-fuzz-coverage-clang -L fuzz --output-junit build/linux-fuzz-coverage-clang/fuzz-report.xml || status=$?
+      # every harness CMake registered (tests/fuzz/CMakeLists.txt), so a new one cannot be left out here
+      targets=$(ctest --preset=linux-fuzz-coverage-clang -N -L fuzz | sed -n 's/^ *Test *#[0-9]*: \(fuzz_.*\)_seed$/\1/p')
+      [ -n "$targets" ] || { echo "error: no fuzz targets registered in CTest"; exit 1; }
       cd build/linux-fuzz-coverage-clang/tests/fuzz
-      for t in fuzz_coap_parse fuzz_oscore_options fuzz_oc_rep fuzz_mdns \
-               fuzz_query_string fuzz_blockwise_reassembly fuzz_hex_and_base64 fuzz_timestamp \
-               fuzz_endpoint_string_parse fuzz_swu_query_params fuzz_group_object_table \
-               fuzz_oscore_context_lookup fuzz_discovery_filter fuzz_spake2plus_wire \
-               fuzz_uuid_parse fuzz_oscore_full_decrypt fuzz_replay_window fuzz_oscore_aad_nonce fuzz_oscore_echo_tx \
-               fuzz_core_res_wildcard fuzz_at_x_get_query fuzz_spake2plus_initiator \
-               fuzz_knx_lsm_post fuzz_auth_at_post; do
-        "./$t" "corpus/${t#fuzz_}" -max_total_time="$FUZZ_COVERAGE_SECONDS" -timeout=10 \
+      for t in $targets; do
+        dict=""; [ -f "dict/${t#fuzz_}.dict" ] && dict="-dict=dict/${t#fuzz_}.dict"
+        "./$t" "corpus/${t#fuzz_}" $dict -max_total_time="$FUZZ_COVERAGE_SECONDS" -timeout=10 \
           -rss_limit_mb=2048 -artifact_prefix="../../../../fuzz-coverage-crashes/${t}-" \
-          || { echo "warning: $t found a crash during the coverage mutation burst - see fuzz-coverage-crashes/"; status=1; }
+          || echo "warning: $t found a crash during the coverage mutation burst - see fuzz-coverage-crashes/ (does not fail the job)"
       done
       cd -
       if ! gcovr --root . --gcov-executable 'llvm-cov-19 gcov' \
@@ -361,16 +376,14 @@ fuzz-explore:
     - |
       status=0
       mkdir -p fuzz-crashes
-      for t in fuzz_coap_parse fuzz_oscore_options fuzz_oc_rep fuzz_mdns \
-               fuzz_query_string fuzz_blockwise_reassembly fuzz_hex_and_base64 fuzz_timestamp \
-               fuzz_endpoint_string_parse fuzz_swu_query_params fuzz_group_object_table \
-               fuzz_oscore_context_lookup fuzz_discovery_filter fuzz_spake2plus_wire \
-               fuzz_uuid_parse fuzz_oscore_full_decrypt fuzz_replay_window fuzz_oscore_aad_nonce fuzz_oscore_echo_tx \
-               fuzz_core_res_wildcard fuzz_at_x_get_query fuzz_spake2plus_initiator \
-               fuzz_knx_lsm_post fuzz_auth_at_post; do
+      targets=$(ctest --preset=linux-fuzz-clang -N -L fuzz | sed -n 's/^ *Test *#[0-9]*: \(fuzz_.*\)_seed$/\1/p')
+      [ -n "$targets" ] || { echo "error: no fuzz targets registered in CTest"; exit 1; }
+      for t in $targets; do
         seeds="build/linux-fuzz-clang/tests/fuzz/corpus/${t#fuzz_}"
+        d="build/linux-fuzz-clang/tests/fuzz/dict/${t#fuzz_}.dict"
+        dict=""; [ -f "$d" ] && dict="-dict=$d"
         mkdir -p "fuzz-findings/$t"
-        "build/linux-fuzz-clang/tests/fuzz/$t" "fuzz-findings/$t" "$seeds" \
+        "build/linux-fuzz-clang/tests/fuzz/$t" "fuzz-findings/$t" "$seeds" $dict \
           -max_total_time="$FUZZ_SECONDS" -timeout=10 -rss_limit_mb=2048 \
           -artifact_prefix=fuzz-crashes/ || status=1
       done
@@ -388,7 +401,7 @@ fuzz-explore:
 # device-test: runtime tier, gcc
 # The hand-written behaviour tests (hardening, observe, state machines,
 # everything KNX never wrote a TestCase for). tests/common/fixtures.py orders
-# the modules. Expected: 237 passed / 8 environment skips.
+# the modules. Expected: 253 passed / 5 environment skips.
 # allow_failure: the device tiers depend on a tagged, privileged runner; a
 # missing runner must not block the pipeline. Read the JUnit report.
 # ----------------------------------------------------------

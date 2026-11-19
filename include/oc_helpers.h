@@ -598,7 +598,7 @@ int oc_url_cmp(oc_string_t href_string, oc_string_t resource_string);
 /**
  * @brief print an uint64_t, in either decimal or hex representation
  *
- * @param number
+ * @param number the number to print
  * @param rep - string representation chosen (decimal or hex)
  * @return int always returns 0
  */

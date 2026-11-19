@@ -384,9 +384,9 @@ extern "C"
    *
    * @param resource the resource
    * @param content_type_man the mandatory content type
-   * @param content_type_man the optional second content type
-
-  * @note only one type can be set at a time as part of the response
+   * @param content_type_opt the optional second content type
+   *
+   * @note only one type can be set at a time as part of the response
    */
   void oc_resource_bind_content_type(oc_resource_t* resource, oc_content_format_t content_type_man,
                                      oc_content_format_t content_type_opt);
@@ -488,7 +488,7 @@ extern "C"
    * Get for a resource the interfaces for all methods
    *
    * @param[in] resource the resource
-   * @param[in/out] interfaces
+   * @param[in,out] interfaces the interface mask the interfaces of all methods are added to
    *
    * @return
    * - true if the resource and at least on resource method is defined (interfaces are set accordingly)
@@ -505,7 +505,7 @@ extern "C"
    *
    * @param[in] resource the resource
    * @param[in] method the requesters method for a specific resource callback
-   * @param[in/out] scopes the method scope(s)
+   * @param[in,out] scopes the method scope(s)
    *
    * @return
    * - true if resource and resource method are defined (scope is set accordingly)

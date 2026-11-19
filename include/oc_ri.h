@@ -263,7 +263,7 @@ unsigned int oc_count_total_scopes_in_mask(oc_acl_mask_t scopes);
  * @param interfaces the interface mask
  * @return int the amount of interfaces in the mask
  *
- * @note calculates the interface if.g.s.<a> only 1
+ * @note calculates the interface if.g.s.\<a\> only 1
  *
  */
 unsigned int oc_count_total_interfaces_in_mask(oc_interface_mask_t interfaces);
@@ -665,8 +665,8 @@ int oc_ri_query_exists(const char* query, size_t query_len, const char* key);
  * @param query_len the length of the query
  * @param key the key to be checked if exists, key is not null terminated
  * @param key_len the key length
- * @param n
- * @return int
+ * @param n the 1-based number of the key/value pair to check
+ * @return int the position of the next key/value pair in the query, -1 if there is none
  */
 int oc_ri_query_nth_key_exists(const char* query, size_t query_len, const char** key, size_t* key_len, size_t n);
 

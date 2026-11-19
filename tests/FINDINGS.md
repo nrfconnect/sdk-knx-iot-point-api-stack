@@ -5,6 +5,16 @@ Defects in the stack found by its tests that are still open.
 A finding is removed once it is fixed (its test then asserts the corrected
 behaviour) or withdrawn. Numbers are never reused, and tests and comments
 keep citing them: `git log -p -S "F-NNN" -- tests/FINDINGS.md` shows a
+removed entry. The next number is F-080.
+
+## F-079: a replayed multicast OSCORE request is answered with a unicast 4.01
+
+- **Files:** `messaging/coap/engine.c`, `coap_receive()`, server replay/Echo admission, branch `sync_state == REPLAY` (no Echo option).
+- **Severity:** Low - protocol deviation and extra traffic: every group member that already received the request answers a replay of it, and a captured multicast message can be replayed to make all receivers send to the claimed source.
+- **Description:** for a request with a sequence number the replay window has already seen, the branch sends a 4.01 without Echo through `coap_send_response_with_empty_application_payload()`, without checking the `MULTICAST` flag of the inbound endpoint. Its own comment says: multicast MUST be suppressed (message already received), unicast send. The reply is sent as unicast (the flag is cleared before sending).
+- **Evidence:** `test_coap_receive_oscore_admission`, `CoapReceiveOscoreAdmission.ReplayedMulticastRequestIsDroppedSilently` fails: one NON 4.01 is sent. The test is skipped (`GTEST_SKIP`) until the fix.
+- **Expected:** a replayed multicast request is dropped without a reply (KNX IoT 3.6.4.1.3); a replayed unicast request keeps the immediate 4.01 without Echo (`ReplayedSsnGetsAnImmediate401WithoutEcho`).
+- **Proposed fix:** in the `REPLAY` branch, send the 4.01 only when the inbound endpoint has no `MULTICAST` flag; the transaction is cleared in both cases. `coap_receive()` is over the lizard thresholds and must not get worse: replace `if (sync_state == REPLAY)` by `else` (the only remaining state there) and wrap the send in `if (!(... & MULTICAST))`, which keeps CCN at 169 and length at or below 1313. Then remove the skip.
 
 ## ~~F-029: `oc_endpoint_print()` frees an uninitialized string for non-IPv6 endpoints~~ - FIXED
 

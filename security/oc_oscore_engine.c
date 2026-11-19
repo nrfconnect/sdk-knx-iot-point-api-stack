@@ -1149,7 +1149,7 @@ static oc_message_t* oc_oscore_outgoing_message(oc_message_t* msg)
 
 #ifdef OC_CLIENT
 /**
-  @brief
+  @brief protects and sends an outbound multicast OSCORE message
 
   @param msg the message, pushed to queue OUTBOUND_OSCORE_EVENT since the OSCORE flag
              and MULTICAST flag is set
@@ -1340,7 +1340,7 @@ static void oc_oscore_send_multicast_message(oc_message_t* msg)
 #endif
 
 /**
-  @brief
+  @brief protects and sends an outbound unicast OSCORE message
 
   @param msg the message, pushed to queue OUTBOUND_OSCORE_EVENT since the OSCORE flag is set
              and MULTICAST flag is NOT set

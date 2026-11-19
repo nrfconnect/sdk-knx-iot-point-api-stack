@@ -75,6 +75,9 @@ function(kis_add_test TEST_NAME TEST_SOURCE)
         kisClientServer_tail
     )
 
+    # clang: test code stays free of warnings (linux-test-asan-clang gates CI on it)
+    target_compile_options(${TEST_NAME} PRIVATE $<$<CXX_COMPILER_ID:Clang>:-Werror>)
+
     # Let CTest discover individual TEST() cases.
     # gtest_discover_tests runs the binary at build time (POST_BUILD), so the listing
     # competes with every other test target still being compiled and linked. A sanitizer
@@ -179,6 +182,18 @@ target_link_options(test_coap_blockwise_server PRIVATE
     -Wl,--wrap=oc_main_initialized
     -Wl,--wrap=oc_etimer_restart
     -Wl,--wrap=coap_send_message
+)
+# server side OSCORE replay/Echo admission in coap_receive(): replies go to the recorder, the delayed Echo callback is
+# recorded and fired by the test, a fixed clock pins the freshness limit, --wrap=malloc fails the delayed context
+kis_add_test(test_coap_receive_oscore_admission test_coap_receive_oscore_admission.cpp)
+target_link_options(test_coap_receive_oscore_admission PRIVATE
+    -Wl,--wrap=oc_main_initialized
+    -Wl,--wrap=oc_etimer_restart
+    -Wl,--wrap=coap_send_message
+    -Wl,--wrap=oc_set_delayed_callback_ms
+    -Wl,--wrap=coap_knx_echo_max_delay_ms
+    -Wl,--wrap=oc_clock_time
+    -Wl,--wrap=malloc
 )
 # separate responses through coap_receive(): replies go to the recorder __wrap_coap_send_message(), --wrap=calloc fails a store
 kis_add_test(test_coap_receive_notify test_coap_receive_notify.cpp)

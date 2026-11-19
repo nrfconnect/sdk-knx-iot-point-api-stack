@@ -151,7 +151,7 @@ tests/common/tools/run-in-docker.sh --tier runtime -- tests/runtime/test_observe
 
 ### Fuzz Tests
 
-The fuzz tier runs libFuzzer harnesses (`tests/fuzz/`) against the parsers that process attacker-controlled bytes before any credential check: CoAP and OSCORE option parsing, the CBOR `oc_rep` tree, mDNS, blockwise reassembly, the hex/base64/UUID/timestamp decoders and several resource handlers. It needs clang; the seed corpus is generated into the build tree by `make_corpus.py`, so no binary blobs are committed.
+The fuzz tier runs libFuzzer harnesses (`tests/fuzz/`) against the code that processes attacker-controlled bytes: before any credential check the CoAP and OSCORE option parsing, the CBOR `oc_rep` tree, the query and number parsers, mDNS, blockwise reassembly and the SPAKE2+ handshake; on a fully initialised stack the complete inbound datagram path, decrypted OSCORE requests from a peer holding a credential, and the resource handlers (device, tables, access tokens, load state machine, software update, observe, `/k`). It needs clang; the seed corpus is generated into the build tree by `make_corpus.py`, so no binary blobs are committed.
 
 ```bash
 cmake --preset linux-fuzz-clang
@@ -166,7 +166,7 @@ cd build/linux-fuzz-clang/tests/fuzz
 ./fuzz_coap_parse corpus/coap_parse -max_total_time=300
 ```
 
-New crashes land in `artifacts/`. In CI, `fuzz-seed-replay` gates on the seed replay and reports source coverage; `fuzz-explore` is a manual longer mutation run.
+New crashes land in `artifacts/`. In CI, `fuzz-seed-replay` gates on the seed replay and reports source coverage; `fuzz-explore` is a manual longer mutation run. Both run every harness CTest registers, so a new harness only needs its entry in `tests/fuzz/CMakeLists.txt` and its seeds in `make_corpus.py`.
 
 ## Project Structure
 

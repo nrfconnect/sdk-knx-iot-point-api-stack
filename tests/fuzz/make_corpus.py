@@ -197,7 +197,8 @@ def corpus_oc_rep():
 
 
 def corpus_query_string():
-    """oc_ri_get_query_nth_key_value() / oc_ri_get_query_value(): raw Uri-Query."""
+    """oc_ri_get_query_nth_key_value() / oc_ri_get_query_value(): raw Uri-Query,
+    every value also through the oc_knx_helpers number parsers."""
     return {
         "ga_po_ps.bin": b"ga=1&po=0&ps=64",
         "pkgs_only.bin": b"pkgs=1024",
@@ -207,6 +208,12 @@ def corpus_query_string():
         "many_amps.bin": b"&&&a=&=b&&",
         "no_value.bin": b"ga",
         "trailing_amp.bin": b"ga=1&",
+        "po_negative.bin": b"po=-1&ps=0",
+        "pkgs_overflow.bin": b"pkgs=2147483648",
+        "pkgs_max.bin": b"pkgs=2147483647",
+        "hex_value.bin": b"ep=0xffff",
+        "leading_zeros.bin": b"lt=00001",
+        "bare_number.bin": b"2147483647",
     }
 
 
@@ -225,79 +232,6 @@ def corpus_blockwise_reassembly():
     }
 
 
-def corpus_hex_and_base64():
-    """oc_conv_hex_string_to_byte_array() + oc_base64_decode(), split input."""
-    return {
-        "hex_and_b64.bin": b"deadbeef" + b"QUJDRA==",
-        "odd_hex.bin": b"abc" + b"====",
-        "invalid_hex.bin": b"zz" + b"AA==",
-        "empty_b64.bin": b"00",
-        "long_hex.bin": b"0123456789abcdef" * 4,
-        # sec-hardening F-022 regression: sscanf("%2x") scanned past the buffer length on a
-        # non-NUL-terminated input, causing an out-of-bounds read.
-        "hex_no_terminator_overread.bin": b"0126\x178"
-        + b"1abcdefdef0142356789abcdef0173456789abcdef0123456781abcdef",
-    }
-
-
-def corpus_timestamp():
-    """timestamp_parse(): hand-rolled ISO-8601-ish text parser."""
-    return {
-        "basic.bin": b"2024-01-01T00:00:00Z",
-        "with_offset.bin": b"2024-06-15T12:30:45+02:00",
-        "with_fraction.bin": b"2024-06-15T12:30:45.123456Z",
-        "empty.bin": b"",
-        "garbage.bin": b"not-a-timestamp",
-        "truncated.bin": b"2024-01-01T",
-        # sec-hardening F-023 regression: inverted bounds check (`cur + 5 < end` instead of
-        # `cur + 5 > end`) let a truncated timezone offset read past the end
-        # of the buffer.
-        "truncated_offset_overread.bin": b"2024-06-15T12:30:45+0",
-    }
-
-
-def corpus_endpoint_string_parse():
-    """oc_endpoint_string_parse_path(): the 'ep=knx://...' link-format value."""
-    return {
-        "sn_wildcard.bin": b"knx://sn.*",
-        "sn_full.bin": b"knx://sn.000000000000/",
-        "ia_path.bin": b"knx://ia.5.10/p/1",
-        "empty.bin": b"",
-        "no_scheme.bin": b"sn.000000000000",
-    }
-
-
-def corpus_swu_query_params():
-    """oc_parse_sint32/uint16_from_base10/16_string(): po/ps/pkgs values."""
-    return {
-        "zero.bin": b"0",
-        "max_int32.bin": b"2147483647",
-        "negative.bin": b"-1",
-        "overflow.bin": b"2147483648",
-        "hex.bin": b"0xffff",
-        "leading_zeros.bin": b"00001",
-        "garbage.bin": b"abc",
-        "empty.bin": b"",
-    }
-
-
-def corpus_group_object_table():
-    """oc_core_find_next_go_table_index_with_ga(): GA search over the table."""
-
-    def record(entry_id, gas):
-        return (struct.pack("<i", entry_id) + bytes([len(gas)])
-                + b"".join(struct.pack("<I", g) for g in gas))
-
-    return {
-        "single_match.bin": (struct.pack("<I", 7) + record(1, [7])),
-        "no_match.bin": (struct.pack("<I", 99) + record(1, [1, 2, 3])),
-        "multi_entry.bin": (struct.pack("<I", 5)
-                            + record(1, [1, 2]) + record(2, [5, 6])),
-        "empty_ga.bin": (struct.pack("<I", 1) + record(1, [])),
-        "target_only.bin": struct.pack("<I", 42),
-    }
-
-
 def corpus_oscore_context_lookup():
     """oc_oscore_find_context_by_kid_and_kid_context(): kid/kid_context lookup.
 
@@ -312,17 +246,6 @@ def corpus_oscore_context_lookup():
     }
 
 
-def corpus_discovery_filter():
-    """oc_discovery_sn_matches(): 'ep=knx://sn....' filter incl. wildcards."""
-    return {
-        "wildcard_all.bin": bytes([0]) + b"knx://sn.*",
-        "full_match.bin": bytes([1]) + b"knx://sn.00fa12345678",
-        "partial_wildcard.bin": bytes([1]) + b"knx://sn.00fa*",
-        "too_short.bin": bytes([0]) + b"knx://sn",
-        "no_wildcard_mismatch.bin": bytes([2]) + b"knx://sn.000000000000",
-    }
-
-
 def corpus_spake2plus_wire():
     """spake2plus_calc_transcript_responder(): attacker's shareP_enc point.
 
@@ -334,34 +257,6 @@ def corpus_spake2plus_wire():
         "all_ff.bin": b"\xff" * 65,
         "all_zero.bin": b"\x00" * 65,
         "bad_prefix.bin": b"\x02" + bytes(64),
-    }
-
-
-def corpus_uuid_parse():
-    """oc_str_to_uuid(): hand-rolled UUID string parser, no length param."""
-    return {
-        "well_formed.bin": b"1628fbcc-13ce-4e37-b883-1fd8d2ad945d",
-        "wildcard_star.bin": b"*",
-        # sec-hardening F-024 regression: shorter than 36 bytes, previously read past the
-        # end of the buffer.
-        "too_short.bin": b"short",
-        "no_dashes.bin": b"1628fbcc13ce4e37b8831fd8d2ad945d",
-        "empty.bin": b"",
-        "one_byte.bin": b"a",
-        # sec-hardening F-025 regression: high-bit byte (0xce) passed to isalpha() as a
-        # signed char, and only 1 dash instead of 4 - overflowed uuid->id.
-        "high_bit_and_too_few_dashes.bin": (
-            b"q628fb13ce-4ed\xce\xc9" b"d2a2ad5d8d\xce\xc9" b"d2a2ad5d"),
-    }
-
-
-def corpus_oscore_full_decrypt():
-    """oc_oscore_decrypt(): AEAD unwrap on attacker ciphertext/tag/AAD."""
-    return {
-        "min_tag8.bin": bytes([0, 0]) + bytes(8),
-        "min_tag16.bin": bytes([0, 1]) + bytes(16),
-        "with_aad.bin": bytes([4, 0]) + b"aad!" + bytes(8),
-        "garbage_ciphertext.bin": bytes([0, 0]) + b"\xff" * 32,
     }
 
 
@@ -419,62 +314,6 @@ def corpus_core_res_wildcard():
     }
 
 
-def corpus_at_x_get_query():
-    """oc_core_auth_at_x_get_handler(): /auth/at/{id} wildcard segment."""
-    return {
-        "simple_id.bin": b"abc123",
-        "with_slash.bin": b"abc/def",
-        "empty.bin": b"",
-        "long_id.bin": b"a" * 64,
-    }
-
-
-def corpus_spake2plus_initiator():
-    """spake2plus_calc_transcript_initiator(): attacker's shareV_enc point.
-
-    Must be exactly kPubKeySize (65) bytes - the harness rejects any other
-    length before parsing, so every seed keeps that size under mutation."""
-    uncompressed_point_prefix = b"\x04"
-    return {
-        "well_formed_prefix.bin": uncompressed_point_prefix + bytes(64),
-        "all_ff.bin": b"\xff" * 65,
-        "all_zero.bin": b"\x00" * 65,
-        "bad_prefix.bin": b"\x02" + bytes(64),
-    }
-
-
-def corpus_knx_lsm_post():
-    """oc_core_a_lsm_post_handler(): POST /a/lsm event-dispatch CBOR body."""
-    return {
-        "event_startloading.bin": bytes([0xA1, 0x02, 0x01]),
-        "event_loadcomplete.bin": bytes([0xA1, 0x02, 0x02]),
-        "event_unload.bin": bytes([0xA1, 0x02, 0x04]),
-        "event_out_of_range.bin": bytes([0xA1, 0x02, 0x39, 0x27, 0x0F]),
-        "empty_map.bin": bytes([0xA0]),
-    }
-
-
-def corpus_auth_at_post():
-    """oc_core_auth_at_post_handler(): POST /auth/at credential provisioning."""
-    def complete_entry(secret, sender_id=b"\x01"):
-        return bytes([0xA1, 0x00, 0xA4,
-                      0x00, 0x63]) + b"tok" + bytes([0x09, 0x81, 0x66]) + b"if.sec" + bytes([
-                          0x18, 0x26, 0x02,
-                          0x08, 0xA1, 0x04, 0xA2,
-                          0x00, 0x40 + len(sender_id)]) + sender_id + bytes([
-                          0x02, 0x40 + len(secret)]) + secret
-
-    return {
-        "empty_map.bin": bytes([0xA0]),
-        "id_only.bin": bytes([0xA1, 0x00, 0x62]) + b"01",
-        "mixed_array_scope.bin": bytes([0xA1, 0x09, 0x9F, 0x01, 0xFF]),
-        "nested_object.bin": (bytes([0xA1, 0x00, 0xA1, 0x00, 0x62]) + b"01"),
-        "short_master_secret.bin": complete_entry(bytes(range(1, 16))),
-        "zero_master_secret.bin": complete_entry(bytes(16)),
-        "long_sender_id.bin": complete_entry(bytes(range(1, 17)), bytes(range(8))),
-    }
-
-
 def corpus_mdns():
     """mdns_socket_listen(): unauthenticated packets from anyone on the link."""
     ptr = dns_record(dns_name(KNX_SERVICE), TYPE_PTR, 1, 4500,
@@ -518,32 +357,421 @@ def corpus_mdns():
     }
 
 
+# ── Full-stack harnesses (fuzz_stack.h) ───────────────────────────────────────
+
+# uncompressed P-256 generator, a valid shareP point
+P256_G = bytes.fromhex(
+    "04"
+    "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"
+    "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5")
+
+
+def cbor_bstr(b):
+    """CBOR byte string header for lengths < 256."""
+    if len(b) < 24:
+        return bytes([0x40 + len(b)]) + b
+    return bytes([0x58, len(b)]) + b
+
+
+def rec16(*parts):
+    """[len_hi][len_lo][data] records."""
+    return b"".join(struct.pack(">H", len(p)) + p for p in parts)
+
+
+def oprec(op, data):
+    """[op][len_hi][len_lo][data] record."""
+    return bytes([op]) + struct.pack(">H", len(data)) + data
+
+
+def corpus_spake_post():
+    """POST /.well-known/knx/spake: step 1 (id + rnd), 2 (shareP), 3 (confirmP)."""
+    step1 = b"\xa2\x00\x61a\x0f" + cbor_bstr(bytes(range(32)))
+    step2 = b"\xa1\x0a" + cbor_bstr(P256_G)
+    step3 = b"\xa1\x0e" + cbor_bstr(bytes(32))
+    return {
+        "step1.bin": rec16(step1),
+        "step1_2.bin": rec16(step1, step2),
+        "step1_2_3.bin": rec16(step1, step2, step3),
+        "step2_first.bin": rec16(step2),
+        "step3_first.bin": rec16(step3),
+        "empty_map.bin": rec16(b"\xa0"),
+    }
+
+
+def corpus_coap_inbound():
+    """Inbound datagram sequences: [sel][len_hi][len_lo][datagram]."""
+    def rec(sel, dgram):
+        return bytes([sel]) + struct.pack(">H", len(dgram)) + dgram
+
+    wk = coap_option(11, b".well-known")
+    spake = wk + coap_option(0, b"knx") + coap_option(0, b"spake") + coap_option(1, bytes([60]))
+    core = coap(CON, 1, 0x0101, b"\x01", wk + coap_option(0, b"core"))
+    return {
+        "get_core.bin": rec(0x00, core),
+        "get_core_twice.bin": rec(0x00, core) + rec(0x00, core),
+        "get_knx.bin": rec(0x10, coap(CON, 1, 0x0102, b"\x02", wk + coap_option(0, b"knx"))),
+        "discovery_mc.bin": rec(0x01, coap(NON, 1, 0x0103, b"\x03", wk + coap_option(0, b"core")
+                                           + coap_option(4, b"ep=knx://sn.*"))),
+        "discovery_sn_prefix.bin": rec(0x01, coap(NON, 1, 0x0108, b"\x07", wk + coap_option(0, b"core")
+                                                  + coap_option(4, b"ep=knx://sn.00fa*"))),
+        "discovery_sn_short.bin": rec(0x01, coap(NON, 1, 0x0109, b"\x08", wk + coap_option(0, b"core")
+                                                 + coap_option(4, b"ep=knx://sn"))),
+        "ia_post.bin": rec(0x00, coap(CON, 2, 0x0104, b"\x04", wk + coap_option(0, b"knx")
+                                      + coap_option(0, b"ia") + coap_option(1, bytes([60])),
+                                      b"\xa3\x0c\x01\x18\x1a\x01\x18\x19\x01")),
+        # Block1 (option 27) num 0 more, then num 1 last, 16-byte blocks
+        "blockwise.bin": (rec(0x20, coap(CON, 2, 0x0105, b"\x05", spake + coap_option(15, b"\x08"),
+                                         b"\xa2\x00\x61a" + bytes(12)))
+                          + rec(0x20, coap(CON, 2, 0x0106, b"\x05", spake + coap_option(15, b"\x10"),
+                                           b"\x0f\x50" + bytes(16)))),
+        "oscore.bin": rec(0x00, coap(CON, 2, 0x0107, b"\x06", coap_option(9, oscore_option_value()),
+                                     bytes(range(1, 17)))),
+        "ack_rst.bin": rec(0x00, coap(ACK, 0, 0x0101)) + rec(0x00, coap(RST, 0, 0x0102)),
+    }
+
+
+def corpus_knx_k_post():
+    """POST /k: [sel][{4:sia, 5:{6:st, 7:ga, 1:value}}]."""
+    def smode(st, ga, value=None):
+        inner = b"\x06\x61" + st + b"\x07" + bytes([ga])
+        if value is not None:
+            inner += b"\x01" + value
+        return b"\xa2\x04\x19\x12\x34\x05" + bytes([0xa2 if value is None else 0xa3]) + inner
+
+    return {
+        "write_ga1_true.bin": b"\x00" + smode(b"w", 1, b"\xf5"),
+        "write_ga3_int.bin": b"\x00" + smode(b"w", 3, b"\x18\x2a"),
+        "write_ga3_str.bin": b"\x01" + smode(b"w", 3, b"\x63abc"),
+        "answer_ga3_double.bin": b"\x00" + smode(b"a", 3, b"\xfb\x40\x09\x21\xfb\x54\x44\x2d\x18"),
+        "read_ga2.bin": b"\x01" + smode(b"r", 2),
+        "read_ga3.bin": b"\x00" + smode(b"r", 3),
+        "write_ga4_unknown.bin": b"\x00" + smode(b"w", 4, b"\xf4"),
+        "sync_sia_only.bin": b"\x00\xa1\x04\x19\x12\x34",
+    }
+
+
+def corpus_fp_table_post():
+    """fp/g, fp/r, fp/p create/read/delete sequences: [op][len_hi][len_lo][data]."""
+    got = (b"\x82"
+           b"\xa4\x00\x01\x0b\x64/p/1\x07\x82\x01\x02\x08\x18\x90"
+           b"\xa4\x00\x02\x0b\x64/p/2\x07\x81\x03\x08\x18\x48")
+    got_update = b"\x81\xa4\x00\x01\x0b\x64/p/3\x07\x83\x05\x06\x07\x08\x18\x18"
+    got_nil_ga = b"\x81\xa4\x00\x01\x0b\x64/p/1\x07\xf6\x08\x18\x10"
+    id_only = b"\x81\xa1\x00\x01"
+    rcp_mc = b"\x81\xa3\x00\x01\x07\x82\x01\x02\x0d\x05"
+    rcp_uc = b"\x81\xa5\x00\x02\x07\x81\x03\x0c\x19\x01\x01\x0e\x63tok\x18\x1a\x01"
+    pub = b"\x81\xa3\x00\x01\x07\xf6\x0d\x05"
+    return {
+        "got_create.bin": oprec(0, got),
+        "got_create_update.bin": oprec(0, got) + oprec(0, got_update),
+        "got_create_list_get_delete.bin": (oprec(0, got) + oprec(3, b"") + oprec(6, b"1")
+                                           + oprec(9, b"1") + oprec(3, b"")),
+        "got_nil_ga.bin": oprec(0, got) + oprec(0, got_nil_ga),
+        "got_id_only_delete.bin": oprec(0, got) + oprec(0, id_only),
+        "rcp_mc_uc.bin": oprec(1, rcp_mc) + oprec(1, rcp_uc) + oprec(4, b"") + oprec(7, b"2"),
+        "rcp_update_delete.bin": oprec(1, rcp_uc) + oprec(1, rcp_mc) + oprec(10, b"2"),
+        "pub_create_get.bin": oprec(2, pub) + oprec(5, b"") + oprec(8, b"1") + oprec(11, b"1"),
+        # regressions: a repeated key stood in for a missing mandatory one
+        "got_no_href.bin": oprec(0, b"\x81\xa4\x00\x01\x07\x81\x01\x08\x14\x08\x14") + oprec(3, b""),
+        "rcp_ga_twice_no_grpid.bin": oprec(1, b"\x81\xa3\x00\x01\x07\x81\x01\x07\x81\x02") + oprec(4, b""),
+        "rcp_grpid_twice.bin": oprec(1, b"\x81\xa4\x00\x01\x07\x81\x01\x0d\x05\x0d\x06") + oprec(7, b"1"),
+    }
+
+
+def auth_at_entry(tok, scope=b"\x81\x66if.sec", kid=b"\x01"):
+    """POST /auth/at body: [{0:tok, 9:scope, 38:2, 8:{4:{0:kid, 2:ms}}}]."""
+    return (bytes([0x81, 0xa4, 0x00, 0x60 + len(tok)]) + tok
+            + b"\x09" + scope + b"\x18\x26\x02"
+            + b"\x08\xa1\x04\xa2\x00" + cbor_bstr(kid)
+            + b"\x02" + cbor_bstr(bytes(range(1, 17))))
+
+
+def corpus_auth_handlers():
+    """auth/at + auth/o sequences: [op][len_hi][len_lo][data]."""
+    a = auth_at_entry(b"tok1")
+    b_ga = auth_at_entry(b"tok2", scope=b"\x82\x01\x02", kid=b"\x02")
+    return {
+        "post_empty_map.bin": oprec(0, b"\xa0"),
+        "post_id_only.bin": oprec(0, b"\x81\xa1\x00\x62" + b"01"),
+        "post_mixed_array_scope.bin": oprec(0, b"\x81\xa2\x00\x62" + b"01" + b"\x09\x9f\x01\xff"),
+        "post_short_secret.bin": oprec(0, a[:-17] + cbor_bstr(bytes(range(1, 16)))),
+        "post_long_kid.bin": oprec(0, auth_at_entry(b"tok3", kid=bytes(range(8)))),
+        "get_x_slash.bin": oprec(0, a) + oprec(3, b"abc/def"),
+        "get_x_long.bin": oprec(3, b"a" * 64) + oprec(4, b""),
+        "post_get_list.bin": oprec(0, a) + oprec(1, b""),
+        "post_get_x.bin": oprec(0, a) + oprec(3, b"tok1"),
+        "post_delete_x.bin": oprec(0, a) + oprec(0, b_ga) + oprec(4, b"tok1") + oprec(1, b""),
+        "post_twice_delete_all.bin": oprec(0, a) + oprec(0, a) + oprec(2, b"") + oprec(3, b"tok1"),
+        "osndelay.bin": oprec(5, b"\xa1\x01\x19\x03\xe8") + oprec(6, b"") + oprec(7, b"") + oprec(8, b""),
+        "osndelay_bad.bin": oprec(5, b"\xa1\x01\x3a\x7f\xff\xff\xff"),
+    }
+
+
+def corpus_dev_put():
+    """Device writes: [op][len_hi][len_lo][data]; op % 6 selects, op bit 3 = runtime."""
+    ia = b"\xa3\x0c\x01\x18\x1a\x01\x18\x19\x01"
+    return {
+        "pm_true.bin": oprec(0, b"\xa1\x01\xf5") + oprec(5, b""),
+        "pv.bin": oprec(1, b"\x83\x01\x02\x03") + oprec(5, b""),
+        "pv_out_of_range.bin": oprec(1, b"\x83\x1a\x00\x01\x00\x00\x02\x03"),
+        "restart.bin": oprec(2, b"\xa1\x02\x67restart"),
+        "reset_2.bin": oprec(3, ia) + oprec(2, b"\xa2\x02\x65reset\x01\x02") + oprec(5, b""),
+        "reset_7_runtime.bin": oprec(0x09, ia) + oprec(0x0E, b"\xa2\x02\x65reset\x01\x07") + oprec(5, b""),
+        "ia_runtime.bin": oprec(0x09, b"\xa3\x0c\x19\x01\x02\x18\x1a\x1b" + bytes([0, 0, 0, 1, 0, 0, 0, 0])
+                                + b"\x18\x19\x02"),
+        "iid.bin": oprec(0x04, b"\xa1\x01\x05") + oprec(5, b""),
+        "hname.bin": oprec(0x10, b"\xa1\x01\x64host") + oprec(5, b""),
+    }
+
+
+def corpus_observe_register():
+    """Observe sequences: [op][ep][len][data]; ep bit 1 = unsecured /p/o or <ga> /k, bit 2 = other port,
+    bit 3 = other kid, bit 7 = /k instead of /p/o; op bit 3 = fail an allocation."""
+    def rec(op, ep, data=b""):
+        return bytes([op, ep, len(data)]) + data
+
+    def obs(token, observe, query=b"lt=86400", mid=0x1000):
+        opts = coap_option(6, bytes([observe]) if observe else b"")
+        opts += coap_option(5, b"p") + coap_option(0, b"o")
+        if query:
+            opts += coap_option(4, query)
+        return coap(CON, 1, mid, token, opts)
+
+    reg = obs(b"\x11\x22", 0)
     # /k from peer 0 plus /p/o from peers 0..6 fills COAP_MAX_OBSERVERS (8)
+    full = rec(0, 0x80, obs(b"\x80", 0, b"lt=60")) + b"".join(
+        rec(0, peer << 4, obs(bytes([0x40 + peer]), 0)) for peer in range(7))
+    return {
+        "limit_takeover.bin": full + rec(0, 0x84, obs(b"\x84", 0, b"lt=60")) + rec(5, 0x80, b"\xa1\x01\xf5"),
+        "limit_reject.bin": full + rec(0, 0x8C, obs(b"\x8c", 0, b"lt=60")) + rec(0, 0x70, obs(b"\x70", 0)) + rec(4, 0),
+        "register_notify.bin": rec(0, 0, reg) + rec(4, 0),
+        "register_refresh.bin": rec(0, 0, reg) + rec(0x10, 0, obs(b"\x99", 0)) + rec(4, 0),
+        "register_deregister.bin": rec(0, 0, reg) + rec(0, 0, obs(b"\x11\x22", 1)),
+        "register_no_lt.bin": rec(0, 0, reg) + rec(0, 0, obs(b"\x44", 0, b"")),
+        "register_big_lt.bin": rec(0, 0, obs(b"\x55", 0, b"lt=99999999999")),
+        "register_non.bin": rec(0, 0x10, obs(b"\x66", 0, b"lt=60")) + rec(0, 0x10, obs(b"\x67", 0, b"lt=60&non=true")),
+        "k_observers.bin": rec(0, 0x80, obs(b"\x33", 0, b"lt=60")) + rec(5, 0x80, b"\xa1\x01\xf5"),
+        "remove_paths.bin": (rec(0, 0, reg) + rec(0, 0x10, obs(b"\x33", 0, b"lt=60"))
+                             + rec(2, 0, b"\x11\x22") + rec(3, 0x10, b"\x10\x00")
+                             + rec(1, 0)),
+        "unsecured_rejected.bin": rec(0, 0x02, reg) + rec(4, 0x02),
+        "blockwise_notify.bin": rec(0, 0, reg) + rec(4, 0, b"\x02\x00") + rec(4, 0, b"\x02\xbc"),
+        "lifetime_expiry.bin": rec(0, 0, obs(b"\x77", 0, b"lt=1")) + rec(6, 0, struct.pack("<I", 2000)) + rec(4, 0),
+        "con_timeout.bin": rec(0, 0, reg) + rec(4, 0) + b"".join(rec(6, 0, struct.pack("<I", 60000)) for _ in range(6)),
+        "rst_last_mid.bin": rec(0, 0, reg) + rec(4, 0) + rec(7, 0) + rec(4, 0),
+        "ack_last_mid.bin": rec(0, 0x80, obs(b"\x33", 0, b"lt=60")) + rec(5, 0x80, b"\xa1\x01\xf5") + rec(0x17, 0x80),
+        "malloc_fail_notify.bin": rec(0, 0, reg) + rec(0x0C, 0, b"\x01\x00") + rec(0x1C, 0x80, b"\xa1\x01\xf5"),
+        "malloc_fail_register.bin": rec(0x08, 0, reg) + rec(0x18, 0, reg) + rec(4, 0),
+    }
+
+
+def corpus_publisher():
+    """oc_knx_publisher_check(): [type][cov][hbt][mrt][now] then [dt][value] steps."""
+    def header(t, cov, hbt, mrt, now):
+        return bytes([t]) + cov + struct.pack("<HHI", hbt, mrt, now)
+
+    def step(dt, value):
+        return struct.pack("<I", dt) + value
+
+    def i(v):
+        return struct.pack("<i", v)
+
+    def f(v):
+        return struct.pack("<f", v)
+
+    nan = b"\x00\x00\xc0\x7f"
+    return {
+        "bool_toggle.bin": header(0, i(0), 60, 5, 0) + step(1, i(0)) + step(3, i(1)) + step(3, i(1)) + step(61, i(1)),
+        "int_cov.bin": header(1, i(10), 0, 0, 100) + step(1, i(0)) + step(1, i(5)) + step(1, i(11)) + step(1, i(-100)),
+        "float_nan.bin": header(2, f(0.5), 30, 2, 0) + step(1, f(1.0)) + step(3, nan) + step(3, nan) + step(3, f(1.0)),
+        "wrap.bin": header(1, i(0), 10, 1, 0xFFFFFFF0) + step(1, i(1)) + step(0x20, i(1)) + step(0x20, i(2)),
+        "invalid_type.bin": header(3, i(0), 1, 1, 0) + step(5, i(1)),
+    }
+
+
+def corpus_storage_load():
+    """Persisted table entries, then requests: op < 0x80 store (op % 4 table, op >> 2 index), else op % 7 request."""
+    got = b"\xa4\x00\x01\x0b\x64/p/1\x07\x82\x01\x02\x08\x18\x90"
+    got_nil_ga = b"\xa4\x00\x02\x0b\x64/p/2\x07\xf6\x08\x18\x48"
+    grt = b"\xa6\x00\x01\x0c\x19\x01\x01\x07\x82\x02\x03\x0d\x05\x0e\x63tok\x63non\xf5"
+    gpt = b"\xa3\x00\x01\x07\x82\x01\x03\x0d\x05"
+
+    def at(tok, kid=b"\x01", ms=bytes(range(1, 17)), ctx=b""):
+        return (b"\xa6\x00" + bytes([0x60 + len(tok)]) + tok + b"\x09\x19\x01\x00\x18\x26\x02"
+                + b"\x19\x03\x48" + cbor_bstr(kid) + b"\x19\x03\x4a" + cbor_bstr(ms)
+                + b"\x19\x03\x4e" + cbor_bstr(ctx))
+
+    k_write = b"\xa2\x04\x19\x12\x34\x05\xa3\x06\x61w\x07\x01\x01\xf5"
+    k_read = b"\xa2\x04\x19\x12\x34\x05\xa2\x06\x61r\x07\x01"
+    lists = oprec(0x81, b"") + oprec(0x82, b"") + oprec(0x83, b"") + oprec(0x84, b"")
+    return {
+        "got_k_write.bin": oprec(0, got) + oprec(0x80, k_write) + oprec(0x80, k_read),
+        "got_two_entries.bin": oprec(0, got) + oprec(4, got_nil_ga) + oprec(0x81, b"") + oprec(0x85, b"1"),
+        "all_tables.bin": oprec(0, got) + oprec(1, grt) + oprec(2, gpt) + oprec(3, at(b"tok1")) + lists,
+        "at_two_entries.bin": (oprec(3, at(b"tok1")) + oprec(7, at(b"tok2", b"\x02", ctx=b"\xfa\xce"))
+                               + oprec(0x84, b"") + oprec(0x86, b"tok2")),
+        "at_long_kid.bin": oprec(3, at(b"tok1", bytes(range(32)))) + oprec(0x84, b""),
+        "at_short_secret.bin": oprec(3, at(b"tok1", ms=b"\x01")) + oprec(0x84, b""),
+        "at_same_kid.bin": oprec(3, at(b"tok1")) + oprec(7, at(b"tok2")) + oprec(0x84, b""),
+        "got_int_as_href.bin": oprec(0, b"\xa3\x00\x01\x0b\x01\x07\x81\x01") + oprec(0x80, k_write),
+        "truncated_cbor.bin": oprec(0, got[:9]) + oprec(1, grt[:5]) + oprec(3, b"\xa6\x00") + lists,
+    }
+
+
+def lsm_event(event):
+    """POST /a/lsm body {2: event}."""
+    return b"\xa1\x02" + bytes([event])
+
+
+def corpus_knx_lsm_post():
+    """/a/lsm sequences with table and token loads: [op][len_hi][len_lo][data], op % 6:
+    0 POST /a/lsm, 1 GET /a/lsm, 2 POST /fp/g, 3 POST /fp/r, 4 POST /auth/at, 5 runtime."""
+    start, complete, unload = lsm_event(1), lsm_event(2), lsm_event(4)
+    got = (b"\x82"
+           b"\xa4\x00\x01\x0b\x64/p/1\x07\x82\x01\x02\x08\x18\x90"
+           b"\xa4\x00\x02\x0b\x64/p/2\x07\x81\x03\x08\x18\x48")
+    rcp = b"\x81\xa3\x00\x01\x07\x82\x01\x02\x0d\x05"
+    load = oprec(0, start) + oprec(2, got) + oprec(3, rcp) + oprec(0, complete)
+    return {
+        "start_get.bin": oprec(0, start) + oprec(1, b""),
+        "load_offline.bin": load + oprec(1, b""),
+        "load_runtime.bin": oprec(5, b"") + load + oprec(1, b""),
+        "load_runtime_unload.bin": oprec(5, b"") + load + oprec(0, unload) + oprec(1, b""),
+        "reload_runtime.bin": oprec(5, b"") + load + oprec(0, start) + oprec(2, got) + oprec(0, complete),
+        "complete_from_unloaded.bin": oprec(0, complete) + oprec(1, b""),
+        "nop_from_unloaded.bin": oprec(0, lsm_event(0)),
+        "event_3.bin": oprec(0, start) + oprec(0, lsm_event(3)),
+        "event_out_of_range.bin": oprec(0, b"\xa1\x02\x39\x27\x0f"),
+        "empty_map.bin": oprec(0, b"\xa0"),
+        "token_unload.bin": oprec(4, auth_at_entry(b"tok1")) + oprec(0, start) + oprec(0, unload),
+        # regression: id, ga and cflags twice made four items without href, the href check got NULL
+        "got_no_href.bin": (oprec(5, b"") + oprec(0, start)
+                            + oprec(2, b"\x81\xa4\x00\x01\x07\x81\x01\x08\x14\x08\x14")),
+    }
+
+
+def swu_package(query, payload):
+    """/a/swu record data: [qlen][query][package bytes]."""
+    return bytes([len(query)]) + query + payload
+
+
+def swu_app(state, result=0, received=0, version=(0, 0, 0), name=b""):
+    """Application record data: [state][result][bytes:4][major][minor][patch][name]."""
+    return bytes([state, result]) + struct.pack(">I", received) + bytes(version) + name
+
+
+def corpus_swu_handlers():
+    """/swu sequences: [op][len_hi][len_lo][data], op % 8: 0 PUT /a/swu, 1 PUT protocol,
+    2 PUT method, 3 PUT update, 4 GET all, 5 GET /swu, 6 application state, 7 last update."""
+    first = oprec(0, swu_package(b"po=0&ps=4&pkgs=8", b"ABCD"))
+    second = oprec(0, swu_package(b"po=4&ps=4", b"EFGH"))
+    downloaded = oprec(6, swu_app(2, received=8, version=(1, 2, 3), name=b"pkg.bin"))
+    gets = oprec(4, b"")
+    return {
+        "download.bin": first + second + gets,
+        "repeat_block.bin": first + first + second + gets,
+        "overlap.bin": first + oprec(0, swu_package(b"po=2&ps=4", b"CDEF")) + gets,
+        "gap.bin": first + oprec(0, swu_package(b"po=8&ps=4", b"IJKL")) + gets,
+        "restart.bin": first + oprec(0, swu_package(b"po=0&pkgs=4", b"WXYZ")) + gets,
+        "not_from_offset0.bin": oprec(0, swu_package(b"po=4&pkgs=8", b"EFGH")) + gets,
+        "no_payload.bin": oprec(0, swu_package(b"po=0&pkgs=8", b"")),
+        "bad_queries.bin": (oprec(0, swu_package(b"po=-1", b"A")) + oprec(0, swu_package(b"ps=0", b"A"))
+                            + oprec(0, swu_package(b"pkgs=x", b"A")) + oprec(0, swu_package(b"po=2147483648", b"A"))),
+        "update.bin": first + second + downloaded + gets + oprec(3, b"\x0a") + gets,
+        "update_negative_defer.bin": downloaded + oprec(3, b"\x20") + gets,
+        "update_not_downloaded.bin": oprec(3, b"\x0a"),
+        "protocol_method.bin": (oprec(1, b"\x00") + oprec(1, b"\x01") + oprec(2, b"\x00")
+                                + oprec(2, b"\x01") + oprec(1, b"\xa0")),
+        "updating_then_upload.bin": oprec(6, swu_app(3)) + first + gets,
+        "list.bin": oprec(5, b"") + oprec(5, b"l=total") + oprec(5, b"pn=1&ps=2") + oprec(5, b"ps=0"),
+        "last_update.bin": oprec(7, b"2026-01-01T00:00:00Z") + gets + oprec(7, b"osv:true") + gets,
+    }
+
+
+def oscore_plain(code, path, options=b"", payload=b""):
+    """OSCORE plaintext (RFC 8613 5.3): inner code, Uri-Path options, more options, payload."""
+    segments = [s.encode() for s in path.strip("/").split("/")]
+    opts = coap_option(11, segments[0]) + b"".join(coap_option(0, s) for s in segments[1:])
+    msg = bytes([code]) + opts + options
+    if payload:
+        msg += b"\xff" + payload
+    return msg
+
+
+def corpus_oscore_inbound():
+    """Decrypted OSCORE requests: [flags] then [sel][len_hi][len_lo][plaintext],
+    the flag and sel bits as in fuzz_oscore_inbound.c."""
+    FLAGS_NONE, FLAG_RUNTIME, FLAG_NO_ECHO_SYNC = 0x00, 0x01, 0x02
+    SEL_NONE, SEL_MULTICAST, SEL_NON, SEL_FETCH = 0x00, 0x01, 0x02, 0x04
+    SEL_KID_CTX_8, SEL_KID_CTX_10 = 1 << 3, 2 << 3
+    SEL_SAME_SSN, SEL_UNKNOWN_KID, SEL_BAD_TAG = 0x20, 0x40, 0x80
+    GET, POST, PUT, DELETE = 1, 2, 3, 4
+    URI_PATH, CONTENT_FORMAT, ECHO, CBOR = 11, 12, 252, 60
+
+    def rec(sel, plain):
+        return bytes([sel]) + struct.pack(">H", len(plain)) + plain
+
+    def flags(f):
+        return bytes([f])
+
+    cf_cbor = coap_option(CONTENT_FORMAT - URI_PATH, bytes([CBOR]))
+    def echo(value):
+        return coap_option(ECHO - URI_PATH, value)
+
+    get_sn = oscore_plain(GET, "/dev/sn")
+    put_pm = oscore_plain(PUT, "/dev/pm", cf_cbor, b"\xa1\x01\xf5")
+    lsm_start = oscore_plain(POST, "/a/lsm", cf_cbor, b"\xa1\x02\x01")
+    k_write = oscore_plain(POST, "/k", cf_cbor, b"\xa2\x04\x19\x12\x34\x05\xa3\x06\x61w\x07\x01\x01\xf5")
+    none = flags(FLAGS_NONE)
+    return {
+        "get_dev_sn.bin": none + rec(SEL_NONE, get_sn),
+        "put_pm_get.bin": none + rec(SEL_NONE, put_pm) + rec(SEL_NONE, oscore_plain(GET, "/dev/pm")),
+        "lsm_start.bin": none + rec(SEL_NONE, lsm_start) + rec(SEL_NONE, oscore_plain(GET, "/a/lsm")),
+        "get_auth_at.bin": none + rec(SEL_NONE, oscore_plain(GET, "/auth/at")),
+        "delete_token_then_get.bin": (none + rec(SEL_NONE, oscore_plain(DELETE, "/auth/at"))
+                                      + rec(SEL_NONE, get_sn)),
+        "get_core.bin": none + rec(SEL_NONE, oscore_plain(GET, "/.well-known/core")),
+        "get_swu_list.bin": none + rec(SEL_NONE, oscore_plain(GET, "/swu")),
+        "replay.bin": none + rec(SEL_NONE, get_sn) + rec(SEL_SAME_SSN, get_sn),
+        "kid_ctx_8.bin": none + rec(SEL_KID_CTX_8, get_sn) + rec(SEL_KID_CTX_8, put_pm),
+        "kid_ctx_10.bin": none + rec(SEL_KID_CTX_10, get_sn),
+        "fetch_non.bin": none + rec(SEL_FETCH | SEL_NON, get_sn),
+        "k_multicast_runtime.bin": (flags(FLAG_RUNTIME) + rec(SEL_MULTICAST | SEL_NON, k_write)
+                                    + rec(SEL_MULTICAST, k_write)),
+        "unknown_kid.bin": none + rec(SEL_UNKNOWN_KID, get_sn) + rec(SEL_UNKNOWN_KID | SEL_MULTICAST, get_sn),
+        "bad_tag.bin": none + rec(SEL_BAD_TAG, get_sn),
+        "empty_plaintext.bin": none + rec(SEL_NONE, b""),
+        "code_only.bin": none + rec(SEL_NONE, bytes([GET])),
+        "unsynchronised.bin": flags(FLAG_NO_ECHO_SYNC) + rec(SEL_NONE, get_sn) + rec(SEL_MULTICAST, get_sn),
+        "stale_echo.bin": flags(FLAG_NO_ECHO_SYNC) + rec(SEL_NONE, oscore_plain(GET, "/dev/sn", echo(bytes(8)))),
+        "bad_echo_size.bin": flags(FLAG_NO_ECHO_SYNC) + rec(SEL_NONE, oscore_plain(GET, "/dev/sn", echo(b"\x01\x02"))),
+    }
+
 CORPORA = {
+    "storage_load": corpus_storage_load,
+    "spake_post": corpus_spake_post,
+    "coap_inbound": corpus_coap_inbound,
+    "knx_k_post": corpus_knx_k_post,
+    "fp_table_post": corpus_fp_table_post,
+    "auth_handlers": corpus_auth_handlers,
+    "dev_put": corpus_dev_put,
+    "observe_register": corpus_observe_register,
+    "publisher": corpus_publisher,
     "coap_parse": corpus_coap_parse,
     "oscore_options": corpus_oscore_options,
     "oc_rep": corpus_oc_rep,
     "mdns": corpus_mdns,
     "query_string": corpus_query_string,
     "blockwise_reassembly": corpus_blockwise_reassembly,
-    "hex_and_base64": corpus_hex_and_base64,
-    "timestamp": corpus_timestamp,
-    "endpoint_string_parse": corpus_endpoint_string_parse,
-    "swu_query_params": corpus_swu_query_params,
-    "group_object_table": corpus_group_object_table,
     "oscore_context_lookup": corpus_oscore_context_lookup,
-    "discovery_filter": corpus_discovery_filter,
     "spake2plus_wire": corpus_spake2plus_wire,
-    "uuid_parse": corpus_uuid_parse,
-    "oscore_full_decrypt": corpus_oscore_full_decrypt,
     "replay_window": corpus_replay_window,
     "oscore_aad_nonce": corpus_oscore_aad_nonce,
     "oscore_echo_tx": corpus_oscore_echo_tx,
     "core_res_wildcard": corpus_core_res_wildcard,
-    "at_x_get_query": corpus_at_x_get_query,
-    "spake2plus_initiator": corpus_spake2plus_initiator,
     "knx_lsm_post": corpus_knx_lsm_post,
-    "auth_at_post": corpus_auth_at_post,
+    "swu_handlers": corpus_swu_handlers,
+    "oscore_inbound": corpus_oscore_inbound,
 }
 
 

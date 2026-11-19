@@ -400,9 +400,9 @@ uint16_t coap_floor_block_size(uint32_t size);
 size_t coap_set_option_header(unsigned int delta, size_t length, uint8_t* buffer);
 
 /**
- * @brief
+ * @brief processes an inbound CoAP message in the CoAP layer
  *
- * @param incoming_message the message, pushed to queue INBOUND_RI_EVENT since 
+ * @param incoming_message the message, pushed to queue INBOUND_RI_EVENT since
  *        the previous oscore decryption was ok, or it was a plain message
  */
 void coap_receive(oc_message_t* incoming_message);

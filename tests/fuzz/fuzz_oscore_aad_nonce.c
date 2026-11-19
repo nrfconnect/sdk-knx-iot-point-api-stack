@@ -5,7 +5,7 @@
  * Both build fixed-size buffers from attacker-controlled kid/kid_len and
  * piv/piv_len taken straight from the wire OSCORE option, before AEAD
  * verification - a focused building-block harness complementing
- * fuzz_oscore_context_lookup.c and fuzz_oscore_full_decrypt.c.
+ * fuzz_oscore_context_lookup.c and fuzz_oscore_inbound.c.
  *
  * coap_oscore_parse_options() (messaging/coap/oscore.c) rejects any kid
  * option longer than OSCORE_SENDER_ID_LEN (7) before it ever reaches this

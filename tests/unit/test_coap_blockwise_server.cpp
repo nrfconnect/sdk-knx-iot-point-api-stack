@@ -5,6 +5,8 @@
  * - Block1: a POST body in two blocks is put back together and handed to the POST handler once
  * - Block2: a GET response larger than the block size is sent in blocks; the follow-up GET for block 1 is served from
  *   the response buffer, which is keyed by href, endpoint, method AND query
+ * - Fresh requests replace stale transfer buffers; Block1 queries stay isolated
+ * - Plain CoAP duplicates do not invoke the application handler twice
  *
  * The network side is faked with the GNU linker --wrap facility (see tests/unit/CMakeLists.txt):
  *   --wrap=oc_main_initialized -> true, so the responses are handed to coap_send_message()
@@ -12,8 +14,9 @@
  *   --wrap=oc_etimer_restart   -> no-op (no transaction process in a unit test)
  */
 
-#include <gtest/gtest.h>
 #include <cstring>
+#include <gtest/gtest.h>
+#include <string>
 #include <vector>
 
 extern "C" {
@@ -52,6 +55,7 @@ extern "C" void __wrap_coap_send_message(oc_message_t* message)
 static int g_get_calls;
 static int g_post_calls;
 static std::vector<uint8_t> g_post_payload;
+static std::string g_post_query;
 
 /* GET: 100 bytes CBOR (byte i = i), larger than the block size 64 used below */
 static void get_handler(oc_request_t* request, oc_interface_mask_t, void*)
@@ -71,6 +75,11 @@ static void post_handler(oc_request_t* request, oc_interface_mask_t, void*)
 {
   g_post_calls++;
   g_post_payload.assign(request->_payload, request->_payload + request->_payload_len);
+  g_post_query.clear();
+  if (request->query_len > 0)
+  {
+    g_post_query.assign(request->query, request->query_len);
+  }
   request->response->response_buffer->response_length = 0;
   request->response->response_buffer->code = CHANGED_2_04;
 }
@@ -105,6 +114,7 @@ protected:
     g_get_calls = 0;
     g_post_calls = 0;
     g_post_payload.clear();
+    g_post_query.clear();
 
     res = oc_new_resource(g_uri, 0);
     ASSERT_NE(res, nullptr);
@@ -235,6 +245,68 @@ TEST_F(CoapBlockwiseServer, Block1GapIsRejectedAndNotHandled)
   EXPECT_NE(rsp->code, CHANGED_2_04);
 }
 
+TEST_F(CoapBlockwiseServer, Block1FollowUpWithADifferentQueryDoesNotConsumeTheOriginalTransfer)
+{
+  const std::vector<uint8_t> body = post_body();
+  receive(COAP_POST, 0x5701, "x=1", 0, 1, -1, body.data(), 64);
+  ASSERT_EQ(g_sent_msgs.size(), 1u);
+  coap_packet_t rsp[1];
+  last_sent(rsp);
+  ASSERT_EQ(rsp->code, CONTINUE_2_31);
+
+  receive(COAP_POST, 0x5702, "x=2", 1, 0, -1, body.data() + 64, 36);
+  ASSERT_EQ(g_sent_msgs.size(), 2u);
+  last_sent(rsp);
+  EXPECT_EQ(rsp->type, COAP_TYPE_RST);
+  EXPECT_EQ(rsp->code, EMPTY_0_00);
+  EXPECT_EQ(rsp->mid, 0x5702);
+  EXPECT_EQ(g_post_calls, 0);
+
+  receive(COAP_POST, 0x5703, "x=1", 1, 0, -1, body.data() + 64, 36);
+  ASSERT_EQ(g_sent_msgs.size(), 3u);
+  last_sent(rsp);
+  EXPECT_EQ(rsp->code, CHANGED_2_04);
+  EXPECT_EQ(g_post_calls, 1);
+  EXPECT_EQ(g_post_payload, body);
+  EXPECT_EQ(g_post_query, "x=1");
+}
+
+TEST_F(CoapBlockwiseServer, UnblockedPostReplacesAnIncompleteBlock1Body)
+{
+  const std::vector<uint8_t> partial = post_body();
+  receive(COAP_POST, 0x5801, nullptr, 0, 1, -1, partial.data(), 64);
+  ASSERT_EQ(g_post_calls, 0);
+
+  std::vector<uint8_t> fresh = post_body();
+  fresh.back() = 0xFF;
+  receive(COAP_POST, 0x5802, nullptr, -1, 0, -1, fresh.data(), fresh.size());
+
+  ASSERT_EQ(g_sent_msgs.size(), 2u);
+  coap_packet_t rsp[1];
+  last_sent(rsp);
+  EXPECT_EQ(rsp->type, COAP_TYPE_ACK);
+  EXPECT_EQ(rsp->code, CHANGED_2_04);
+  EXPECT_EQ(rsp->mid, 0x5802);
+  EXPECT_EQ(g_post_calls, 1);
+  EXPECT_EQ(g_post_payload, fresh);
+}
+
+TEST_F(CoapBlockwiseServer, InitialBlock2PostDeliversItsBodyAndQuery)
+{
+  const std::vector<uint8_t> body = post_body();
+  receive(COAP_POST, 0x5901, "x=1", -1, 0, 0, body.data(), body.size());
+
+  ASSERT_EQ(g_sent_msgs.size(), 1u);
+  coap_packet_t rsp[1];
+  last_sent(rsp);
+  EXPECT_EQ(rsp->type, COAP_TYPE_ACK);
+  EXPECT_EQ(rsp->code, CHANGED_2_04);
+  EXPECT_EQ(rsp->mid, 0x5901);
+  EXPECT_EQ(g_post_calls, 1);
+  EXPECT_EQ(g_post_payload, body);
+  EXPECT_EQ(g_post_query, "x=1");
+}
+
 /* -- Block2: response body in blocks, follow-up GET with a query ------------- */
 
 /*
@@ -326,4 +398,42 @@ TEST_F(CoapBlockwiseServer, Block2FollowUpWithoutTheQueryIsNotServedFromTheBuffe
   coap_packet_t rsp[1];
   last_sent(rsp);
   EXPECT_NE(rsp->code, CONTENT_2_05);
+}
+
+TEST_F(CoapBlockwiseServer, UnblockedGetReplacesAnIncompleteBlock2Response)
+{
+  receive(COAP_GET, 0x5A01, "x=1", -1, 0, 0, nullptr, 0);
+  ASSERT_EQ(g_get_calls, 1);
+
+  receive(COAP_GET, 0x5A02, "x=1", -1, 0, -1, nullptr, 0);
+  ASSERT_EQ(g_sent_msgs.size(), 2u);
+  EXPECT_EQ(g_get_calls, 2);
+  coap_packet_t rsp[1];
+  last_sent(rsp);
+  EXPECT_EQ(rsp->type, COAP_TYPE_ACK);
+  EXPECT_EQ(rsp->code, CONTENT_2_05);
+  EXPECT_EQ(rsp->mid, 0x5A02);
+  uint32_t num = 0, offset = 0;
+  uint8_t more = 0;
+  uint16_t size = 0;
+  EXPECT_EQ(coap_get_header_block2(rsp, &num, &more, &size, &offset), 0);
+  const uint8_t* payload = nullptr;
+  ASSERT_EQ(coap_get_payload(rsp, &payload), 100u);
+  for (int i = 0; i < 100; i++)
+  {
+    EXPECT_EQ(payload[i], (uint8_t)i) << "byte " << i;
+  }
+}
+
+TEST_F(CoapBlockwiseServer, DuplicateConRequestDoesNotInvokeTheHandlerTwice)
+{
+  receive(COAP_GET, 0x5B01, nullptr, -1, 0, -1, nullptr, 0);
+  ASSERT_EQ(g_get_calls, 1);
+  ASSERT_EQ(g_sent_msgs.size(), 1u);
+
+  receive(COAP_GET, 0x5B01, nullptr, -1, 0, -1, nullptr, 0);
+  EXPECT_EQ(g_get_calls, 1);
+  // The wrapped send does not populate the response cache.
+  EXPECT_EQ(g_sent_msgs.size(), 1u);
+  EXPECT_EQ(coap_get_transaction_by_mid(0x5B01), nullptr);
 }

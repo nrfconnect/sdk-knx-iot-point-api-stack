@@ -32,7 +32,8 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     if(BUILD_FUZZERS)
         # fuzzer-no-link: coverage instrumentation everywhere, libFuzzer's main()
         # is linked into the harness executables only (see tests/fuzz).
-        add_compile_options(-fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -g)
+        # no-recover: a UBSan report must abort, otherwise libFuzzer never records it as a crash
+        add_compile_options(-fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -g)
         add_link_options(-fsanitize=address,undefined)
     endif()
     if(ENABLE_COVERAGE)
@@ -276,7 +277,7 @@ add_library(kis-common INTERFACE)
 # - One set for Debug and Release, with one exception: _FORTIFY_SOURCE needs the optimiser
 #   and is Release only.
 # - The warning policy is the same as on Zephyr (zephyr/CMakeLists.txt) and ESP-IDF
-#   (esp-idf/knx_iot/CMakeLists.txt), the documentation checks of clang stay warnings.
+#   (esp-idf/knx_iot/CMakeLists.txt); with clang -Wdocumentation is an error as well.
 # - -fstack-protector-strong: A canary between the local buffers and the return address,
 #   checked on return, an overflow that overwrote it aborts the program.
 # - _FORTIFY_SOURCE=2: glibc replaces memcpy, strcpy, snprintf, ... by checking variants
@@ -297,7 +298,6 @@ elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     if(CMAKE_C_COMPILER_ID MATCHES "Clang")
         list(APPEND KNX_STACK_C_FLAGS
             -Wdocumentation -Wno-documentation-deprecated-sync -Wunreachable-code
-            -Wno-error=documentation -Wno-error=documentation-html
         )
     endif()
     if(UNIX)

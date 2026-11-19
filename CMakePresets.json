@@ -173,6 +173,16 @@
       }
     },
     {
+      "name": "linux-test-asan-clang",
+      "inherits": "linux-test-asan",
+      "displayName": "Linux Test + Sanitizers (clang)",
+      "description": "Same as linux-test-asan, built with clang: clang's UBSan has checks GCC's lacks (e.g. arithmetic on a NULL pointer).",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+    {
       "name": "linux-coverage-gcc",
       "inherits": "linux-test-gcc",
       "displayName": "Linux Coverage (GCC)",
@@ -304,6 +314,12 @@
       "configurePreset": "linux-test-asan"
     },
     {
+      "name": "linux-test-asan-clang",
+      "inherits": "linux-common-config",
+      "displayName": "Linux Test + Sanitizers (clang)",
+      "configurePreset": "linux-test-asan-clang"
+    },
+    {
       "name": "linux-fuzz-clang",
       "inherits": "linux-common-config",
       "displayName": "Linux Fuzzers (clang + libFuzzer)",
@@ -347,7 +363,15 @@
     {
       "name": "linux-test-asan",
       "configurePreset": "linux-test-asan",
-      "output": { "outputOnFailure": true }
+      "output": { "outputOnFailure": true },
+      "environment": {
+        "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"
+      }
+    },
+    {
+      "name": "linux-test-asan-clang",
+      "inherits": "linux-test-asan",
+      "configurePreset": "linux-test-asan-clang"
     },
     {
       "name": "linux-fuzz-clang",
