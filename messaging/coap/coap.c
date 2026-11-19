@@ -460,7 +460,9 @@ static size_t coap_serialize_options(void* packet, uint8_t* option_array, bool i
     COAP_SERIALIZE_INT_OPTION(COAP_OPTION_CONTENT_FORMAT, content_format, "Content-Format");
   }
 
-  if (outer) {
+  // Class E only: an OSCORE message carries no outer Max-Age, which keeps it short (RFC 8613 clause 4.1.3.1 makes the outer one optional)
+  if (inner)
+  {
     COAP_SERIALIZE_INT_OPTION(COAP_OPTION_MAX_AGE, max_age, "Max-Age");
   }
 
@@ -571,6 +573,34 @@ bool coap_next_option(uint8_t** current, const uint8_t* end, unsigned int* optio
 
   // next option number = current option number + delta
   *option_number += (unsigned int)option_delta;
+  return true;
+}
+
+/*
+  Echo, NOT listed as class E option: OSCORE RFC 8613, clause 4.1.1,
+  - earlier defined than RFC 9175, hence not defined in RFC 8613
+  - RFC 9175 clause 2.2.1: Inner and Outer Echo are independent, this stack only uses the
+    Inner Echo (OSCORE-encrypted, needed for the deduplication)
+  - an Outer Echo (request or response) is an elective option that is silently ignored,
+    RFC 7252 clause 5.4.1 and RFC 9175 clause 2.3
+  returns false on an inner Echo longer than COAP_ECHO_LEN (4.02)
+*/
+static bool coap_parse_echo_option(coap_packet_t* coap_pkt, const uint8_t* value, size_t length, bool inner)
+{
+  if (!inner)
+  {
+    OC_DBG("  outer Echo ignored");
+    UNSET_OPTION(coap_pkt, COAP_OPTION_ECHO);
+    return true;
+  }
+
+  if (length > COAP_ECHO_LEN)
+  {
+    return false;
+  }
+
+  memcpy(coap_pkt->echo, value, length);
+  coap_pkt->echo_len = length;
   return true;
 }
 
@@ -702,7 +732,13 @@ coap_status_t coap_oscore_parse_options(void* packet, uint8_t* data,
         break;
 
       case COAP_OPTION_MAX_AGE:
-        // class U+E option: OSCORE RFC 8613, clause 4.1.1
+        // an outer Max-Age is accepted but discarded, only the inner one is used (RFC 8613 clause 8.2/8.4, step 1)
+        if (!accept_inner_options)
+        {
+          UNSET_OPTION(coap_pkt, COAP_OPTION_MAX_AGE);
+          break;
+        }
+
         coap_pkt->max_age = coap_parse_int_option(current_options, option_length);
         OC_DBG("  Max-Age [%lu]", (unsigned long) coap_pkt->max_age);
         break;
@@ -885,20 +921,10 @@ coap_status_t coap_oscore_parse_options(void* packet, uint8_t* data,
         break;
       
       case COAP_OPTION_ECHO:
-        /* 
-           NOT listed as class E option: OSCORE RFC 8613, clause 4.1.1, 
-           - earlier defined than RFC 9175, hence not defined in RFC 8613
-           - RFC 9175 defines outer ECHO only in clause 2.5.3, any intended behavior for this is NOT specified in KNX IoT
-             hence ECHO as outer option is not passed through
-        */
-        if (!accept_inner_options || option_length > COAP_ECHO_LEN) 
+        if (!coap_parse_echo_option(coap_pkt, current_options, option_length, accept_inner_options))
         {
-          // echo options must be OSCORE-encrypted for the deduplication to work
-           return BAD_OPTION_4_02;
+          return BAD_OPTION_4_02;
         }
-
-        memcpy(coap_pkt->echo, current_options, option_length);
-        coap_pkt->echo_len = option_length;
         break;
       
       default:

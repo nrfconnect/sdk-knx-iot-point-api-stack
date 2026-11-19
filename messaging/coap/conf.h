@@ -67,8 +67,10 @@ extern "C" {
     Token                                                   COAP_TOKEN_LEN          = 8
     Observe    (6, delta 6)   1 header + 3 value                                    = 4
     OSCORE     (9, delta 3)   1 header + 1 length extension + OSCORE_MAX_OPTION_VALUE_LEN
-    Max-Age   (14, delta 5)   1 header + 4 value                                    = 5
     Payload marker                                          COAP_PAYLOAD_MARKER_LEN = 1
+
+  Max-Age (14) is not budgeted here: it is a Class E option only, an OSCORE message carries no outer Max-Age
+  (RFC 8613 clause 4.1.3.1 makes the outer one optional), see COAP_MAX_INNER_HEADER_SIZE.
 
   Uri-Host (3), Uri-Port (7) and Proxy-Uri (35) are deliberately NOT budgeted. coap_serialize_options() only emits
   them when the corresponding IS_OPTION bit is set, and no caller in this stack ever sets it: coap_set_header_uri_host()
@@ -80,7 +82,7 @@ extern "C" {
   The parser never allocates, it only points into the received datagram, which is already bounded by oc_pdu_size.
 */
 #ifndef COAP_MAX_OUTER_HEADER_SIZE
-  #define COAP_MAX_OUTER_HEADER_SIZE (COAP_HEADER_LEN + COAP_TOKEN_LEN + (1 + 3) + (2 + OSCORE_MAX_OPTION_VALUE_LEN) + (1 + 4) + COAP_PAYLOAD_MARKER_LEN)
+  #define COAP_MAX_OUTER_HEADER_SIZE (COAP_HEADER_LEN + COAP_TOKEN_LEN + (1 + 3) + (2 + OSCORE_MAX_OPTION_VALUE_LEN) + COAP_PAYLOAD_MARKER_LEN)
 #endif
 
 /*
@@ -95,7 +97,8 @@ extern "C" {
     Observe          (6, delta 2)   1 header + 3 value                              = 4
     Uri-Path        (11, delta 5)   see the per-segment note below
     Content-Format  (12, delta 1)   1 header + 2 value                              = 3
-    Uri-Query       (15, delta 3)   see the per-segment note below
+    Max-Age         (14, delta 2)   1 header + 4 value                              = 5
+    Uri-Query       (15, delta 1)   see the per-segment note below
     Accept          (17, delta 2)   1 header + 2 value                              = 3
     Block2          (23, delta 6)   1 header + 3 value                              = 4
     Block1          (27, delta 4)   1 header + 3 value                              = 4
@@ -131,13 +134,10 @@ extern "C" {
   ((len) + (parts) + (((len) / 13) < (parts) ? ((len) / 13) : (parts)))
 
 #ifndef COAP_MAX_INNER_HEADER_SIZE
-  #define COAP_MAX_INNER_HEADER_SIZE (1 + (1 + COAP_ETAG_LEN) + (1 + 3)                                                       \
-                                        + COAP_STRING_OPTION_GROUP_SIZE(KNX_MAX_URI_PATH_LEN, KNX_MAX_URI_PATH_SEGMENTS)      \
-                                        + (1 + 2)                                                                             \
-                                        + COAP_STRING_OPTION_GROUP_SIZE(KNX_MAX_URI_QUERY_LEN, KNX_MAX_URI_QUERY_PARAMS)      \
-                                        + (1 + 2)                                                                             \
-                                        + (1 + 3) + (1 + 3) + (1 + 4) + (2 + 4) + (3 + COAP_ECHO_LEN)                         \
-                                        + COAP_PAYLOAD_MARKER_LEN)
+  #define COAP_MAX_INNER_HEADER_SIZE                                                                                                                 \
+    (1 + (1 + COAP_ETAG_LEN) + (1 + 3) + COAP_STRING_OPTION_GROUP_SIZE(KNX_MAX_URI_PATH_LEN, KNX_MAX_URI_PATH_SEGMENTS) + (1 + 2) + (1 + 4) +        \
+     COAP_STRING_OPTION_GROUP_SIZE(KNX_MAX_URI_QUERY_LEN, KNX_MAX_URI_QUERY_PARAMS) + (1 + 2) + (1 + 3) + (1 + 3) + (1 + 4) + (2 + 4) +              \
+     (3 + COAP_ECHO_LEN) + COAP_PAYLOAD_MARKER_LEN)
 #endif
 
 /*

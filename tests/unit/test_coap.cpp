@@ -20,6 +20,7 @@ extern "C" {
 #include "oc_buffer.h"
 #include "oc_buffer_settings.h"
 #include "oc_ri.h"
+#include "oscore.h"
 #include "port/oc_network_events_mutex.h"
 }
 
@@ -244,22 +245,238 @@ using test_helpers::outer_options_start;
 /* the options of an OSCORE plaintext start after the inner code byte (RFC 8613 clause 5.3) */
 static const size_t PLAINTEXT_OPTIONS_START = 1;
 
+TEST_F(CoapTest, MaxAge_PlainCoapCarriesTheOption)
+{
+  /* plain CoAP is one flat message: Max-Age must still reach the wire, e.g. for the SPAKE2+ 5.03 lockout */
+  coap_udp_init_message(&pkt, COAP_TYPE_ACK, CONTENT_2_05, 0x0010);
+  coap_set_header_max_age(&pkt, 30);
 
+  size_t len = coap_serialize_message(&pkt, wire);
+  ASSERT_GT(len, 0u);
 
+  coap_packet_t parsed;
+  ASSERT_EQ(coap_parse_udp_message(&parsed, wire, len), COAP_NO_ERROR);
 
+  uint32_t age = 0;
+  EXPECT_EQ(coap_get_header_max_age(&parsed, &age), 1);
+  EXPECT_EQ(age, 30u);
+}
 
+TEST_F(CoapTest, MaxAge_OscorePlaintextCarriesTheOption)
+{
+  /* Class E: the encrypted plaintext is where the receiver finds Max-Age after decryption;
+     the 4-byte maximum survives unchanged */
+  for (const uint32_t max_age : {30u, 0xFFFFFFFFu})
+  {
+    coap_udp_init_message(&pkt, COAP_TYPE_ACK, CONTENT_2_05, 0x0011);
+    coap_set_header_max_age(&pkt, max_age);
 
+    size_t len = oscore_serialize_plaintext(&pkt, wire);
+    ASSERT_GT(len, 0u);
 
+    uint32_t age = 0;
+    ASSERT_TRUE(frame_find_uint_option(wire, len, PLAINTEXT_OPTIONS_START, COAP_OPTION_MAX_AGE, &age))
+      << "Max-Age " << max_age << " is missing in the OSCORE plaintext";
+    EXPECT_EQ(age, max_age);
+  }
+}
 
+TEST_F(CoapTest, MaxAge_OscoreOuterMessageOmitsTheOption)
+{
+  /* negative: a Max-Age set on the packet (also the 4-byte maximum) must not be serialized into the
+     outer OSCORE message */
+  for (const uint32_t max_age : {30u, 0xFFFFFFFFu})
+  {
+    coap_udp_init_message(&pkt, COAP_TYPE_ACK, CONTENT_2_05, 0x0012);
+    coap_set_header_max_age(&pkt, max_age);
 
+    size_t len = oscore_serialize_message(&pkt, wire);
+    ASSERT_GT(len, 0u);
+
+    uint32_t age = 0;
+    EXPECT_FALSE(frame_find_uint_option(wire, len, outer_options_start(wire), COAP_OPTION_MAX_AGE, &age))
+      << "outer OSCORE message carries Max-Age " << age << " (set: " << max_age << ")";
+  }
+}
+
+TEST_F(CoapTest, MaxAge_OscoreOuterObserveMessageOmitsTheOption)
+{
+  /* negative: an observe notification keeps Observe outer (RFC 8613 clause 4.1.3.5) but gets no outer Max-Age */
+  coap_udp_init_message(&pkt, COAP_TYPE_NON, CONTENT_2_05, 0x0013);
+  coap_set_header_observe(&pkt, 7);
+  coap_set_header_max_age(&pkt, 30);
+
+  size_t len = oscore_serialize_message(&pkt, wire);
+  ASSERT_GT(len, 0u);
+
+  uint32_t value = 0;
+  EXPECT_TRUE(frame_find_uint_option(wire, len, outer_options_start(wire), COAP_OPTION_OBSERVE, &value))
+    << "precondition: Observe is replicated outer";
+  EXPECT_FALSE(frame_find_uint_option(wire, len, outer_options_start(wire), COAP_OPTION_MAX_AGE, &value))
+    << "outer OSCORE notification carries Max-Age " << value;
+}
+
+TEST_F(CoapTest, MaxAge_ZeroIsInnerOnly)
+{
+  /* negative: Max-Age 0 (no caching) is an empty option value, it must not leak outer either */
+  coap_udp_init_message(&pkt, COAP_TYPE_NON, CONTENT_2_05, 0x0014);
+  coap_set_header_observe(&pkt, 1);
+  coap_set_header_max_age(&pkt, 0);
+
+  uint8_t plaintext[128] = {};
+  size_t plen = oscore_serialize_plaintext(&pkt, plaintext);
+  ASSERT_GT(plen, 0u);
+
+  uint32_t age = 0xFFFFFFFF;
+  ASSERT_TRUE(frame_find_uint_option(plaintext, plen, PLAINTEXT_OPTIONS_START, COAP_OPTION_MAX_AGE, &age))
+    << "Max-Age 0 is missing in the OSCORE plaintext";
+  EXPECT_EQ(age, 0u);
+
+  size_t len = oscore_serialize_message(&pkt, wire);
+  ASSERT_GT(len, 0u);
+  EXPECT_FALSE(frame_find_uint_option(wire, len, outer_options_start(wire), COAP_OPTION_MAX_AGE, &age))
+    << "outer OSCORE message carries Max-Age " << age;
+}
+
+TEST_F(CoapTest, MaxAge_NotSetIsNeverSerialized)
+{
+  /* negative: without coap_set_header_max_age() no mode may invent a Max-Age (the default 60 is implicit) */
+  uint32_t age = 0;
+
+  coap_udp_init_message(&pkt, COAP_TYPE_NON, CONTENT_2_05, 0x0016);
+  coap_set_header_observe(&pkt, 2);
+  size_t len = coap_serialize_message(&pkt, wire);
+  ASSERT_GT(len, 0u);
+  EXPECT_FALSE(frame_find_uint_option(wire, len, outer_options_start(wire), COAP_OPTION_MAX_AGE, &age));
+
+  coap_udp_init_message(&pkt, COAP_TYPE_NON, CONTENT_2_05, 0x0016);
+  coap_set_header_observe(&pkt, 2);
+  len = oscore_serialize_plaintext(&pkt, wire);
+  ASSERT_GT(len, 0u);
+  EXPECT_FALSE(frame_find_uint_option(wire, len, PLAINTEXT_OPTIONS_START, COAP_OPTION_MAX_AGE, &age));
+
+  coap_udp_init_message(&pkt, COAP_TYPE_NON, CONTENT_2_05, 0x0016);
+  coap_set_header_observe(&pkt, 2);
+  len = oscore_serialize_message(&pkt, wire);
+  ASSERT_GT(len, 0u);
+  EXPECT_FALSE(frame_find_uint_option(wire, len, outer_options_start(wire), COAP_OPTION_MAX_AGE, &age));
+}
+
+TEST_F(CoapTest, MaxAge_PlainCoapMaxAgeOfAPeerIsParsed)
+{
+  uint8_t outer[] = {
+    0x60, CONTENT_2_05, 0x00, 0x17, /* version 1, ACK, no token */
+    0xD1, 0x01,         0x00        /* option 14 (delta 13 + 1), length 1, value 0 */
+  };
+
+  coap_packet_t parsed;
+  ASSERT_EQ(coap_parse_udp_message(&parsed, outer, sizeof(outer)), COAP_NO_ERROR);
+
+  uint32_t age = 60;
+  EXPECT_EQ(coap_get_header_max_age(&parsed, &age), 1);
+  EXPECT_EQ(age, 0u);
+}
+
+TEST_F(CoapTest, MaxAge_OuterMaxAgeOfAnOscoreMessageIsDiscarded)
+{
+  /* RFC 8613 clause 8.2/8.4 step 1: an outer Max-Age is accepted, but not used */
+  uint8_t outer[] = {
+    0x60, CONTENT_2_05, 0x00, 0x18, /* version 1, ACK, no token */
+    0xD1, 0x01,         0x1E        /* option 14, length 1, value 30 */
+  };
+
+  coap_packet_t parsed = {};
+  ASSERT_EQ(coap_oscore_parse_options(&parsed, outer, sizeof(outer), &outer[COAP_HEADER_LEN], false, true, true), COAP_NO_ERROR);
+
+  EXPECT_FALSE(IS_OPTION(&parsed, COAP_OPTION_MAX_AGE));
+  uint32_t age = 0;
+  coap_get_header_max_age(&parsed, &age);
+  EXPECT_EQ(age, (uint32_t)COAP_DEFAULT_MAX_AGE);
+}
+
+TEST_F(CoapTest, MaxAge_InnerMaxAgeOfAnOscoreMessageIsParsed)
+{
+  uint8_t plaintext[] = {
+    CONTENT_2_05,    /* inner code */
+    0xD1, 0x01, 0x1E /* option 14, length 1, value 30 */
+  };
+
+  coap_packet_t parsed = {};
+  ASSERT_EQ(coap_oscore_parse_options(&parsed, plaintext, sizeof(plaintext), &plaintext[1], true, false, false), COAP_NO_ERROR);
+
+  uint32_t age = 0;
+  coap_get_header_max_age(&parsed, &age);
+  EXPECT_EQ(age, 30u);
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Echo (RFC 9175)
  * ═══════════════════════════════════════════════════════════════════════════ */
 
+TEST_F(CoapTest, Echo_OuterEchoInAnOscoreResponseIsIgnored)
+{
+  /* RFC 9175 clause 2.2.1/2.3: an outer Echo is elective and independent of the inner one */
+  uint8_t outer[] = {
+    0x60, UNAUTHORIZED_4_01,
+    0x00, 0x19, /* version 1, ACK, no token */
+    0xD4, 0xEF,
+    0x01, 0x02,
+    0x03, 0x04 /* option 252 (delta 13 + 239), length 4 */
+  };
 
+  coap_packet_t parsed = {};
+  parsed.code = UNAUTHORIZED_4_01;
+  ASSERT_EQ(coap_oscore_parse_options(&parsed, outer, sizeof(outer), &outer[COAP_HEADER_LEN], false, true, true), COAP_NO_ERROR);
 
+  uint8_t echo[COAP_ECHO_LEN];
+  EXPECT_FALSE(IS_OPTION(&parsed, COAP_OPTION_ECHO));
+  EXPECT_EQ(coap_get_header_echo(&parsed, echo), 0);
+  EXPECT_EQ(parsed.echo_len, 0u);
+}
 
+TEST_F(CoapTest, Echo_OuterEchoInAnOscoreRequestIsIgnored)
+{
+  /* RFC 7252 clause 5.4.1: an elective option is silently ignored, not answered with 4.02 */
+  uint8_t outer[] = {
+    0x40, COAP_POST, 0x00, 0x1A,            /* version 1, CON, no token */
+    0xD4, 0xEF,      0x01, 0x02, 0x03, 0x04 /* option 252 (delta 13 + 239), length 4 */
+  };
+
+  coap_packet_t parsed = {};
+  parsed.code = COAP_POST;
+  ASSERT_EQ(coap_oscore_parse_options(&parsed, outer, sizeof(outer), &outer[COAP_HEADER_LEN], false, true, true), COAP_NO_ERROR);
+
+  uint8_t echo[COAP_ECHO_LEN];
+  EXPECT_EQ(coap_get_header_echo(&parsed, echo), 0);
+  EXPECT_EQ(parsed.echo_len, 0u);
+}
+
+TEST_F(CoapTest, Echo_InnerEchoOfAnOscoreMessageIsParsed)
+{
+  uint8_t plaintext[] = {
+    COAP_POST,                              /* inner code */
+    0xD4,      0xEF, 0x01, 0x02, 0x03, 0x04 /* option 252, length 4 */
+  };
+
+  coap_packet_t parsed = {};
+  ASSERT_EQ(coap_oscore_parse_options(&parsed, plaintext, sizeof(plaintext), &plaintext[1], true, false, false), COAP_NO_ERROR);
+
+  uint8_t echo[COAP_ECHO_LEN];
+  ASSERT_EQ(coap_get_header_echo(&parsed, echo), 4);
+  EXPECT_EQ(memcmp(echo, &plaintext[3], 4), 0);
+}
+
+TEST_F(CoapTest, Echo_InnerEchoLongerThanTheBufferIsRejectedWith402)
+{
+  uint8_t plaintext[1 + 3 + COAP_ECHO_LEN + 1] = {
+    COAP_POST,                               /* inner code */
+    0xDD,      0xEF, COAP_ECHO_LEN + 1 - 13 /* option 252, length COAP_ECHO_LEN + 1 (extended) */
+  };
+
+  coap_packet_t parsed = {};
+  EXPECT_EQ(coap_oscore_parse_options(&parsed, plaintext, sizeof(plaintext), &plaintext[1], true, false, false), BAD_OPTION_4_02);
+  EXPECT_EQ(parsed.echo_len, 0u);
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * ETag

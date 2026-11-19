@@ -57,6 +57,12 @@ void oscore_send_error(void* packet, uint8_t code, oc_endpoint_t* endpoint, bool
     // value 0 means no caching, for response expected  
     coap_set_header_max_age(outgoing_coap_msg, 0);
 
+    // 4.13 tells the client the accepted block size (RFC 7959 2.9.3), same as the plain CoAP path
+    if (code == REQUEST_ENTITY_TOO_LARGE_4_13)
+    {
+      coap_set_header_size1(outgoing_coap_msg, OC_BLOCK_SIZE);
+    }
+
     // copies coap msg to message
     message->length = coap_serialize_message(outgoing_coap_msg, message->data);
     if (message->length > 0)

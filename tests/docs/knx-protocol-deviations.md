@@ -109,11 +109,16 @@ Read out of `coap_serialize_options(packet, buf, inner, outer, oscore)`:
 
 | inner (E — encrypted) | outer (U — visible) | both |
 | --- | --- | --- |
-| Uri-Path, Uri-Query, Content-Format, Accept, ETag, Block1/2, Echo | Uri-Host, Uri-Port, Max-Age, Proxy-Uri, **OSCORE (9)** | Observe |
+| Uri-Path, Uri-Query, Content-Format, Max-Age, Accept, ETag, Block1/2, Echo | Uri-Host, Uri-Port, Proxy-Uri, **OSCORE (9)** | Observe |
 
 Our client matches this exactly. Note Observe is replicated outer so the
 receiving CoAP layer treats the message as an observe (de)registration
 (RFC 8613 §4.1.3.5).
+
+Max-Age is serialized as inner option only: an OSCORE-protected message
+carries no outer Max-Age, not even the outer Max-Age 0 that RFC 8613
+§4.1.3.1 allows (MAY) to stop caching proxies, which keeps the message
+short. The parser still accepts an outer Max-Age from a peer.
 
 ---
 

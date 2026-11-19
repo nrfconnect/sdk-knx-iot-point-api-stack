@@ -570,6 +570,36 @@ bool oc_oscore_echo_check_and_consume(const coap_packet_t* pkt)
 
 */
 
+/*
+  answers an inbound message whose OUTER (unprotected) part failed to parse, and drops it
+  (still normal CoAP content, not yet the OSCORE part)
+
+  - (x) response + outer option problem = 8.4, step NA  = stop processing (also on empty ack or reset message)
+  - (y) request + outer option problem  = 8.2, step 2   = unsecured 4.02
+  - (z) request + payload too large     = unsecured 4.13 + Size1, a CON must not be ignored (RFC 7252 4.2),
+                                          the client resends with Inner Block1 (RFC 7252 5.9.2.9, RFC 7959 2.9.3)
+*/
+static void oscore_reject_outer(oc_message_t* msg, coap_packet_t* coap_pkt, coap_status_t outer_status)
+{
+  const bool is_inbound_request =
+    (coap_pkt->type == COAP_TYPE_CON || coap_pkt->type == COAP_TYPE_NON) && coap_pkt->code >= COAP_GET && coap_pkt->code <= COAP_FETCH;
+
+  if (is_inbound_request && outer_status == REQUEST_ENTITY_TOO_LARGE_4_13)
+  { // (z)
+    OC_WRN("parse OUTER OSCORE message : payload too large, return unsecured 4.13");
+    oscore_send_error(coap_pkt, REQUEST_ENTITY_TOO_LARGE_4_13, &msg->endpoint, false);
+  }
+  else if (is_inbound_request)
+  { // (y)
+    OC_ERR("parse OUTER OSCORE message : error, return unsecured 4.02");
+    oscore_send_error(coap_pkt, BAD_OPTION_4_02, &msg->endpoint, false);
+  }
+
+  // (x) + (y) + (z)
+  OC_DBG("drop OSCORE error message, counter is %d", msg->ref_count);
+  oc_message_unref(msg);
+}
+
 /**
   @brief receive a OSCORE message
 
@@ -629,29 +659,10 @@ static void oc_oscore_receive_message(oc_message_t* msg)
   // create local CoAP packet
   coap_packet_t coap_pkt[1];
 
-  if (oscore_parse_outer_message(msg, coap_pkt) != COAP_NO_ERROR)
+  coap_status_t outer_status = oscore_parse_outer_message(msg, coap_pkt);
+  if (outer_status != COAP_NO_ERROR)
   {
-    /*
-     Here we are still scan normal COAP message content (not yet in the OSCORE part)
-
-     - (x) response + outer option problem = 8.4, step NA  = stop processing (also on empty ack or reset message)
-     - (y) request + outer option problem  = 8.2, step 6   = unsecured 4.02
-    */
-
-    is_con = coap_pkt->type == COAP_TYPE_CON;
-    is_non = coap_pkt->type == COAP_TYPE_NON;
-    is_inbound_request = (is_con || is_non) && coap_pkt->code >= COAP_GET && coap_pkt->code <= COAP_FETCH;
-
-    if (is_inbound_request)
-    { // (y)
-
-      OC_ERR("parse OUTER OSCORE message : error, return unsecured 4.02");
-      oscore_send_error(coap_pkt, BAD_OPTION_4_02, &msg->endpoint, false);
-    }
-
-    // (x) + (y)
-    OC_DBG("drop OSCORE error message, counter is %d", msg->ref_count);
-    oc_message_unref(msg);
+    oscore_reject_outer(msg, coap_pkt, outer_status);
     return;
   }
 
@@ -1826,18 +1837,15 @@ static void oc_oscore_send_unicast_message(oc_message_t* msg)
     coap_pkt->payload_len += OSCORE_AEAD_TAG_LEN;
 
     /*
-       set for a OSCORE request/ response the OUTER CoAp code and Max-Age option for the
-       CoAp message in relation of a present observe option.
-   
+       set for a OSCORE request/ response the OUTER CoAP code in relation of a present observe option,
+       no outer Max-Age is added, Max-Age is serialized as inner option only (see coap_serialize_options)
+
        NOTE: no observe option (POST, 2.04 Changed), observe option (FETCH, 2.05 OK)
     */
     const bool observe = IS_OPTION(coap_pkt, COAP_OPTION_OBSERVE);
     if (observe)
     {
       coap_pkt->code = is_outbound_request ? COAP_FETCH : (uint8_t)oc_status_code(OC_STATUS_OK);
-
-      // value 0 means no caching, for response expected 
-      coap_set_header_max_age(coap_pkt, 0);
     }
     else
     {
