@@ -16,9 +16,8 @@ stages:
 
 variables:
   GIT_STRATEGY: clone
-  # Shallow clone: no job here uses git history (no describe/blame/log), so a
-  # full clone (GIT_DEPTH: 0) only pays for history no job reads. Revisit if a
-  # future step needs to diff/describe against an older commit.
+  # Shallow clone: the jobs use no git history, except quality-code, which
+  # sets its own GIT_DEPTH: 0 for its diff check against the default branch.
   GIT_DEPTH: 1
   GIT_SUBMODULE_STRATEGY: none
 
@@ -39,6 +38,9 @@ default:
 #   *-memcheck         the DUT built with ASan+UBSan; pass = no sanitizer report,
 #                      the pytest tally is informational (a slower DUT may fail
 #                      timing-sensitive steps; the first local run matched gcc)
+#   *-massif           the DUT under Valgrind Massif: heap peak and its sites
+#                      (nightly; the pytest tally is informational)
+#   quality-*          code metrics without a build (complexity)
 # ==========================================================
 
 # ----------------------------------------------------------
@@ -246,8 +248,15 @@ unit-asan-clang:
 # The same GoogleTest suite built with --coverage -O0 (ENABLE_COVERAGE). The
 # filters keep the number honest: this project's own code under api/,
 # messaging/, security/ and util/, not tests/, not the fetched dependencies,
-# not the vendored api/c-timestamp parser. The percentage shows on the job
+# not the vendored api/c-timestamp parser, not api/oc_test_control.c (the test
+# endpoints of the runtime/conformance device, built into kisTestControl only).
+# The percentage shows on the job
 # and in the merge request; the HTML report is an artifact.
+# Branch coverage says more about the error paths than lines do (an untested
+# `if (len > max) return error;` is a covered line but an untaken branch).
+# The summary prints it; --fail-under-branch is a floor just below the
+# current value (63.1 %, 2026-11-13), so a change that drops tested error
+# paths fails here. Raise the floor when the value has grown.
 # ----------------------------------------------------------
 unit-coverage-gcc:
   stage: test
@@ -261,12 +270,13 @@ unit-coverage-gcc:
     - >
       gcovr --root .
       --filter 'api/' --filter 'messaging/' --filter 'security/' --filter 'util/'
-      --exclude 'api/c-timestamp/.*'
+      --exclude 'api/c-timestamp/.*' --exclude 'api/oc_test_control[.]c'
       --cobertura build/linux-coverage-gcc/coverage.xml
       --html-medium-threshold 65
       --html-high-threshold 85
       --html-details build/linux-coverage-gcc/coverage-html/index.html
       --print-summary
+      --fail-under-branch 62
       build/linux-coverage-gcc
   # gcovr --print-summary writes "functions: 91.2% (83 out of 91)"; the
   # TOTAL line only exists in its default table report, which is not printed here.
@@ -283,6 +293,51 @@ unit-coverage-gcc:
         path: build/linux-coverage-gcc/coverage.xml
     expire_in: 4 weeks
   dependencies: []
+
+# ----------------------------------------------------------
+# test: code quality of the change (lizard, clang-format)
+# Function complexity: CCN, length and parameter count per function of the
+# stack's own C code (tests/common/tools/lizard_report.py holds the paths and
+# thresholds). The statistic fails nothing: the log lists the functions over
+# a threshold and ends with the summary line, whose Fun Rt / nloc Rt are the
+# trend to follow per release; the HTML and CSV reports are artifacts.
+# On a branch other than the default one, two checks of the lines changed
+# since the merge base then gate the job (both run, either fails it):
+# - lizard_report.py --diff: a new function over a threshold, or a changed
+#   one that got worse, fails; a touched one that got no better is a WARN.
+# - git clang-format --diff: the changed lines must match .clang-format;
+#   untouched code is not checked. The diff it prints is the fix.
+# Both need the history to the merge base, hence the full clone of this job
+# only. lizard and clang-format are pinned so results stay comparable.
+# ----------------------------------------------------------
+quality-code:
+  stage: test
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - curl -sSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+    - python3 /tmp/get-pip.py --break-system-packages --quiet
+    - python3 -m pip install --break-system-packages --quiet lizard==1.26.0 jinja2 clang-format==22.1.8
+    - python3 tests/common/tools/lizard_report.py --out build/lizard
+    - |
+      if [ -n "$CI_COMMIT_BRANCH" ] && [ "$CI_COMMIT_BRANCH" != "$CI_DEFAULT_BRANCH" ]; then
+        git fetch --quiet origin "+refs/heads/$CI_DEFAULT_BRANCH:refs/remotes/origin/$CI_DEFAULT_BRANCH"
+        base=$(git merge-base "origin/$CI_DEFAULT_BRANCH" HEAD)
+        rc=0
+        python3 tests/common/tools/lizard_report.py --diff "$base" || rc=1
+        echo "clang-format of the changed lines:"
+        git clang-format --diff --extensions c,h "$base" -- api messaging security util port include \
+          ':(exclude)api/c-timestamp' ':(exclude)util/pt' ':(exclude)port/mdns/mdns.h' || rc=1
+        exit $rc
+      fi
+  artifacts:
+    access: developer
+    when: always
+    paths:
+      - build/lizard/
+    expire_in: 4 weeks
+  dependencies: []
+  needs: []
 
 # ----------------------------------------------------------
 # test: fuzz seed replay (gating) + coverage
@@ -328,7 +383,7 @@ fuzz-seed-replay:
       cd -
       if ! gcovr --root . --gcov-executable 'llvm-cov-19 gcov' \
         --filter 'api/' --filter 'messaging/' --filter 'security/' --filter 'util/' \
-        --exclude 'api/c-timestamp/.*' \
+        --exclude 'api/c-timestamp/.*' --exclude 'api/oc_test_control[.]c' \
         --cobertura build/linux-fuzz-coverage-clang/coverage.xml \
         --html-medium-threshold 65 \
         --html-high-threshold 85 \

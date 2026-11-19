@@ -42,7 +42,7 @@ tests/
     fixtures.py       fixtures, constants, helpers and the pytest hooks
                       (tier ordering, --run-record); builds and starts the DUT,
                       performs SPAKE2+ and OSCORE provisioning
-    tools/            run-in-docker.ps1 / .sh, run-local-ci*.sh
+    tools/            run-in-docker.ps1 / .sh, run-local-ci*.sh, lizard_report.py
     runtime_test_server.c   the device under test
     requirements.txt  what the runtime tier needs (the tool has its own)
 
