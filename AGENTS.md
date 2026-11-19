@@ -24,12 +24,12 @@ skills.
 
 | Work | Skill |
 |---|---|
-| Stack C change or refactor | `.github/skills/test-driven-development/SKILL.md` |
-| Review a stack change | `.github/skills/code-review/SKILL.md` |
-| Write a Google Test unit test | `.github/skills/unit-test-writer/SKILL.md` |
-| Write a runtime test | `.github/skills/runtime-test-writer/SKILL.md` |
-| Update or estimate the memory report | `.github/skills/memory-footprint/SKILL.md` |
-| Architecture review with measurements | `.github/skills/architecture-review/SKILL.md` |
+| Stack C change or refactor | `.claude/skills/test-driven-development/SKILL.md` |
+| Review a stack change | `.claude/skills/code-review/SKILL.md` |
+| Write a Google Test unit test | `.claude/skills/unit-test-writer/SKILL.md` |
+| Write a runtime test | `.claude/skills/runtime-test-writer/SKILL.md` |
+| Update or estimate the memory report | `.claude/skills/memory-footprint/SKILL.md` |
+| Architecture review with measurements | `.claude/skills/architecture-review/SKILL.md` |
 
 ## Test tiers
 
@@ -44,9 +44,9 @@ Use only when the task matches; avoid extra agents for simple changes.
 
 | Task | Agent |
 |---|---|
-| Root cause of a failure, before suggesting a fix | `.github/agents/debug.agent.md` |
-| Explicit security review or vulnerability investigation | `.github/agents/security-auditor.agent.md` |
-| Adversarial review of a stack C diff over 100 changed lines | `.github/agents/quality-litigator.agent.md` |
+| Root cause of a failure, before suggesting a fix | `.claude/agents/debug.agent.md` |
+| Explicit security review or vulnerability investigation | `.claude/agents/security-auditor.agent.md` |
+| Adversarial review of a stack C diff over 100 changed lines | `.claude/agents/quality-litigator.agent.md` |
 
 For code changes, the test-driven-development and code-review skills define the
 gates and when additional review is needed. Use the smallest relevant test

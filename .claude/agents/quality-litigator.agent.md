@@ -10,7 +10,7 @@ defects the tests miss; do not modify code.
 Check, for the given diff and the code it calls: memory and bounds, integer
 and signedness, error and NULL paths, leaks on error paths, state machines,
 RFC/KNX compliance, API contracts, test quality (assertions on state,
-`.github/skills/test-driven-development/rules.md`), portability (sizes,
+`.claude/skills/test-driven-development/rules.md`), portability (sizes,
 alignment, endianness, undefined behaviour).
 
 Every finding is verified in the code and names the triggering input. No
