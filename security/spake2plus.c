@@ -27,10 +27,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "psa/crypto.h"
-#include "mbedtls/psa_util.h"         /* mbedtls_psa_get_random, MBEDTLS_PSA_RANDOM_STATE */
+#include "mbedtls/platform_util.h" /* mbedtls_platform_zeroize */
 #include "mbedtls/private/bignum.h"
 #include "mbedtls/private/ecp.h"
+#include "mbedtls/psa_util.h" /* mbedtls_psa_get_random, MBEDTLS_PSA_RANDOM_STATE */
+#include "psa/crypto.h"
 
 #include "spake2plus.h"
 #include "port/oc_log.h"
@@ -109,12 +110,18 @@ static int ecp_point_from_bytes(mbedtls_ecp_point *P, const uint8_t buf[kPubKeyS
 
 /*
  * Write an ecp_point as an uncompressed P-256 point into a 65-byte buffer.
+ * The point at infinity has a 1-byte encoding and is rejected.
  * Returns 0 on success, MBEDTLS error code on failure.
  */
 static int ecp_point_to_bytes(const mbedtls_ecp_point *P, uint8_t buf[kPubKeySize])
 {
   size_t olen = 0;
-  return mbedtls_ecp_point_write_binary(&grp, P, MBEDTLS_ECP_PF_UNCOMPRESSED, &olen, buf, kPubKeySize);
+  int ret = mbedtls_ecp_point_write_binary(&grp, P, MBEDTLS_ECP_PF_UNCOMPRESSED, &olen, buf, kPubKeySize);
+  if (ret == 0 && olen != kPubKeySize)
+  {
+    ret = MBEDTLS_ERR_ECP_BAD_INPUT_DATA;
+  }
+  return ret;
 }
 
 /*
@@ -138,65 +145,78 @@ cleanup:
 }
 
 /*
- * Compute J = f * (K + (-g) * L) using private ECP arithmetic, where f and g
- * are big-endian 32-byte scalars and K, L are uncompressed 65-byte points.
- * Output J is written as an uncompressed 65-byte point.
- * Returns 0 on success.
+ * R = K - g*L (subtract != 0) or R = K + g*L, for a 32-byte big-endian scalar
+ * g and uncompressed 65-byte points K, L. Both points are validated.
  */
-static int calculate_JfKgL(uint8_t J_out[kPubKeySize],
-        const uint8_t f[32],
-        const uint8_t K_bytes[kPubKeySize],
-        const uint8_t g[32],
-        const uint8_t L_bytes[kPubKeySize])
+static int ecp_add_mul(mbedtls_ecp_point* R, const uint8_t K_bytes[kPubKeySize], const uint8_t g[32], const uint8_t L_bytes[kPubKeySize],
+                       int subtract)
 {
   int ret;
-  mbedtls_mpi f_mpi, neg_g, zero, one;
-  mbedtls_ecp_point K_pt, L_pt, K_minus_gL, J_pt;
+  mbedtls_mpi one, g_mpi;
+  mbedtls_ecp_point K_pt, L_pt;
 
-  mbedtls_mpi_init(&f_mpi);
-  mbedtls_mpi_init(&neg_g);
-  mbedtls_mpi_init(&zero);
   mbedtls_mpi_init(&one);
+  mbedtls_mpi_init(&g_mpi);
   mbedtls_ecp_point_init(&K_pt);
   mbedtls_ecp_point_init(&L_pt);
-  mbedtls_ecp_point_init(&K_minus_gL);
-  mbedtls_ecp_point_init(&J_pt);
 
-  MBEDTLS_MPI_CHK(mbedtls_mpi_read_binary(&f_mpi, f, 32));
-  MBEDTLS_MPI_CHK(mbedtls_mpi_read_binary(&neg_g, g, 32));
   MBEDTLS_MPI_CHK(ecp_point_from_bytes(&K_pt, K_bytes));
   MBEDTLS_MPI_CHK(ecp_point_from_bytes(&L_pt, L_bytes));
+  MBEDTLS_MPI_CHK(mbedtls_mpi_read_binary(&g_mpi, g, 32));
+  if (subtract)
+  {
+    /* g = -g mod N */
+    MBEDTLS_MPI_CHK(mbedtls_mpi_sub_mpi(&g_mpi, &grp.N, &g_mpi));
+    MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(&g_mpi, &g_mpi, &grp.N));
+  }
+  MBEDTLS_MPI_CHK(mbedtls_mpi_lset(&one, 1));
+  MBEDTLS_MPI_CHK(mbedtls_ecp_muladd(&grp, R, &one, &K_pt, &g_mpi, &L_pt));
 
-  /* neg_g = -g mod N = N - g */
-  MBEDTLS_MPI_CHK(mbedtls_mpi_read_string(&zero, 10, "0"));
-  MBEDTLS_MPI_CHK(mbedtls_mpi_sub_mpi(&neg_g, &zero, &neg_g));
-  MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(&neg_g, &neg_g, &grp.N));
+cleanup:
+  mbedtls_mpi_free(&one);
+  mbedtls_mpi_free(&g_mpi);
+  mbedtls_ecp_point_free(&K_pt);
+  mbedtls_ecp_point_free(&L_pt);
+  return ret;
+}
 
-  /* K_minus_gL = 1*K + (-g)*L = K - g*L */
-  MBEDTLS_MPI_CHK(mbedtls_mpi_read_string(&one, 10, "1"));
-  MBEDTLS_MPI_CHK(mbedtls_ecp_muladd(&grp, &K_minus_gL, &one, &K_pt, &neg_g, &L_pt));
+/*
+ * J = f * (K - g*L), or J = f * K when g is NULL, for 32-byte big-endian
+ * scalars f, g and uncompressed 65-byte points K, L.
+ * Returns 0 on success.
+ */
+static int calculate_JfKgL(uint8_t J_out[kPubKeySize], const uint8_t f[32], const uint8_t K_bytes[kPubKeySize], const uint8_t* g,
+                           const uint8_t* L_bytes)
+{
+  int ret;
+  mbedtls_mpi f_mpi;
+  mbedtls_ecp_point base, J_pt;
 
-  /* J = f * K_minus_gL */
-  MBEDTLS_MPI_CHK(mbedtls_ecp_mul(&grp, &J_pt, &f_mpi, &K_minus_gL,
-                                   mbedtls_psa_get_random, MBEDTLS_PSA_RANDOM_STATE));
+  mbedtls_mpi_init(&f_mpi);
+  mbedtls_ecp_point_init(&base);
+  mbedtls_ecp_point_init(&J_pt);
 
+  if (g != NULL)
+  {
+    MBEDTLS_MPI_CHK(ecp_add_mul(&base, K_bytes, g, L_bytes, 1));
+  }
+  else
+  {
+    MBEDTLS_MPI_CHK(ecp_point_from_bytes(&base, K_bytes));
+  }
+  MBEDTLS_MPI_CHK(mbedtls_mpi_read_binary(&f_mpi, f, 32));
+  MBEDTLS_MPI_CHK(mbedtls_ecp_mul(&grp, &J_pt, &f_mpi, &base, mbedtls_psa_get_random, MBEDTLS_PSA_RANDOM_STATE));
   MBEDTLS_MPI_CHK(ecp_point_to_bytes(&J_pt, J_out));
 
 cleanup:
   mbedtls_mpi_free(&f_mpi);
-  mbedtls_mpi_free(&neg_g);
-  mbedtls_mpi_free(&zero);
-  mbedtls_mpi_free(&one);
-  mbedtls_ecp_point_free(&K_pt);
-  mbedtls_ecp_point_free(&L_pt);
-  mbedtls_ecp_point_free(&K_minus_gL);
+  mbedtls_ecp_point_free(&base);
   mbedtls_ecp_point_free(&J_pt);
   return ret;
 }
 
 /*
- * Compute pX = pubX + wX * L_bytes, writing the result as an uncompressed
- * 65-byte point into pX_out. L_bytes is a constant (bytes_M or bytes_N).
+ * pX = pubX + wX * L_bytes (L_bytes is bytes_M or bytes_N).
  * Returns 0 on success.
  */
 static int calculate_pX(uint8_t pX_out[kPubKeySize],
@@ -205,66 +225,31 @@ static int calculate_pX(uint8_t pX_out[kPubKeySize],
         const uint8_t L_bytes[kPubKeySize])
 {
   int ret;
-  mbedtls_mpi one, wX_mpi;
-  mbedtls_ecp_point pubX_pt, L_pt, pX_pt;
-
-  mbedtls_mpi_init(&one);
-  mbedtls_mpi_init(&wX_mpi);
-  mbedtls_ecp_point_init(&pubX_pt);
-  mbedtls_ecp_point_init(&L_pt);
+  mbedtls_ecp_point pX_pt;
   mbedtls_ecp_point_init(&pX_pt);
 
-  MBEDTLS_MPI_CHK(ecp_point_from_bytes(&pubX_pt, pubX));
-  MBEDTLS_MPI_CHK(ecp_point_from_bytes(&L_pt, L_bytes));
-  MBEDTLS_MPI_CHK(mbedtls_mpi_read_binary(&wX_mpi, wX, 32));
-  MBEDTLS_MPI_CHK(mbedtls_mpi_read_string(&one, 10, "1"));
-
-  /* pX = 1*pubX + wX*L */
-  MBEDTLS_MPI_CHK(mbedtls_ecp_muladd(&grp, &pX_pt, &one, &pubX_pt, &wX_mpi, &L_pt));
+  MBEDTLS_MPI_CHK(ecp_add_mul(&pX_pt, pubX, wX, L_bytes, 0));
   MBEDTLS_MPI_CHK(ecp_point_to_bytes(&pX_pt, pX_out));
 
 cleanup:
-  mbedtls_mpi_free(&one);
-  mbedtls_mpi_free(&wX_mpi);
-  mbedtls_ecp_point_free(&pubX_pt);
-  mbedtls_ecp_point_free(&L_pt);
   mbedtls_ecp_point_free(&pX_pt);
   return ret;
 }
 
-/*
- * Compute Z = h * x * (Y - w0*N) and similarly V = h * w1 * (Y - w0*N) by
- * calling calculate_JfKgL with the appropriate scalars. For P-256 h = 1.
- * Y_bytes is the remote public share (shareV for initiator, shareP for
- * responder). L_bytes is bytes_N or bytes_M respectively.
- */
-static int calculate_ZV(uint8_t ZV_out[kPubKeySize],
-        const uint8_t x[32],
-        const uint8_t Y_bytes[kPubKeySize],
-        const uint8_t w0[32],
-        const uint8_t L_bytes[kPubKeySize])
+static void p256_key_attributes(psa_key_attributes_t* attrs)
 {
-  /* J = x * (Y - w0*L) */
-  return calculate_JfKgL(ZV_out, x, Y_bytes, w0, L_bytes);
+  psa_set_key_type(attrs, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
+  psa_set_key_bits(attrs, 256);
+  psa_set_key_usage_flags(attrs, PSA_KEY_USAGE_EXPORT);
+  psa_set_key_algorithm(attrs, PSA_ALG_ECDH);
 }
 
-/*
- * Encode w0 (big-endian 32-byte scalar) with a leading uint64 length prefix,
- * stripping leading zero bytes to match the mbedtls_mpi_size() behaviour used
- * in the 3.x implementation. This keeps transcript compatibility.
- */
-static size_t encode_w0_mpi(const uint8_t w0[32], uint8_t *buffer)
+static psa_status_t export_public_and_destroy(psa_key_id_t key_id, uint8_t pub[kPubKeySize])
 {
-  /* Strip leading zero bytes (same as mbedtls_mpi_size / mbedtls_mpi_write_binary). */
-  size_t start = 0;
-  while (start < 32 && w0[start] == 0) {
-    start++;
-  }
-
-  size_t len = 32 - start;
-  size_t len_len = encode_uint((uint64_t)len, buffer);
-  memcpy(buffer + len_len, w0 + start, len);
-  return len_len + len;
+  size_t olen;
+  psa_status_t status = psa_export_public_key(key_id, pub, kPubKeySize, &olen);
+  psa_destroy_key(key_id);
+  return status;
 }
 
 /* ── SPAKE2+ core ────────────────────────────────────────────────────────── */
@@ -341,6 +326,7 @@ static int spake2plus_calc_w0_w1(const uint8_t *password, size_t password_length
 
   psa_key_id_t pw_key_id = PSA_KEY_ID_NULL;
   psa_status_t status = psa_import_key(&attrs, input, input_length, &pw_key_id);
+  mbedtls_platform_zeroize(input, input_length);
   free(input);
   if (status != PSA_SUCCESS) {
     return (int)status;
@@ -388,43 +374,11 @@ static int spake2plus_calc_w0_w1(const uint8_t *password, size_t password_length
 
 cleanup_op:
   psa_key_derivation_abort(&op);
+  mbedtls_platform_zeroize(output, sizeof(output));
 
 cleanup_key:
   psa_destroy_key(pw_key_id);
   return (int)status;
-}
-
-/*
- * Compute w0, w1 and L = w1*G from the device password.
- */
-static int spake2plus_calc_w0_L(const uint8_t *password, size_t password_length,
-        const uint8_t *salt, size_t salt_length,
-        uint32_t it, const char *id_prover,
-        const char *id_verifier,
-        uint8_t w0[32], uint8_t L[kPubKeySize])
-{
-  uint8_t w1[32];
-  int ret = spake2plus_calc_w0_w1(password, password_length, salt, salt_length, 
-                    it, id_prover, id_verifier, w0, w1);
-  if (ret != 0) {
-    return ret;
-  }
-
-  /* L = w1 * G */
-  mbedtls_mpi w1_mpi;
-  mbedtls_ecp_point L_pt;
-  mbedtls_mpi_init(&w1_mpi);
-  mbedtls_ecp_point_init(&L_pt);
-
-  MBEDTLS_MPI_CHK(mbedtls_mpi_read_binary(&w1_mpi, w1, 32));
-  MBEDTLS_MPI_CHK(mbedtls_ecp_mul(&grp, &L_pt, &w1_mpi, &grp.G,
-         mbedtls_psa_get_random, MBEDTLS_PSA_RANDOM_STATE));
-  MBEDTLS_MPI_CHK(ecp_point_to_bytes(&L_pt, L));
-
-cleanup:
-  mbedtls_mpi_free(&w1_mpi);
-  mbedtls_ecp_point_free(&L_pt);
-  return ret;
 }
 
 int spake2plus_get_w0_L_params(const uint8_t *password, size_t password_length,
@@ -432,12 +386,27 @@ int spake2plus_get_w0_L_params(const uint8_t *password, size_t password_length,
         const char *id_prover, const char *id_verifier,
         uint8_t w0[32], uint8_t L[kPubKeySize])
 {
-  int ret = spake2plus_calc_w0_L(password, password_length, salt, salt_length,
-         it, id_prover, id_verifier, w0, L);
-  if (ret != 0) {
+  uint8_t w1[32];
+  int ret = spake2plus_calc_w0_w1(password, password_length, salt, salt_length, it, id_prover, id_verifier, w0, w1);
+  if (ret == 0)
+  {
+    /* L = w1 * G */
+    psa_key_attributes_t attrs = PSA_KEY_ATTRIBUTES_INIT;
+    p256_key_attributes(&attrs);
+    psa_key_id_t key_id = PSA_KEY_ID_NULL;
+    ret = (int)psa_import_key(&attrs, w1, sizeof(w1), &key_id);
+    if (ret == PSA_SUCCESS)
+    {
+      ret = (int)export_public_and_destroy(key_id, L);
+    }
+  }
+  if (ret != 0)
+  {
     OC_ERR("SPAKE2+ password expansion failed (ret %d)!", ret);
+    mbedtls_platform_zeroize(w0, 32);
   }
 
+  mbedtls_platform_zeroize(w1, sizeof(w1));
   return ret;
 }
 
@@ -445,32 +414,26 @@ int spake2plus_gen_keypair(uint8_t y[32], uint8_t pub_y[kPubKeySize])
 {
   /* Generate an ephemeral P-256 key pair using the PSA API. */
   psa_key_attributes_t attrs = PSA_KEY_ATTRIBUTES_INIT;
-  psa_set_key_type(&attrs, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
-  psa_set_key_bits(&attrs, 256);
-  psa_set_key_usage_flags(&attrs, PSA_KEY_USAGE_EXPORT | PSA_KEY_USAGE_DERIVE);
-  psa_set_key_algorithm(&attrs, PSA_ALG_ECDH);
+  p256_key_attributes(&attrs);
 
   psa_key_id_t key_id = PSA_KEY_ID_NULL;
   psa_status_t status = psa_generate_key(&attrs, &key_id);
-  if (status != PSA_SUCCESS) {
+  if (status == PSA_SUCCESS)
+  {
+    size_t olen;
+    status = psa_export_key(key_id, y, 32, &olen);
+    psa_status_t pub_status = export_public_and_destroy(key_id, pub_y);
+    if (status == PSA_SUCCESS)
+    {
+      status = pub_status;
+    }
+  }
+  if (status != PSA_SUCCESS)
+  {
     OC_ERR("SPAKE2+ ephemeral key generation failed (status %d)!", (int)status);
-    return (int)status;
+    mbedtls_platform_zeroize(y, 32);
   }
 
-  size_t olen;
-  status = psa_export_key(key_id, y, 32, &olen);
-  if (status != PSA_SUCCESS) {
-    OC_ERR("SPAKE2+ private key export failed (status %d)!", (int)status);
-    psa_destroy_key(key_id);
-    return (int)status;
-  }
-
-  status = psa_export_public_key(key_id, pub_y, kPubKeySize, &olen);
-  if (status != PSA_SUCCESS) {
-    OC_ERR("SPAKE2+ public key export failed (status %d)!", (int)status);
-  }
-
-  psa_destroy_key(key_id);
   return (int)status;
 }
 
@@ -492,6 +455,55 @@ int spake2plus_calc_shareV(uint8_t shareV[kPubKeySize],
 
 /* ── Transcript computation ──────────────────────────────────────────────── */
 
+static psa_status_t hash_item(psa_hash_operation_t* op, const uint8_t* data, size_t len)
+{
+  uint8_t len_le[8];
+  encode_uint((uint64_t)len, len_le);
+  psa_status_t status = psa_hash_update(op, len_le, sizeof(len_le));
+  if (status == PSA_SUCCESS)
+  {
+    status = psa_hash_update(op, data, len);
+  }
+  return status;
+}
+
+/*
+ * K_main = SHA-256(TT), TT = Context || idProver || idVerifier || M || N ||
+ * X || Y || Z || V || w0, each item prefixed by its 8-byte little-endian
+ * length (RFC 9383 sec. 3.3). pts = {X, Y, Z, V}. Leading zero bytes of w0
+ * are stripped, as by mbedtls_mpi_write_binary in the 3.x implementation.
+ * Hashed item by item, so the transcript is never buffered.
+ */
+static int hash_transcript(const char* context, const char* id_prover, const char* id_verifier, const uint8_t* const pts[4], const uint8_t w0[32],
+                           uint8_t K_main[32])
+{
+  size_t w0_start = 0;
+  while (w0_start < 32 && w0[w0_start] == 0)
+  {
+    w0_start++;
+  }
+
+  const uint8_t* const data[] = {
+    (const uint8_t*)context, (const uint8_t*)id_prover, (const uint8_t*)id_verifier, bytes_M, bytes_N, pts[0], pts[1], pts[2], pts[3], w0 + w0_start};
+  const size_t len[] = {strlen(context), strlen(id_prover), strlen(id_verifier), kPubKeySize, kPubKeySize,
+                        kPubKeySize,     kPubKeySize,       kPubKeySize,         kPubKeySize, 32 - w0_start};
+
+  psa_hash_operation_t op = PSA_HASH_OPERATION_INIT;
+  psa_status_t status = psa_hash_setup(&op, PSA_ALG_SHA_256);
+  for (size_t i = 0; status == PSA_SUCCESS && i < sizeof(len) / sizeof(len[0]); i++)
+  {
+    status = hash_item(&op, data[i], len[i]);
+  }
+  if (status == PSA_SUCCESS)
+  {
+    size_t olen;
+    status = psa_hash_finish(&op, K_main, 32, &olen);
+  }
+
+  psa_hash_abort(&op);
+  return (int)status;
+}
+
 int spake2plus_calc_transcript_responder(spake_data_t *spake_data,
         const uint8_t shareP_enc[kPubKeySize],
         const uint8_t shareV_enc[kPubKeySize],
@@ -499,72 +511,27 @@ int spake2plus_calc_transcript_responder(spake_data_t *spake_data,
 {
   uint8_t Z[kPubKeySize];
   uint8_t V[kPubKeySize];
-  uint8_t ttbuf[2048] = {0};
-  size_t ttlen = 0;
-  size_t olen;
 
-  /*
-   * Verify shareP is not the point at infinity by attempting to parse it.
-   * The private ecp_point_read_binary rejects the zero point.
-   */
-  mbedtls_ecp_point shareP_pt;
-  mbedtls_ecp_point_init(&shareP_pt);
-  int ecp_ret = ecp_point_from_bytes(&shareP_pt, shareP_enc);
-  mbedtls_ecp_point_free(&shareP_pt);
-  if (ecp_ret != 0) {
-    OC_ERR("SPAKE2+ shareP is invalid (ret %d)!", ecp_ret);
-    return ecp_ret;
+  /* Z = y * (shareP - w0*M), V = y * L with L = w1*G from the registration record */
+  int ret = calculate_JfKgL(Z, spake_data->y, shareP_enc, spake_data->w0, bytes_M);
+  if (ret == 0)
+  {
+    ret = calculate_JfKgL(V, spake_data->y, spake_data->L, NULL, NULL);
+  }
+  if (ret == 0)
+  {
+    const uint8_t* const pts[4] = {shareP_enc, shareV_enc, Z, V};
+    ret = hash_transcript(context, idProver, idVerifier, pts, spake_data->w0, spake_data->K_main);
+  }
+  if (ret != 0)
+  {
+    OC_ERR("SPAKE2+ responder transcript failed (ret %d)!", ret);
   }
 
-  /* Z = y * (shareP - w0 * M) */
-  int ret = calculate_ZV(Z, spake_data->y, shareP_enc, spake_data->w0, bytes_M);
-  if (ret != 0) {
-    OC_ERR("SPAKE2+ Z computation failed (ret %d)!", ret);
-    return ret;
-  }
-
-  /* V = y * L, where L = w1*G was computed during parameter exchange. */
-  mbedtls_mpi y_mpi;
-  mbedtls_ecp_point L_pt, V_pt;
-  mbedtls_mpi_init(&y_mpi);
-  mbedtls_ecp_point_init(&L_pt);
-  mbedtls_ecp_point_init(&V_pt);
-
-  MBEDTLS_MPI_CHK(mbedtls_mpi_read_binary(&y_mpi, spake_data->y, 32));
-  MBEDTLS_MPI_CHK(ecp_point_from_bytes(&L_pt, spake_data->L));
-  MBEDTLS_MPI_CHK(mbedtls_ecp_mul(&grp, &V_pt, &y_mpi, &L_pt, 
-          mbedtls_psa_get_random, MBEDTLS_PSA_RANDOM_STATE));
-  MBEDTLS_MPI_CHK(ecp_point_to_bytes(&V_pt, V));
-
-cleanup:
-  mbedtls_mpi_free(&y_mpi);
-  mbedtls_ecp_point_free(&L_pt);
-  mbedtls_ecp_point_free(&V_pt);
-  if (ret != 0) {
-    OC_ERR("SPAKE2+ V computation failed (ret %d)!", ret);
-    return ret;
-  }
-
-  /* Assemble transcript TT. */
-  ttlen += encode_string(context, ttbuf + ttlen);
-  ttlen += encode_string(idProver, ttbuf + ttlen);
-  ttlen += encode_string(idVerifier, ttbuf + ttlen);
-  ttlen += encode_point(bytes_M, sizeof(bytes_M), ttbuf + ttlen);  /* M */
-  ttlen += encode_point(bytes_N, sizeof(bytes_N), ttbuf + ttlen);  /* N */
-  ttlen += encode_point(shareP_enc, kPubKeySize, ttbuf + ttlen);   /* X */
-  ttlen += encode_point(shareV_enc, kPubKeySize, ttbuf + ttlen);   /* Y */
-  ttlen += encode_point(Z, kPubKeySize, ttbuf + ttlen);            /* Z */
-  ttlen += encode_point(V, kPubKeySize, ttbuf + ttlen);            /* V */
-  ttlen += encode_w0_mpi(spake_data->w0, ttbuf + ttlen);           /* w0 */
-
-  /* K_main = SHA-256(TT) */
-  psa_status_t status = psa_hash_compute(PSA_ALG_SHA_256, ttbuf, ttlen,
-                                         spake_data->K_main, 32, &olen);
-  if (status != PSA_SUCCESS) {
-    OC_ERR("SPAKE2+ transcript hash failed (status %d)!", (int)status);
-  }
-
-  return (int)status;
+  mbedtls_platform_zeroize(spake_data->y, sizeof(spake_data->y));
+  mbedtls_platform_zeroize(Z, sizeof(Z));
+  mbedtls_platform_zeroize(V, sizeof(V));
+  return ret;
 }
 
 int spake2plus_calc_transcript_initiator(const uint8_t w0[32], const uint8_t w1[32],
@@ -576,191 +543,120 @@ int spake2plus_calc_transcript_initiator(const uint8_t w0[32], const uint8_t w1[
 {
   uint8_t Z[kPubKeySize];
   uint8_t V[kPubKeySize];
-  uint8_t ttbuf[2048] = {0};
-  size_t ttlen = 0;
-  size_t olen;
 
-  /* Z = x * (shareV - w0 * N) */
-  int ret = calculate_ZV(Z, x, shareV_enc, w0, bytes_N);
-  if (ret != 0) {
-    OC_ERR("SPAKE2+ initiator Z computation failed (ret %d)!", ret);
-    return ret;
+  /* Z = x * (shareV - w0*N), V = w1 * (shareV - w0*N) */
+  int ret = calculate_JfKgL(Z, x, shareV_enc, w0, bytes_N);
+  if (ret == 0)
+  {
+    ret = calculate_JfKgL(V, w1, shareV_enc, w0, bytes_N);
+  }
+  if (ret == 0)
+  {
+    const uint8_t* const pts[4] = {shareP_enc, shareV_enc, Z, V};
+    ret = hash_transcript(context, idProver, idVerifier, pts, w0, K_main);
+  }
+  if (ret != 0)
+  {
+    OC_ERR("SPAKE2+ initiator transcript failed (ret %d)!", ret);
   }
 
-  /* V = w1 * (shareV - w0 * N) */
-  ret = calculate_ZV(V, w1, shareV_enc, w0, bytes_N);
-  if (ret != 0) {
-    OC_ERR("SPAKE2+ initiator V computation failed (ret %d)!", ret);
-    return ret;
-  }
-
-  /* Assemble transcript TT. */
-  ttlen += encode_string(context, ttbuf + ttlen);
-  ttlen += encode_string(idProver, ttbuf + ttlen);
-  ttlen += encode_string(idVerifier, ttbuf + ttlen);
-  ttlen += encode_point(bytes_M, sizeof(bytes_M), ttbuf + ttlen);  /* M */
-  ttlen += encode_point(bytes_N, sizeof(bytes_N), ttbuf + ttlen);  /* N */
-  ttlen += encode_point(shareP_enc, kPubKeySize, ttbuf + ttlen);   /* X */
-  ttlen += encode_point(shareV_enc, kPubKeySize, ttbuf + ttlen);   /* Y */
-  ttlen += encode_point(Z, kPubKeySize, ttbuf + ttlen);            /* Z */
-  ttlen += encode_point(V, kPubKeySize, ttbuf + ttlen);            /* V */
-  ttlen += encode_w0_mpi(w0, ttbuf + ttlen);                       /* w0 */
-
-  /* K_main = SHA-256(TT) */
-  psa_status_t status = psa_hash_compute(PSA_ALG_SHA_256, ttbuf, ttlen, K_main, 32, &olen);
-  if (status != PSA_SUCCESS) {
-    OC_ERR("SPAKE2+ initiator transcript hash failed (status %d)!", (int)status);
-  }
-
-  return (int)status;
+  mbedtls_platform_zeroize(Z, sizeof(Z));
+  mbedtls_platform_zeroize(V, sizeof(V));
+  return ret;
 }
 
 /* ── Key confirmation and shared key derivation ──────────────────────────── */
 
 /*
- * Derive KcA||KcB (64 bytes) from K_main via HKDF-SHA256 with
- * info="ConfirmationKeys". KcA is the first 32 bytes, KcB the last 32 bytes.
- * Returns PSA_SUCCESS on success.
+ * out = HKDF-SHA256(salt = none, ikm = K_main (32 bytes), info, out_len).
  */
-static psa_status_t derive_confirmation_keys(const uint8_t *K_main, uint8_t KcA_KcB[64])
+static psa_status_t hkdf_sha256(const uint8_t* K_main, const char* info, uint8_t* out, size_t out_len)
 {
-  static const uint8_t info[] = "ConfirmationKeys";
   psa_key_derivation_operation_t op = PSA_KEY_DERIVATION_OPERATION_INIT;
-
   psa_status_t status = psa_key_derivation_setup(&op, PSA_ALG_HKDF(PSA_ALG_SHA_256));
-  if (status != PSA_SUCCESS) {
-    return status;
+  if (status == PSA_SUCCESS)
+  {
+    status = psa_key_derivation_input_bytes(&op, PSA_KEY_DERIVATION_INPUT_SECRET, K_main, 32);
+  }
+  if (status == PSA_SUCCESS)
+  {
+    status = psa_key_derivation_input_bytes(&op, PSA_KEY_DERIVATION_INPUT_INFO, (const uint8_t*)info, strlen(info));
+  }
+  if (status == PSA_SUCCESS)
+  {
+    status = psa_key_derivation_output_bytes(&op, out, out_len);
   }
 
-  status = psa_key_derivation_input_bytes(&op, PSA_KEY_DERIVATION_INPUT_SECRET, K_main, 32);
-  if (status != PSA_SUCCESS) {
-    goto cleanup;
-  }
-
-  status = psa_key_derivation_input_bytes(&op, PSA_KEY_DERIVATION_INPUT_INFO, info, sizeof(info) - 1);
-  if (status != PSA_SUCCESS) {
-    goto cleanup;
-  }
-
-  status = psa_key_derivation_output_bytes(&op, KcA_KcB, 64);
-
-cleanup:
   psa_key_derivation_abort(&op);
   return status;
 }
 
 /*
- * Compute HMAC-SHA256(key_bytes, key_len, msg, msg_len) into mac_out[32].
- * Returns PSA_SUCCESS on success.
+ * KcA||KcB = HKDF-SHA256(K_main, "ConfirmationKeys", 64). With Kc = KcA
+ * (kc_offset 0) or KcB (kc_offset 32), writes HMAC-SHA256(Kc, share) to out,
+ * or, when out is NULL, verifies it against expected in constant time.
  */
-static psa_status_t hmac_sha256(const uint8_t *key_bytes, size_t key_len,
-        const uint8_t *msg, size_t msg_len,
-        uint8_t mac_out[32])
+static int confirm_mac(const uint8_t* K_main, size_t kc_offset, const uint8_t share[kPubKeySize], uint8_t* out, const uint8_t* expected)
 {
-  psa_key_attributes_t attrs = PSA_KEY_ATTRIBUTES_INIT;
-  psa_set_key_type(&attrs, PSA_KEY_TYPE_HMAC);
-  psa_set_key_usage_flags(&attrs, PSA_KEY_USAGE_SIGN_MESSAGE);
-  psa_set_key_algorithm(&attrs, PSA_ALG_HMAC(PSA_ALG_SHA_256));
-
+  uint8_t KcA_KcB[64];
   psa_key_id_t key_id = PSA_KEY_ID_NULL;
-  psa_status_t status = psa_import_key(&attrs, key_bytes, key_len, &key_id);
-  if (status != PSA_SUCCESS) {
-    return status;
+  psa_status_t status = hkdf_sha256(K_main, "ConfirmationKeys", KcA_KcB, sizeof(KcA_KcB));
+  if (status == PSA_SUCCESS)
+  {
+    psa_key_attributes_t attrs = PSA_KEY_ATTRIBUTES_INIT;
+    psa_set_key_type(&attrs, PSA_KEY_TYPE_HMAC);
+    psa_set_key_usage_flags(&attrs, PSA_KEY_USAGE_SIGN_MESSAGE | PSA_KEY_USAGE_VERIFY_MESSAGE);
+    psa_set_key_algorithm(&attrs, PSA_ALG_HMAC(PSA_ALG_SHA_256));
+    status = psa_import_key(&attrs, KcA_KcB + kc_offset, 32, &key_id);
+  }
+  mbedtls_platform_zeroize(KcA_KcB, sizeof(KcA_KcB));
+
+  if (status == PSA_SUCCESS && out != NULL)
+  {
+    size_t mac_len;
+    status = psa_mac_compute(key_id, PSA_ALG_HMAC(PSA_ALG_SHA_256), share, kPubKeySize, out, 32, &mac_len);
+  }
+  else if (status == PSA_SUCCESS)
+  {
+    status = psa_mac_verify(key_id, PSA_ALG_HMAC(PSA_ALG_SHA_256), share, kPubKeySize, expected, 32);
+  }
+  if (status != PSA_SUCCESS)
+  {
+    OC_ERR("SPAKE2+ key confirmation failed (status %d)!", (int)status);
   }
 
-  size_t mac_len;
-  status = psa_mac_compute(key_id, PSA_ALG_HMAC(PSA_ALG_SHA_256), msg, msg_len, mac_out, 32, &mac_len);
   psa_destroy_key(key_id);
-  return status;
+  return (int)status;
 }
 
 int spake2plus_calc_confirmV(uint8_t *K_main, uint8_t confirmV[32], uint8_t bytes_shareP[kPubKeySize])
 {
-  /* KcA||KcB = HKDF(K_main, "ConfirmationKeys", 64) */
-  uint8_t KcA_KcB[64];
-  psa_status_t status = derive_confirmation_keys(K_main, KcA_KcB);
-  if (status != PSA_SUCCESS) {
-    OC_ERR("SPAKE2+ confirmation key derivation failed (status %d)!", (int)status);
-    return (int)status;
-  }
-
-  /* confirmV = HMAC-SHA256(KcB, shareP), KcB = KcA_KcB[32..63] */
-  status = hmac_sha256(KcA_KcB + 32, 32, bytes_shareP, kPubKeySize, confirmV);
-  if (status != PSA_SUCCESS) {
-    OC_ERR("SPAKE2+ confirmV HMAC failed (status %d)!", (int)status);
-  }
-
-  return (int)status;
+  return confirm_mac(K_main, 32, bytes_shareP, confirmV, NULL);
 }
 
 int spake2plus_calc_confirmP(uint8_t *K_main, uint8_t confirmP[32], uint8_t bytes_shareV[kPubKeySize])
 {
-  /* KcA||KcB = HKDF(K_main, "ConfirmationKeys", 64) */
-  uint8_t KcA_KcB[64];
-  psa_status_t status = derive_confirmation_keys(K_main, KcA_KcB);
-  if (status != PSA_SUCCESS) {
-    OC_ERR("SPAKE2+ confirmation key derivation failed (status %d)!", (int)status);
-    return (int)status;
-  }
-
-  /* confirmP = HMAC-SHA256(KcA, shareV), KcA = KcA_KcB[0..31] */
-  status = hmac_sha256(KcA_KcB, 32, bytes_shareV, kPubKeySize, confirmP);
-  if (status != PSA_SUCCESS) {
-    OC_ERR("SPAKE2+ confirmP HMAC failed (status %d)!", (int)status);
-  }
-
-  return (int)status;
+  return confirm_mac(K_main, 0, bytes_shareV, confirmP, NULL);
 }
 
-/*
- * Common HKDF-SHA256 extraction for K_shared derivation.
- * Returns PSA_SUCCESS on success.
- */
-static psa_status_t derive_K_shared(const uint8_t *K_main, uint8_t *K_shared, size_t output_length)
+int spake2plus_verify_confirmP(const uint8_t K_main[32], const uint8_t confirmP[32], const uint8_t bytes_shareV[kPubKeySize])
 {
-  static const uint8_t info[] = "SharedKey";
-  psa_key_derivation_operation_t op = PSA_KEY_DERIVATION_OPERATION_INIT;
-
-  psa_status_t status = psa_key_derivation_setup(&op, PSA_ALG_HKDF(PSA_ALG_SHA_256));
-  if (status != PSA_SUCCESS) {
-    return status;
-  }
-
-  status = psa_key_derivation_input_bytes(&op, PSA_KEY_DERIVATION_INPUT_SECRET, K_main, 32);
-  if (status != PSA_SUCCESS) {
-    goto cleanup;
-  }
-
-  status = psa_key_derivation_input_bytes(&op, PSA_KEY_DERIVATION_INPUT_INFO,
-                                          info, sizeof(info) - 1);
-  if (status != PSA_SUCCESS) {
-    goto cleanup;
-  }
-
-  status = psa_key_derivation_output_bytes(&op, K_shared, output_length);
-
-cleanup:
-  psa_key_derivation_abort(&op);
-  return status;
+  return confirm_mac(K_main, 0, bytes_shareV, NULL, confirmP);
 }
 
-int spake2plus_calc_K_shared(uint8_t *K_main, uint8_t K_shared[16])
+static int derive_K_shared(const uint8_t* K_main, uint8_t* K_shared, size_t length)
 {
-  psa_status_t status = derive_K_shared(K_main, K_shared, 16);
-  if (status != PSA_SUCCESS) {
+  psa_status_t status = hkdf_sha256(K_main, "SharedKey", K_shared, length);
+  if (status != PSA_SUCCESS)
+  {
     OC_ERR("SPAKE2+ K_shared derivation failed (status %d)!", (int)status);
   }
 
   return (int)status;
 }
 
-int spake2plus_calc_K_shared_256(uint8_t *K_main, uint8_t K_shared[32])
-{
-  psa_status_t status = derive_K_shared(K_main, K_shared, 32);
-  if (status != PSA_SUCCESS) {
-    OC_ERR("SPAKE2+ K_shared_256 derivation failed (status %d)!", (int)status);
-  }
+int spake2plus_calc_K_shared(uint8_t* K_main, uint8_t K_shared[16]) { return derive_K_shared(K_main, K_shared, 16); }
 
-  return (int)status;
-}
+int spake2plus_calc_K_shared_256(uint8_t* K_main, uint8_t K_shared[32]) { return derive_K_shared(K_main, K_shared, 32); }
 
+void spake2plus_wipe(void* buf, size_t len) { mbedtls_platform_zeroize(buf, len); }

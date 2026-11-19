@@ -184,9 +184,11 @@ int spake2plus_calc_shareV(uint8_t shareV[kPubKeySize],
 /**
  * @brief Full transcript computation for the responder with explicit IDs and context.
  *
- * Exposed for testing and future upstream contribution.
+ * Exposed for testing and future upstream contribution. The ephemeral private
+ * scalar spake_data->y is no longer needed afterwards and is wiped on every
+ * return path.
  *
- * @param spake_data   Session state (w0, L, y); K_main is written here.
+ * @param spake_data   Session state (w0, L, y); K_main is written here, y is wiped.
  * @param shareP_enc   shareP from the prover, 65 bytes.
  * @param shareV_enc   shareV (this device's share), 65 bytes.
  * @param idProver     Prover identity string (may be "").
@@ -249,6 +251,19 @@ int spake2plus_calc_confirmV(uint8_t *K_main, uint8_t confirmV[32], uint8_t byte
 int spake2plus_calc_confirmP(uint8_t *K_main, uint8_t confirmP[32], uint8_t bytes_shareV[kPubKeySize]);
 
 /**
+ * @brief Verify the key confirmation value received from the prover.
+ *
+ * Recomputes confirmP as in spake2plus_calc_confirmP() and compares it in
+ * constant time.
+ *
+ * @param K_main        Shared symmetric secret, 32 bytes.
+ * @param confirmP      Received confirmation MAC, 32 bytes.
+ * @param bytes_shareV  shareV of the verifier, 65 bytes.
+ * @return 0 if confirmP is valid, non-zero otherwise.
+ */
+int spake2plus_verify_confirmP(const uint8_t K_main[32], const uint8_t confirmP[32], const uint8_t bytes_shareV[kPubKeySize]);
+
+/**
  * @brief Derive a 16-byte shared key from K_main.
  *
  * K_shared = HKDF-SHA256(K_main, info="SharedKey", length=16).
@@ -269,6 +284,14 @@ int spake2plus_calc_K_shared(uint8_t *K_main, uint8_t K_shared[16]);
  * @return 0 on success, non-zero on failure.
  */
 int spake2plus_calc_K_shared_256(uint8_t *K_main, uint8_t K_shared[32]);
+
+/**
+ * @brief Wipe secret material in a way the compiler cannot optimize away.
+ *
+ * @param buf  Buffer to clear.
+ * @param len  Length of buf in bytes.
+ */
+void spake2plus_wipe(void* buf, size_t len);
 
 #ifdef __cplusplus
 }
