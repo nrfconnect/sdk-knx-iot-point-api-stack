@@ -21,9 +21,9 @@
 extern "C" {
 #include <stdlib.h>
 #include <string.h>
-#include "api/oc_knx_fp.h"
+#include "oc_knx_fp.h"
 #include "api/oc_knx_observe.h"
-#include "api/oc_knx_sec.h"
+#include "oc_knx_sec.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/conf.h"
 #include "messaging/coap/constants.h"

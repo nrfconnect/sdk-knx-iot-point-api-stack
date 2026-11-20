@@ -60,13 +60,13 @@ The scope names the part of the stack that is changed. Use lower case and prefer
 
 | Scope | Area |
 |-------|------|
-| `api` | `api/` (resources, discovery, core API) |
-| `messaging` | `messaging/` (CoAP) |
+| `api` | `src/api/` (resources, discovery, core API) |
+| `messaging` | `src/messaging/` (CoAP) |
 | `oscore` | OSCORE |
-| `security` | `security/` (SPAKE2+, access tokens, auth) |
-| `mdns` / `dns-sd` | `port/mdns/`, DNS-SD |
-| `zephyr` | `port/zephyr/`, `zephyr/` |
-| `freertos` | `port/freertos_esp32/`, `esp-idf/` |
+| `security` | `src/security/` (SPAKE2+, access tokens, auth) |
+| `mdns` / `dns-sd` | `src/port/mdns/`, DNS-SD |
+| `zephyr` | `src/port/zephyr/`, `zephyr/` |
+| `freertos` | `src/port/freertos_esp32/`, `esp-idf/` |
 | `linux` / `windows` | host ports |
 | `soc` | vendor or SoC specific code, boards, patches (name the vendor in the description) |
 | `wifi` / `thread` / `ethernet` | network backend |

@@ -63,8 +63,8 @@
 extern "C" {
 #include "oc_api.h"
 #include "oc_core_res.h"
-#include "api/oc_knx_client.h"
-#include "api/oc_knx_fp.h"
+#include "oc_knx_client.h"
+#include "oc_knx_fp.h"
 #include "oc_knx.h"
 #include "oc_ri.h"
 #include "messaging/coap/transactions.h"

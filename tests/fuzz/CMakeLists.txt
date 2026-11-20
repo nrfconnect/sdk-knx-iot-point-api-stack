@@ -86,10 +86,10 @@ foreach(tgt ${KIS_FUZZ_TARGETS})
     add_executable(${tgt} ${tgt}.c)
 
     target_include_directories(${tgt} PRIVATE
-        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/src
         ${PROJECT_SOURCE_DIR}/include
-        ${PROJECT_SOURCE_DIR}/port
-        ${PROJECT_SOURCE_DIR}/api
+        ${PROJECT_SOURCE_DIR}/src/port
+        ${PROJECT_SOURCE_DIR}/src/api
         ${KNX_PRIVATE_INCLUDE_DIRS}
     )
 
@@ -118,9 +118,9 @@ target_link_options(fuzz_observe_register PRIVATE
 # POSIX sockets only — the harness drives mdns_socket_listen() over loopback.
 if(UNIX)
     add_executable(fuzz_mdns fuzz_mdns.c)
-    # mdns.h is vendored in port/mdns on this branch (it used to be a
+    # mdns.h is vendored in src/port/mdns on this branch (it used to be a
     # FetchContent dependency); include the vendored directory directly.
-    target_include_directories(fuzz_mdns PRIVATE ${PROJECT_SOURCE_DIR}/port/mdns)
+    target_include_directories(fuzz_mdns PRIVATE ${PROJECT_SOURCE_DIR}/src/port/mdns)
     target_compile_options(fuzz_mdns PRIVATE -fsanitize=fuzzer)
     target_link_options(fuzz_mdns PRIVATE -fsanitize=fuzzer)
     list(APPEND KIS_FUZZ_TARGETS fuzz_mdns)

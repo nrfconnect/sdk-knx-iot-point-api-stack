@@ -43,7 +43,7 @@
 
 extern "C"
 {
-#include "api/oc_knx_fp.h"
+#include "oc_knx_fp.h"
 #include "oc_knx_publisher.h"
 #include "oc_ri.h"
 #include "port/oc_clock.h"
@@ -91,7 +91,7 @@ extern "C" const oc_resource_t* __wrap_oc_ri_get_app_resource_by_resource_path(c
   return it == g_resources.end() ? nullptr : &it->second;
 }
 
-// returns the outcome the test configured (return contract: api/oc_knx_client.h); s-mode writes go to g_sent
+// returns the outcome the test configured (return contract: oc_knx_client.h); s-mode writes go to g_sent
 //   default:               s-mode write handed over:                       rc 0,  dispatched
 //   g_failing_paths:       s-mode write fails:                             rc -1, not dispatched
 //   g_undelivered_paths:   no recipient and no observer reached:           rc 0,  not dispatched
@@ -791,7 +791,7 @@ namespace
   /* ── /p observers as second audience ──────────────────────────────────────────────── */
 
   // no transmitting group object, but a /p observer was notified: the sender returns -1 with
-  // dispatched set (api/oc_knx_client.h); the publisher goes by dispatched and commits
+  // dispatched set (oc_knx_client.h); the publisher goes by dispatched and commits
   TEST_F(SendCheckTimer, ObserverOnlyDeliveryIsCommittedDespiteErrorReturn)
   {
     g_observer_only_paths.insert("/p/rts/temproom");

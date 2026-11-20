@@ -19,7 +19,7 @@
 
 | Component | Version | Source |
 | --- | --- | --- |
-| KNX-IoT Stack (builtin) | **3.6.5** | `port/CMakeLists.txt` and `zephyr/CMakeLists.txt` (FetchContent from GitHub) |
+| KNX-IoT Stack (builtin) | **3.6.5** | `src/port/CMakeLists.txt` and `zephyr/CMakeLists.txt` (FetchContent from GitHub) |
 | Zephyr v4.3.0 | **3.6.5** | `doc/releases/release-notes-4.3.rst` in the Zephyr repo |
 | Zephyr v4.4.0 — main crypto module | **4.1.0** | `modules/crypto/mbedtls/zephyr/module.yml` (`cmake-ext: True`, `kconfig-ext: True`); confirmed by `ChangeLog` ("Mbed TLS 4.1.0 branch released 2026-03-31"). Zephyr GitHub issue [#102005](https://github.com/zephyrproject-rtos/zephyr/issues/102005) (CLOSED) confirms the migration from 3.6 to 4.0 was completed via PR #104031. |
 | Zephyr v4.4.0 — compatibility module | **3.6.6** | `modules/crypto/mbedtls-3.6/zephyr/module.yml` (`cmake-ext: False`, `kconfig-ext: False`); confirmed by `ChangeLog` ("Mbed TLS 3.6.6 branch released 2026-03-31"). Kept **for TF-M only** until TF-M is bumped to v2.3 (comment in `west.yml`). CMake variable: `ZEPHYR_MBEDTLS_3_6_MODULE_DIR`. |
@@ -147,7 +147,7 @@ The stack uses Mbed TLS in four distinct areas:
 
 #### 1.1 Random Number Generation (RNG)
 
-Files: `port/oc_random.h`, `port/random_psa.c` (Linux/Windows), `port/zephyr/random.c`
+Files: `src/port/oc_random.h`, `src/port/random_psa.c` (Linux/Windows), `src/port/zephyr/random.c`
 
 | Header              | Types / Functions Used |
 |---------------------|------------------------|
@@ -158,7 +158,7 @@ The `mbedtls_ctr_drbg_context` pointer is exposed to the rest of the stack via `
 
 #### 1.2 OSCORE Crypto
 
-File: `security/oc_oscore_crypto.c`
+File: `src/security/oc_oscore_crypto.c`
 
 | Header          | Types / Functions Used |
 |-----------------|------------------------|
@@ -169,7 +169,7 @@ Note: OSCORE implements its own HKDF (RFC 5869) using the MD HMAC API directly i
 
 #### 1.3 SPAKE2+
 
-Files: `security/oc_spake2plus.c`, `security/oc_spake2plus.h`
+Files: `src/security/oc_spake2plus.c`, `src/security/oc_spake2plus.h`
 
 | Header                | Types / Functions Used |
 |-----------------------|------------------------|
@@ -186,13 +186,13 @@ Macros used: `MBEDTLS_MPI_CHK(f)` + `cleanup:` label pattern (error-handling idi
 
 #### 1.4 TLS/DTLS
 
-> **REMOVED.** The TLS/DTLS transport (`security/oc_tls.c`, `security/oc_tls.h`,
+> **REMOVED.** The TLS/DTLS transport (`src/security/oc_tls.c`, `src/security/oc_tls.h`,
 > guarded by `KNX_TCP_TLS`) has been deleted from the stack. TCP and TLS/DTLS
 > transports are not supported; only UDP CoAP + OSCORE is. The section below is
 > kept for historical context only — none of these files or headers exist any
 > more, and `KNX_TCP_TLS` is no longer a recognised symbol.
 
-Files: `security/oc_tls.c`, `security/oc_tls.h`
+Files: `src/security/oc_tls.c`, `src/security/oc_tls.h`
 
 These files were compiled only when the preprocessor symbol `KNX_TCP_TLS` was defined, which no build configuration (Linux, Windows, or Zephyr) ever did. The code was therefore dormant for its entire lifetime, and both files have since been deleted.
 
@@ -221,7 +221,7 @@ These files were compiled only when the preprocessor symbol `KNX_TCP_TLS` was de
 
 ### 3. Current SPAKE2+ Workflow (PASE Handshake)
 
-The following chart shows the SPAKE2+ implementation as found in `security/oc_spake2plus.c`.
+The following chart shows the SPAKE2+ implementation as found in `src/security/oc_spake2plus.c`.
 Party A = Prover (Management Client, initiator).
 Party B = Verifier (KNX device, responder).
 
@@ -336,7 +336,7 @@ Step 6 — Shared Key Derivation:
 
 ### 4. How SPAKE2+ Is Implemented in the Current KNX-IoT Stack
 
-SPAKE2+ is **not** part of the Mbed TLS library. It is implemented entirely from scratch in `security/oc_spake2plus.c` using Mbed TLS as a primitive provider.
+SPAKE2+ is **not** part of the Mbed TLS library. It is implemented entirely from scratch in `src/security/oc_spake2plus.c` using Mbed TLS as a primitive provider.
 
 The implementation assembles SPAKE2+ from the following primitives:
 
@@ -388,13 +388,13 @@ These are problems that exist right now, regardless of any 4.x migration:
 
 | Issue | File | Details |
 |-------|------|---------|
-| ~~`mbedtls/ssl_internal.h` included~~ | ~~`security/oc_tls.c`~~ | **RESOLVED — file removed.** `security/oc_tls.c` and the `KNX_TCP_TLS` TLS/DTLS transport have been deleted from the stack, so this header is no longer referenced anywhere. |
+| ~~`mbedtls/ssl_internal.h` included~~ | ~~`src/security/oc_tls.c`~~ | **RESOLVED — file removed.** `src/security/oc_tls.c` and the `KNX_TCP_TLS` TLS/DTLS transport have been deleted from the stack, so this header is no longer referenced anywhere. |
 
 #### APIs Deprecated in 3.6.5 and Removed in Mbed TLS 4.x
 
 | Deprecated API | Location in KNX-IoT Stack | Replacement |
 |---|---|---|
-| `mbedtls_pkcs5_pbkdf2_hmac(ctx, ...)` | `security/oc_spake2plus.c:204` | In 3.6.5: `mbedtls_pkcs5_pbkdf2_hmac_ext(md_type, ...)`. In 4.x: `psa_key_derivation_*` with `PSA_ALG_PBKDF2_HMAC(PSA_ALG_SHA_256)`. |
+| `mbedtls_pkcs5_pbkdf2_hmac(ctx, ...)` | `src/security/oc_spake2plus.c:204` | In 3.6.5: `mbedtls_pkcs5_pbkdf2_hmac_ext(md_type, ...)`. In 4.x: `psa_key_derivation_*` with `PSA_ALG_PBKDF2_HMAC(PSA_ALG_SHA_256)`. |
 
 The call site in `oc_spake_calc_w0_w1()` currently does the following (intermediate 3.6.5 fix, before the 4.x migration):
 
@@ -426,7 +426,7 @@ Note: The `oc_random_get_ctr_drbg_context()` function and the `mbedtls_ctr_drbg_
 
 The KNX-IoT Stack uses a custom `knx_mbedtls_config.h` that `#define`s individual feature macros (e.g., `MBEDTLS_CCM_C`, `MBEDTLS_ECP_C`). In Mbed TLS 4.x the entire configuration system has been replaced: cryptographic feature selection moves to `psa/crypto_config.h` using `PSA_WANT_*` macros, and `mbedtls_config.h` retains only TLS/X.509 options. The `knx_mbedtls_config.h` approach is therefore invalid in 4.x and the file must be completely rewritten for any 4.x migration.
 
-Notable existing issues in `security/knx_mbedtls_config.h`:
+Notable existing issues in `src/security/knx_mbedtls_config.h`:
 
 | Define | Status |
 |--------|--------|
@@ -537,7 +537,7 @@ The raw ECC arithmetic (point multiplication, multi-scalar multiply) and big int
 
 These headers are located at `tf-psa-crypto/drivers/builtin/include/` within the Mbed TLS source tree. They require `MBEDTLS_DECLARE_PRIVATE_IDENTIFIERS` to be defined before inclusion to unlock the struct definitions. This is intentional: Mbed TLS itself still uses these interfaces internally (documented limitation; see Mbed TLS 4.0 migration guide, section "Usage of private declarations"). The `MBEDTLS_ALLOW_PRIVATE_ACCESS` macro may also be needed in some configurations.
 
-**Use within the KNX-IoT stack:** The private headers are included only in `security/oc_spake2plus.c`. No other file in the KNX-IoT stack touches the private ECP/BigNum API. The additional include path (`${mbedtls_SOURCE_DIR}/tf-psa-crypto/drivers/builtin/include`) is added as a PRIVATE include on the security source target in CMake.
+**Use within the KNX-IoT stack:** The private headers are included only in `src/security/oc_spake2plus.c`. No other file in the KNX-IoT stack touches the private ECP/BigNum API. The additional include path (`${mbedtls_SOURCE_DIR}/tf-psa-crypto/drivers/builtin/include`) is added as a PRIVATE include on the security source target in CMake.
 
 **Relation to upstreaming:** Code contributed *into* TF-PSA-Crypto (e.g. as a driver or core module) always has access to these private interfaces — the `MBEDTLS_DECLARE_PRIVATE_IDENTIFIERS` guard is always active within the library tree. The KNX-IoT implementation is structured so that `oc_spake2plus.c` can be moved into the TF-PSA-Crypto source tree with minimal changes.
 
@@ -610,7 +610,7 @@ zephyr_library_include_directories(
 
 ### 4. `oc_knx.c`: Caller Update
 
-With the new byte-array `spake_data_t`, the caller (`api/oc_knx.c`) no longer needs to include any Mbed TLS headers or manage struct member lifecycles. All `mbedtls_mpi_init`, `mbedtls_ecp_point_init`, `mbedtls_mpi_free`, and `mbedtls_ecp_point_free` calls on `spake_data_t` fields are replaced with `memset(&spake_data, 0, sizeof(spake_data))`. The local `mbedtls_ecp_point pB` variable and the now-removed `oc_spake_encode_pubkey()` call are replaced by passing `g_pase.shareV` (a `uint8_t[65]`) directly to `oc_spake_calc_shareV()`, which now writes the encoded point directly into the output buffer.
+With the new byte-array `spake_data_t`, the caller (`src/api/oc_knx.c`) no longer needs to include any Mbed TLS headers or manage struct member lifecycles. All `mbedtls_mpi_init`, `mbedtls_ecp_point_init`, `mbedtls_mpi_free`, and `mbedtls_ecp_point_free` calls on `spake_data_t` fields are replaced with `memset(&spake_data, 0, sizeof(spake_data))`. The local `mbedtls_ecp_point pB` variable and the now-removed `oc_spake_encode_pubkey()` call are replaced by passing `g_pase.shareV` (a `uint8_t[65]`) directly to `oc_spake_calc_shareV()`, which now writes the encoded point directly into the output buffer.
 
 ### 5. `spake2plus.c`: Which mbedTLS Calls Were Replaced and Why
 
@@ -653,7 +653,7 @@ section "Usage of private declarations"). This access is isolated entirely to
 
 ## OSCORE Crypto Migration (Mbed TLS 4.x)
 
-### 1. `security/oc_oscore_crypto.c`
+### 1. `src/security/oc_oscore_crypto.c`
 
 The OSCORE crypto layer uses two Mbed TLS subsystems that are removed in 4.x:
 
@@ -779,7 +779,7 @@ and the trailing `memcpy` calls were removed from `oc_oscore_encrypt` and
 `output == plaintext` / `output == ciphertext`, restoring the original 3.x in-place
 behaviour with no stack overhead.
 
-### 2. `security/oc_oscore_engine.c`
+### 2. `src/security/oc_oscore_engine.c`
 
 The one call to `oc_random_get_ctr_drbg_context()` + `mbedtls_ctr_drbg_random()` (used to fill the 10-byte echo nonce in s-mode) is replaced with:
 
@@ -787,7 +787,7 @@ The one call to `oc_random_get_ctr_drbg_context()` + `mbedtls_ctr_drbg_random()`
 psa_generate_random(rnd, sizeof(rnd));
 ```
 
-`#include "psa/crypto.h"` is added at the top of the file. The `oc_random_get_ctr_drbg_context()` function and its declaration in `port/oc_random.h` were already removed during the RNG migration step (Step 5).
+`#include "psa/crypto.h"` is added at the top of the file. The `oc_random_get_ctr_drbg_context()` function and its declaration in `src/port/oc_random.h` were already removed during the RNG migration step (Step 5).
 
 ---
 
@@ -804,9 +804,9 @@ psa_generate_random(rnd, sizeof(rnd));
 > **REMOVED.** PKI is not supported and `OC_PKI` was never defined by any build
 > configuration, so the `OC_PKI`-guarded blocks and this include were deleted from
 > `knx_mbedtls_config.h`. The include-directory plumbing described below is still
-> required: `knx_psa_crypto_config.h` includes `port/oc_assert.h` for `oc_exit`.
+> required: `knx_psa_crypto_config.h` includes `src/port/oc_assert.h` for `oc_exit`.
 
-This works because `port/CMakeLists.txt` adds the stack's include directories to all
+This works because `src/port/CMakeLists.txt` adds the stack's include directories to all
 tf-psa-crypto CMake sub-targets after `FetchContent_MakeAvailable(mbedtls)`.
 
 In Mbed TLS 3.x there was a single `mbedcrypto` target. In Mbed TLS 4.x the crypto
@@ -819,7 +819,7 @@ enabled in every build):
 set(MBEDTLS_INCLUDE_DIRS
     PRIVATE "${PROJECT_SOURCE_DIR}"
     PRIVATE "${PROJECT_SOURCE_DIR}/include"
-    PRIVATE "${PORT_DIR}"                   # port/linux or port/windows — provides oc_config.h
+    PRIVATE "${PORT_DIR}"                   # src/port/linux or src/port/windows — provides oc_config.h
 )
 target_include_directories(tfpsacrypto ${MBEDTLS_INCLUDE_DIRS})
 target_include_directories(mbedtls     ${MBEDTLS_INCLUDE_DIRS})
@@ -831,7 +831,7 @@ foreach(_tgt builtin p256-m everest pqcp extras platform utilities)
 endforeach()
 ```
 
-The same pattern is used in `zephyr/CMakeLists.txt` with `port/zephyr` as `PORT_DIR`.
+The same pattern is used in `zephyr/CMakeLists.txt` with `src/port/zephyr` as `PORT_DIR`.
 
 ### 2. Dual config file split (Mbed TLS 4.x requirement)
 
@@ -958,8 +958,8 @@ code — the SPAKE2+ implementation is generic:
 
 | Old                         | New                      |
 | --------------------------- | ------------------------ |
-| `security/oc_spake2plus.c`  | `security/spake2plus.c`  |
-| `security/oc_spake2plus.h`  | `security/spake2plus.h`  |
+| `src/security/oc_spake2plus.c`  | `src/security/spake2plus.c`  |
+| `src/security/oc_spake2plus.h`  | `src/security/spake2plus.h`  |
 
 Renamed via `git mv` to preserve history.
 
@@ -1006,7 +1006,7 @@ The `SALT_LENGTH` and `RND_LENGTH` constants are used as array dimensions in `oc
 call sites use `sizeof()` to pass the lengths, keeping them in sync with the struct.
 
 `app_get_password()` was removed from `spake2plus.c` entirely — the password is now
-passed as an explicit parameter at the call site in `api/oc_knx.c`.
+passed as an explicit parameter at the call site in `src/api/oc_knx.c`.
 
 ### 3. Preprocessor Macro Renames
 

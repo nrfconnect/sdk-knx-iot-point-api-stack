@@ -45,7 +45,7 @@ extern "C" {
 #include "messaging/coap/coap.h"
 #include "messaging/coap/engine.h"
 #include "oc_buffer.h"
-#include "api/oc_knx_fp.h"
+#include "oc_knx_fp.h"
 #include "security/oc_oscore.h"
 #include "security/oc_oscore_context.h"
 #include "security/oc_oscore_crypto.h"

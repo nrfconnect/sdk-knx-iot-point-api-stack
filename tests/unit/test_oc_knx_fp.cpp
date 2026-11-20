@@ -18,7 +18,7 @@
 #include <vector>
 
 extern "C" {
-#include "api/oc_knx_fp.h"
+#include "oc_knx_fp.h"
 #include "oc_ri.h"
 #include "oc_rep.h"
 #include "oc_helpers.h"
@@ -716,7 +716,7 @@ TEST_F(BelongsHref, NullHrefReturnsFalse)
  * had no boolean case, so 'non' was silently dropped on reload.
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-/* The table base keys from api/oc_knx_fp.h, the production writer and loader use the same. */
+/* The table base keys from oc_knx_fp.h, the production writer and loader use the same. */
 static const char *kRcpStore = KNX_STORAGE_KEY_GRT_ENTRY;
 static const char *kPubStore = KNX_STORAGE_KEY_GPT_ENTRY;
 static const char *kFpStoreDirPrefix = "fpt_";

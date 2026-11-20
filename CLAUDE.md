@@ -5,7 +5,9 @@ Linux, Windows, Zephyr and ESP-IDF. README.md has the user view.
 
 ## Layout
 
-- `api/`, `messaging/coap/`, `security/`, `port/`, `util/`, `include/` the stack
+- `src/` the stack (`api/`, `messaging/coap/`, `security/`, `port/`, `util/`),
+  `include/` its public headers, the only include root of an application (with
+  the platform's `src/port/<platform>/`); the CTest `PublicHeaders.*` enforces it
 - `tests/` test tiers, see `tests/README.md`:
   - `tests/unit/` Google Test unit tests (CTest)
   - `tests/fuzz/` libFuzzer harnesses (clang)

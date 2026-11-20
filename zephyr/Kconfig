@@ -8,7 +8,7 @@ config KNXIOT_LIB
     select PSA_CRYPTO
     select MBEDTLS
     # PSA crypto requirements for KNX-IoT security (SPAKE2+ and OSCORE).
-    # These selects mirror security/knx_psa_crypto_config.h (the Linux/Windows PSA
+    # These selects mirror src/security/knx_psa_crypto_config.h (the Linux/Windows PSA
     # configuration) and bypass MBEDTLS_PROMPTLESS (set by OPENTHREAD_SECURITY_DEFAULT_CONFIG
     # when OpenThread is in the build), ensuring all required algorithms are always
     # available regardless of the active network backend.
@@ -210,14 +210,14 @@ config KNXIOT_NETWORK_BACKEND_ETHERNET
     bool "Ethernet"
     help
       Use Ethernet as the network backend.
-      Compiles port/zephyr/connectivity_posix.c with the shared DNS-SD
+      Compiles src/port/zephyr/connectivity_posix.c with the shared DNS-SD
       responder. Needs CONFIG_NET_L2_ETHERNET.
 
 config KNXIOT_NETWORK_BACKEND_THREAD
     bool "OpenThread"
     help
       Use OpenThread (IEEE 802.15.4 Thread mesh) as the network backend.
-      Compiles port/zephyr/connectivity_thread.c with the OpenThread SRP
+      Compiles src/port/zephyr/connectivity_thread.c with the OpenThread SRP
       client. Needs CONFIG_OPENTHREAD, with or without the Zephyr
       OpenThread L2.
 
@@ -226,7 +226,7 @@ config KNXIOT_NETWORK_BACKEND_WIFI
     select WIFI
     help
       Use Wi-Fi as the network backend.
-      Compiles port/zephyr/connectivity_posix.c with the shared DNS-SD
+      Compiles src/port/zephyr/connectivity_posix.c with the shared DNS-SD
       responder.
 
 endchoice
@@ -306,8 +306,8 @@ config KNXIOT_SHELL
     default y
     depends on SHELL
     help
-      Compiles the shared KNX IoT shell commands (port/knx_shell_commands.c) and their
-      Zephyr shell binding (port/zephyr/knx_shell.c), which registers the "knx_iot"
+      Compiles the shared KNX IoT shell commands (src/port/knx_shell_commands.c) and their
+      Zephyr shell binding (src/port/zephyr/knx_shell.c), which registers the "knx_iot"
       command with its subcommands (device parameters, tables, factory reset, heap
       statistics). Needs the Zephyr shell (CONFIG_SHELL).
 
@@ -317,7 +317,7 @@ config KNXIOT_TEST_CONTROL
     bool "Test-control endpoints (/test/restart, /test/factory-reset, /test/trigger)"
     default n
     help
-      Compiles api/oc_test_control.c and defines KNX_TEST_CONTROL for all targets.
+      Compiles src/api/oc_test_control.c and defines KNX_TEST_CONTROL for all targets.
       Registers the non-standard /test/* CoAP endpoints used by the Python runtime
       conformance suite (tests/runtime) to automate operator actions normally done
       by hand in the EITT GUI: soft restart, factory reset, and sensor trigger.
@@ -327,7 +327,7 @@ config KNXIOT_TEST_CONTROL
       Leave off for lssb/lsab and any production build.
 
 # ── Timing ─────────────────────────────────────────────────────────────────────
-# OC_CLOCK_CONF_TICKS_PER_SECOND (port/zephyr/oc_config.h) is set to
+# OC_CLOCK_CONF_TICKS_PER_SECOND (src/port/zephyr/oc_config.h) is set to
 # CONFIG_SYS_CLOCK_TICKS_PER_SEC so the KNX-IoT timer arithmetic matches
 # oc_clock_time() which returns k_uptime_get() (milliseconds).
 # No separate KNX-IoT symbol is needed; configure the tick rate via

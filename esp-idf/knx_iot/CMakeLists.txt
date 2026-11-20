@@ -4,89 +4,89 @@
 # module (zephyr/CMakeLists.txt) for the FreeRTOS/ESP-IDF port.
 #
 # The stack sources live two levels up (this component dir is esp-idf/knx_iot/).
-# The port (port/freertos_esp32): storage.c (NVS), connectivity_lwip.c (lwIP BSD sockets,
+# The port (src/port/freertos_esp32): storage.c (NVS), connectivity_lwip.c (lwIP BSD sockets,
 # serves the Ethernet, OpenThread and Wi-Fi backends, see the network backend selection
 # below) and ipadapter.c (endpoint accessor for the shared DNS-SD responder of the Ethernet
 # and Wi-Fi backends). The connectivity backend needs the esp-lwip patch
-# port/freertos_esp32/patches/0001 applied to the ESP-IDF lwIP tree, it refuses to compile
+# src/port/freertos_esp32/patches/0001 applied to the ESP-IDF lwIP tree, it refuses to compile
 # without it.
 
 get_filename_component(STACK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 
 set(API_SOURCES
-    ${STACK_ROOT}/api/oc_base64.c
-    ${STACK_ROOT}/api/oc_blockwise.c
-    ${STACK_ROOT}/api/oc_buffer.c
-    ${STACK_ROOT}/api/oc_client_api.c
-    ${STACK_ROOT}/api/oc_clock.c
-    ${STACK_ROOT}/api/oc_core_res.c
-    ${STACK_ROOT}/api/oc_discovery.c
-    ${STACK_ROOT}/api/oc_endpoint.c
-    ${STACK_ROOT}/api/oc_helpers.c
-    ${STACK_ROOT}/api/oc_main.c
-    ${STACK_ROOT}/api/oc_network_events.c
-    ${STACK_ROOT}/api/oc_rep.c
-    ${STACK_ROOT}/api/oc_replay.c
-    ${STACK_ROOT}/api/oc_ri.c
-    ${STACK_ROOT}/api/oc_server_api.c
-    ${STACK_ROOT}/api/oc_uuid.c
-    ${STACK_ROOT}/api/oc_knx.c
-    ${STACK_ROOT}/api/oc_knx_client.c
-    ${STACK_ROOT}/api/oc_knx_dev.c
-    ${STACK_ROOT}/api/oc_knx_fb.c
-    ${STACK_ROOT}/api/oc_knx_fp.c
-    ${STACK_ROOT}/api/oc_knx_helpers.c
-    ${STACK_ROOT}/api/oc_knx_hooks.c
-    ${STACK_ROOT}/api/oc_knx_observe.c
-    ${STACK_ROOT}/api/oc_knx_p.c
-    ${STACK_ROOT}/api/oc_knx_publisher.c
-    ${STACK_ROOT}/api/oc_knx_sec.c
-    ${STACK_ROOT}/api/oc_knx_swu.c
-    ${STACK_ROOT}/api/oc_knx_sub.c
-    ${STACK_ROOT}/api/c-timestamp/timestamp_compare.c
-    ${STACK_ROOT}/api/c-timestamp/timestamp_format.c
-    ${STACK_ROOT}/api/c-timestamp/timestamp_parse.c
-    ${STACK_ROOT}/api/c-timestamp/timestamp_tm.c
-    ${STACK_ROOT}/api/c-timestamp/timestamp_valid.c
+    ${STACK_ROOT}/src/api/oc_base64.c
+    ${STACK_ROOT}/src/api/oc_blockwise.c
+    ${STACK_ROOT}/src/api/oc_buffer.c
+    ${STACK_ROOT}/src/api/oc_client_api.c
+    ${STACK_ROOT}/src/api/oc_clock.c
+    ${STACK_ROOT}/src/api/oc_core_res.c
+    ${STACK_ROOT}/src/api/oc_discovery.c
+    ${STACK_ROOT}/src/api/oc_endpoint.c
+    ${STACK_ROOT}/src/api/oc_helpers.c
+    ${STACK_ROOT}/src/api/oc_main.c
+    ${STACK_ROOT}/src/api/oc_network_events.c
+    ${STACK_ROOT}/src/api/oc_rep.c
+    ${STACK_ROOT}/src/api/oc_replay.c
+    ${STACK_ROOT}/src/api/oc_ri.c
+    ${STACK_ROOT}/src/api/oc_server_api.c
+    ${STACK_ROOT}/src/api/oc_uuid.c
+    ${STACK_ROOT}/src/api/oc_knx.c
+    ${STACK_ROOT}/src/api/oc_knx_client.c
+    ${STACK_ROOT}/src/api/oc_knx_dev.c
+    ${STACK_ROOT}/src/api/oc_knx_fb.c
+    ${STACK_ROOT}/src/api/oc_knx_fp.c
+    ${STACK_ROOT}/src/api/oc_knx_helpers.c
+    ${STACK_ROOT}/src/api/oc_knx_hooks.c
+    ${STACK_ROOT}/src/api/oc_knx_observe.c
+    ${STACK_ROOT}/src/api/oc_knx_p.c
+    ${STACK_ROOT}/src/api/oc_knx_publisher.c
+    ${STACK_ROOT}/src/api/oc_knx_sec.c
+    ${STACK_ROOT}/src/api/oc_knx_swu.c
+    ${STACK_ROOT}/src/api/oc_knx_sub.c
+    ${STACK_ROOT}/src/api/c-timestamp/timestamp_compare.c
+    ${STACK_ROOT}/src/api/c-timestamp/timestamp_format.c
+    ${STACK_ROOT}/src/api/c-timestamp/timestamp_parse.c
+    ${STACK_ROOT}/src/api/c-timestamp/timestamp_tm.c
+    ${STACK_ROOT}/src/api/c-timestamp/timestamp_valid.c
 )
 
 set(CORE_SOURCES
-    ${STACK_ROOT}/util/oc_etimer.c
-    ${STACK_ROOT}/util/oc_list.c
-    ${STACK_ROOT}/util/oc_mmem.c
-    ${STACK_ROOT}/util/oc_process.c
-    ${STACK_ROOT}/util/oc_timer.c
-    ${STACK_ROOT}/security/oc_oscore_context.c
-    ${STACK_ROOT}/security/oc_oscore_crypto.c
-    ${STACK_ROOT}/security/oc_oscore_engine.c
-    ${STACK_ROOT}/security/spake2plus.c
+    ${STACK_ROOT}/src/util/oc_etimer.c
+    ${STACK_ROOT}/src/util/oc_list.c
+    ${STACK_ROOT}/src/util/oc_mmem.c
+    ${STACK_ROOT}/src/util/oc_process.c
+    ${STACK_ROOT}/src/util/oc_timer.c
+    ${STACK_ROOT}/src/security/oc_oscore_context.c
+    ${STACK_ROOT}/src/security/oc_oscore_crypto.c
+    ${STACK_ROOT}/src/security/oc_oscore_engine.c
+    ${STACK_ROOT}/src/security/spake2plus.c
 )
 
 set(COAP_SOURCES
-    ${STACK_ROOT}/messaging/coap/coap.c
-    ${STACK_ROOT}/messaging/coap/engine.c
-    ${STACK_ROOT}/messaging/coap/observe.c
-    ${STACK_ROOT}/messaging/coap/oscore.c
-    ${STACK_ROOT}/messaging/coap/separate.c
-    ${STACK_ROOT}/messaging/coap/transactions.c
+    ${STACK_ROOT}/src/messaging/coap/coap.c
+    ${STACK_ROOT}/src/messaging/coap/engine.c
+    ${STACK_ROOT}/src/messaging/coap/observe.c
+    ${STACK_ROOT}/src/messaging/coap/oscore.c
+    ${STACK_ROOT}/src/messaging/coap/separate.c
+    ${STACK_ROOT}/src/messaging/coap/transactions.c
 )
 
 # Platform port: Common shared files plus the FreeRTOS/ESP-IDF specific files.
 set(PORT_SOURCES
-    ${STACK_ROOT}/port/oc_log.c
-    ${STACK_ROOT}/port/random_psa.c
-    ${STACK_ROOT}/port/freertos_esp32/abort.c
-    ${STACK_ROOT}/port/freertos_esp32/clock.c
-    ${STACK_ROOT}/port/freertos_esp32/oc_network_interface.c
-    ${STACK_ROOT}/port/freertos_esp32/storage.c
-    ${STACK_ROOT}/port/freertos_esp32/connectivity_lwip.c
+    ${STACK_ROOT}/src/port/oc_log.c
+    ${STACK_ROOT}/src/port/random_psa.c
+    ${STACK_ROOT}/src/port/freertos_esp32/abort.c
+    ${STACK_ROOT}/src/port/freertos_esp32/clock.c
+    ${STACK_ROOT}/src/port/freertos_esp32/oc_network_interface.c
+    ${STACK_ROOT}/src/port/freertos_esp32/storage.c
+    ${STACK_ROOT}/src/port/freertos_esp32/connectivity_lwip.c
 )
 
 # Network backend selection:
-#   Ether./Wi-Fi - connectivity_lwip.c + port/dns-sd_mdns.c (DNS-SD and mDNS, the same
+#   Ether./Wi-Fi - connectivity_lwip.c + src/port/dns-sd_mdns.c (DNS-SD and mDNS, the same
 #                  implementation used on Linux, Windows and Zephyr) + ipadapter.c (the
 #                  endpoint accessor of the responder)
-#   OpenThread   - connectivity_lwip.c over the OpenThread esp_netif + port/dns-sd_srp.c
+#   OpenThread   - connectivity_lwip.c over the OpenThread esp_netif + src/port/dns-sd_srp.c
 #                  (DNS-SD through the OpenThread SRP client, shared with Zephyr)
 # Note: The socket backend connectivity_lwip.c serves all three backends. ESP-IDF runs
 #       OpenThread as an lwIP network interface (CONFIG_OPENTHREAD_PLATFORM_NETIF), the same
@@ -98,8 +98,8 @@ set(PORT_SOURCES
 #       separate option of the OpenThread component and is checked here.
 if(CONFIG_KNXIOT_NETWORK_BACKEND_ETHERNET OR CONFIG_KNXIOT_NETWORK_BACKEND_WIFI)
     list(APPEND PORT_SOURCES
-        ${STACK_ROOT}/port/dns-sd_mdns.c
-        ${STACK_ROOT}/port/freertos_esp32/ipadapter.c
+        ${STACK_ROOT}/src/port/dns-sd_mdns.c
+        ${STACK_ROOT}/src/port/freertos_esp32/ipadapter.c
     )
 elseif(CONFIG_KNXIOT_NETWORK_BACKEND_THREAD)
     if(NOT CONFIG_OPENTHREAD_PLATFORM_NETIF)
@@ -108,7 +108,7 @@ elseif(CONFIG_KNXIOT_NETWORK_BACKEND_THREAD)
             "Enable CONFIG_OPENTHREAD_PLATFORM_NETIF in the application configuration.")
     endif()
 
-    list(APPEND PORT_SOURCES ${STACK_ROOT}/port/dns-sd_srp.c)
+    list(APPEND PORT_SOURCES ${STACK_ROOT}/src/port/dns-sd_srp.c)
 elseif(NOT CMAKE_BUILD_EARLY_EXPANSION)
     # ESP-IDF includes every component CMakeLists once before the configuration is loaded, to
     # collect the requirements (tools/cmake/scripts/component_get_requirements.cmake). No
@@ -119,18 +119,20 @@ elseif(NOT CMAKE_BUILD_EARLY_EXPANSION)
 endif()
 
 # Test-control endpoints (/test/*) for the Python runtime conformance suite.
+set(KNX_TEST_CONTROL_INCLUDE_DIRS "")
 if(CONFIG_KNXIOT_TEST_CONTROL)
-    list(APPEND API_SOURCES ${STACK_ROOT}/api/oc_test_control.c)
+    list(APPEND API_SOURCES ${STACK_ROOT}/src/api/oc_test_control.c)
+    set(KNX_TEST_CONTROL_INCLUDE_DIRS "${STACK_ROOT}/src/api")   # oc_test_control.h
 endif()
 
-# KNX IoT console command: The shared command handlers (port/knx_shell_commands.c) plus
+# KNX IoT console command: The shared command handlers (src/port/knx_shell_commands.c) plus
 # the ESP-IDF console binding. The console component is a fixed private requirement of
 # the component (below), because ESP-IDF resolves the requirements before the
 # configuration is loaded, so the option can only select the sources.
 if(CONFIG_KNXIOT_SHELL)
     list(APPEND PORT_SOURCES
-        ${STACK_ROOT}/port/knx_shell_commands.c
-        ${STACK_ROOT}/port/freertos_esp32/knx_shell.c
+        ${STACK_ROOT}/src/port/knx_shell_commands.c
+        ${STACK_ROOT}/src/port/freertos_esp32/knx_shell.c
     )
 endif()
 
@@ -141,14 +143,15 @@ idf_component_register(
         ${COAP_SOURCES}
         ${PORT_SOURCES}
     INCLUDE_DIRS
-        "${STACK_ROOT}"
         "${STACK_ROOT}/include"
-        "${STACK_ROOT}/port/freertos_esp32"
-        "${STACK_ROOT}/api"
+        "${STACK_ROOT}/src/port/freertos_esp32"
+        ${KNX_TEST_CONTROL_INCLUDE_DIRS}
     PRIV_INCLUDE_DIRS
-        "${STACK_ROOT}/security"
-        "${STACK_ROOT}/messaging/coap"
-        "${STACK_ROOT}/api/c-timestamp"
+        "${STACK_ROOT}/src"
+        "${STACK_ROOT}/src/api"
+        "${STACK_ROOT}/src/security"
+        "${STACK_ROOT}/src/messaging/coap"
+        "${STACK_ROOT}/src/api/c-timestamp"
     REQUIRES
         mbedtls
     PRIV_REQUIRES
@@ -156,7 +159,7 @@ idf_component_register(
         console
 )
 
-# The OpenThread component is required only by the Thread backend (port/dns-sd_srp.c and the
+# The OpenThread component is required only by the Thread backend (src/port/dns-sd_srp.c and the
 # OpenThread netif lookup of connectivity_lwip.c). A requirement cannot depend on a Kconfig
 # option inside idf_component_register(), the optional requirement is added afterwards.
 if(CONFIG_KNXIOT_NETWORK_BACKEND_THREAD)
@@ -241,20 +244,20 @@ if(CONFIG_KNXIOT_TINYCBOR_BUILTIN)
 endif()
 
 # mDNS header-only library
-# Required by port/dns-sd_mdns.c, the DNS-SD responder. Vendored and maintained
-# in port/mdns, see its README.md.
-target_include_directories(${COMPONENT_LIB} PRIVATE "${STACK_ROOT}/port/mdns")
+# Required by src/port/dns-sd_mdns.c, the DNS-SD responder. Vendored and maintained
+# in src/port/mdns, see its README.md.
+target_include_directories(${COMPONENT_LIB} PRIVATE "${STACK_ROOT}/src/port/mdns")
 
 # -- Compile definitions (KNXIOT_* Kconfig -> internal OC_* / KNX_* names) --
 # PUBLIC so they propagate to application sources, which include stack headers
 # whose API is gated on these defines (mirrors Zephyr's zephyr_compile_definitions).
 # The platform-neutral Kconfig option KNXIOT_LOG_PLATFORM_NATIVE maps to the ESP-IDF
-# specific define KNX_LOG_ESP_IDF_NATIVE (port/oc_log.h, port/log_esp-idf.h).
+# specific define KNX_LOG_ESP_IDF_NATIVE (include/port/oc_log.h, include/port/log_esp-idf.h).
 # Note: TODO AB FREERTOS
 # KNX_PAYLOAD_SIZE is hardcoded here to mirror the FORCE behaviour in the root
 # CMakeLists.txt, as in the Zephyr module. It is intentionally not exposed via Kconfig.
 # 768 keeps the total CoAP PDU (payload + outer header + inner header = 1040) below
-# COAP_MAX_MESSAGE_SIZE (1152), which api/oc_main.c asserts at compile time.
+# COAP_MAX_MESSAGE_SIZE (1152), which src/api/oc_main.c asserts at compile time.
 target_compile_definitions(${COMPONENT_LIB} PUBLIC
     $<$<BOOL:${CONFIG_KNXIOT_CLIENT}>:OC_CLIENT>
     $<$<BOOL:${CONFIG_KNXIOT_SERVER}>:OC_SERVER>
@@ -296,7 +299,7 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
 )
 
 # FreeRTOS task parameters of the port (library-internal). The CoAP receive task is
-# in connectivity_lwip.c, the mDNS listener thread in the shared port/dns-sd_mdns.c.
+# in connectivity_lwip.c, the mDNS listener thread in the shared src/port/dns-sd_mdns.c.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     KNX_RX_TASK_STACK_SIZE=${CONFIG_KNXIOT_RX_TASK_STACK_SIZE}
     KNX_RX_TASK_PRIORITY=${CONFIG_KNXIOT_RX_TASK_PRIORITY}

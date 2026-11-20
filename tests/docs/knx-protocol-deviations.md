@@ -14,11 +14,11 @@ Source of truth in this repo:
 
 | area | device implementation |
 | --- | --- |
-| CoAP framing/options | `messaging/coap/coap.c`, `constants.h` |
-| OSCORE | `security/oc_oscore_crypto.c`, `oc_oscore_context.c`, `oc_oscore_engine.c`, `messaging/coap/oscore.c`, `oscore_constants.h` |
-| SPAKE2+ | `security/spake2plus.c` |
-| mDNS/DNS-SD | `port/dns-sd_mdns.c` |
-| replay window | `api/oc_replay.c` |
+| CoAP framing/options | `src/messaging/coap/coap.c`, `constants.h` |
+| OSCORE | `src/security/oc_oscore_crypto.c`, `oc_oscore_context.c`, `oc_oscore_engine.c`, `src/messaging/coap/oscore.c`, `oscore_constants.h` |
+| SPAKE2+ | `src/security/spake2plus.c` |
+| mDNS/DNS-SD | `src/port/dns-sd_mdns.c` |
+| replay window | `src/api/oc_replay.c` |
 
 ---
 
@@ -64,7 +64,7 @@ scope digit selectable (`ff02::fd` link-local, `ff05::fd` site-local — see
 
 ## OSCORE — this is where KNX deviates most
 
-Constants (`messaging/coap/oscore_constants.h`), all verified against our client:
+Constants (`include/messaging/coap/oscore_constants.h`), all verified against our client:
 
 | constant | value | note |
 | --- | --- | --- |
@@ -75,7 +75,7 @@ Constants (`messaging/coap/oscore_constants.h`), all verified against our client
 | Master secret | 32 bytes | |
 | ID context max | 16 bytes | |
 | **SSN space** | **32-bit, rolls over** | **KNX.** `OSCORE_SSN_MAX = 2^32-1`, used as a rollover *mask*, not a hard stop — independent of the 5-byte PIV field. |
-| Replay window | 8 | `api/oc_replay.c` also keeps an echo whitelist |
+| Replay window | 8 | `src/api/oc_replay.c` also keeps an echo whitelist |
 | SSN persistence | `K=32`, `F=4K` | RFC 8613 App. B.1 anti-reuse padding on restore |
 
 ### Deviations that are CORRECT — do not "fix" toward the RFC
@@ -144,7 +144,7 @@ mod the group order, `HKDF(K_main,"ConfirmationKeys",64)` → KcA‖KcB and
 ## mDNS / DNS-SD — the subtype scheme is the reason we can't use zeroconf
 
 Service type is `_knx._udp.local.`, but discovery happens almost entirely
-through **subtypes** (`port/dns-sd_mdns.c`), three of which the device
+through **subtypes** (`src/port/dns-sd_mdns.c`), three of which the device
 advertises:
 
 | subtype | built from | used by |

@@ -11,7 +11,7 @@
 
 extern "C"
 {
-#include "api/oc_knx_fp.h"
+#include "oc_knx_fp.h"
 #include "messaging/coap/coap_knx_hooks.h"
 }
 

@@ -36,7 +36,7 @@ class TestDiscoveryPaginationManyFunctionalBlocks:
     blocks.  No EITT TestCase covers this; the template only ever sends
     well-formed pn/ps pairs on an unfiltered query.
 
-    api/oc_discovery.c only folds the device's application resources
+    src/api/oc_discovery.c only folds the device's application resources
     (functional blocks, datapoints, etc.) into the /.well-known/core
     `total` count when a filter (rt= or if=) is present on the request
     (see the `rt_len > 0 || if_len > 0` branch ahead of the pagination
@@ -46,7 +46,7 @@ class TestDiscoveryPaginationManyFunctionalBlocks:
     5.10.1.6 covers the same mechanism against /fp/g).
 
     The server's p.next link only ever carries the next `pn` value
-    (see add_next_page_indicator in api/oc_knx_helpers.c) -- rt and ps
+    (see add_next_page_indicator in src/api/oc_knx_helpers.c) -- rt and ps
     are silently dropped, so a conforming client must remember its own
     query and merely substitute pn. We do the same here.
     """
@@ -126,7 +126,7 @@ class TestDiscoveryPaginationManyFunctionalBlocks:
     def test_wellknown_core_pagination_negative_pn_returns_400(self, coap):
         """GET /.well-known/core?rt=*&pn=-1 -> 4.00 Bad Request.
 
-        api/oc_discovery.c line 487 explicitly rejects query_pn < 0
+        src/api/oc_discovery.c line 487 explicitly rejects query_pn < 0
         (`first_entry >= total || query_ps < 1 || query_pn < 0`).
         """
         resp = coap.get(
@@ -139,7 +139,7 @@ class TestDiscoveryPaginationManyFunctionalBlocks:
     def test_wellknown_core_pagination_negative_ps_returns_400(self, coap):
         """GET /.well-known/core?rt=*&pn=0&ps=-1 -> 4.00 Bad Request.
 
-        api/oc_discovery.c line 487 rejects query_ps < 1, which covers
+        src/api/oc_discovery.c line 487 rejects query_ps < 1, which covers
         both ps=0 and negative ps values.
         """
         resp = coap.get(

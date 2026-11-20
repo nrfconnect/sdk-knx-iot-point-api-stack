@@ -191,78 +191,77 @@ set(KNX_RESET_DELAY_MILLISECONDS "1000" CACHE STRING "KNX reset delay before exe
 set(KNX_OSCORE_OSN_DELAY_MILLISECONDS "1000" CACHE STRING "Default OSCORE echo response delay (milliseconds)")
 
 ### KNX-IoT Stack ###
-# public: the root (the public headers include "messaging/coap/...", "port/...", "util/..."), include/ and api/,
-# whose KNX headers (oc_knx_fp.h, oc_knx_dev.h, ...) the applications include by name
+# public: include/ only (with the platform's oc_config.h directory, exported by kis-port)
 set(KNX_INCLUDE_DIRS 
-    ${PROJECT_SOURCE_DIR}/
     ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_SOURCE_DIR}/api
 )
 # stack internal, also used by the tests that call into the internals
 set(KNX_PRIVATE_INCLUDE_DIRS
-    ${PROJECT_SOURCE_DIR}/security
-    ${PROJECT_SOURCE_DIR}/messaging/coap
-    ${PROJECT_SOURCE_DIR}/api/c-timestamp
+    ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/src/api
+    ${PROJECT_SOURCE_DIR}/src/security
+    ${PROJECT_SOURCE_DIR}/src/messaging/coap
+    ${PROJECT_SOURCE_DIR}/src/api/c-timestamp
 )
 
 set(API_SOURCES
-    ${PROJECT_SOURCE_DIR}/api/oc_base64.c
-    ${PROJECT_SOURCE_DIR}/api/oc_blockwise.c
-    ${PROJECT_SOURCE_DIR}/api/oc_buffer.c
-    ${PROJECT_SOURCE_DIR}/api/oc_client_api.c
-    ${PROJECT_SOURCE_DIR}/api/oc_clock.c
-    ${PROJECT_SOURCE_DIR}/api/oc_core_res.c
-    ${PROJECT_SOURCE_DIR}/api/oc_discovery.c
-    ${PROJECT_SOURCE_DIR}/api/oc_endpoint.c
-    ${PROJECT_SOURCE_DIR}/api/oc_helpers.c
-    ${PROJECT_SOURCE_DIR}/api/oc_main.c
-    ${PROJECT_SOURCE_DIR}/api/oc_network_events.c
-    ${PROJECT_SOURCE_DIR}/api/oc_rep.c
-    ${PROJECT_SOURCE_DIR}/api/oc_replay.c
-    ${PROJECT_SOURCE_DIR}/api/oc_ri.c
-    ${PROJECT_SOURCE_DIR}/api/oc_server_api.c
-    ${PROJECT_SOURCE_DIR}/api/oc_uuid.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_client.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_dev.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_fb.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_fp.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_helpers.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_hooks.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_observe.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_p.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_publisher.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_sec.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_swu.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_sub.c
-    ${PROJECT_SOURCE_DIR}/api/c-timestamp/timestamp_compare.c
-    ${PROJECT_SOURCE_DIR}/api/c-timestamp/timestamp_format.c
-    ${PROJECT_SOURCE_DIR}/api/c-timestamp/timestamp_parse.c
-    ${PROJECT_SOURCE_DIR}/api/c-timestamp/timestamp_tm.c
-    ${PROJECT_SOURCE_DIR}/api/c-timestamp/timestamp_valid.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_base64.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_blockwise.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_buffer.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_client_api.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_clock.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_core_res.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_discovery.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_endpoint.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_helpers.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_main.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_network_events.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_rep.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_replay.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_ri.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_server_api.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_uuid.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_knx.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_knx_client.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_knx_dev.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_knx_fb.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_knx_fp.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_knx_helpers.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_knx_hooks.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_knx_observe.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_knx_p.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_knx_publisher.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_knx_sec.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_knx_swu.c
+    ${PROJECT_SOURCE_DIR}/src/api/oc_knx_sub.c
+    ${PROJECT_SOURCE_DIR}/src/api/c-timestamp/timestamp_compare.c
+    ${PROJECT_SOURCE_DIR}/src/api/c-timestamp/timestamp_format.c
+    ${PROJECT_SOURCE_DIR}/src/api/c-timestamp/timestamp_parse.c
+    ${PROJECT_SOURCE_DIR}/src/api/c-timestamp/timestamp_tm.c
+    ${PROJECT_SOURCE_DIR}/src/api/c-timestamp/timestamp_valid.c
 )
 
 set(CORE_SOURCES
     # Utilities that are used deep within the stack
-    ${PROJECT_SOURCE_DIR}/util/oc_etimer.c
-    ${PROJECT_SOURCE_DIR}/util/oc_list.c
-    ${PROJECT_SOURCE_DIR}/util/oc_mmem.c
-    ${PROJECT_SOURCE_DIR}/util/oc_process.c
-    ${PROJECT_SOURCE_DIR}/util/oc_timer.c
+    ${PROJECT_SOURCE_DIR}/src/util/oc_etimer.c
+    ${PROJECT_SOURCE_DIR}/src/util/oc_list.c
+    ${PROJECT_SOURCE_DIR}/src/util/oc_mmem.c
+    ${PROJECT_SOURCE_DIR}/src/util/oc_process.c
+    ${PROJECT_SOURCE_DIR}/src/util/oc_timer.c
     # Security
-    ${PROJECT_SOURCE_DIR}/security/oc_oscore_context.c
-    ${PROJECT_SOURCE_DIR}/security/oc_oscore_crypto.c
-    ${PROJECT_SOURCE_DIR}/security/oc_oscore_engine.c
-    ${PROJECT_SOURCE_DIR}/security/spake2plus.c
+    ${PROJECT_SOURCE_DIR}/src/security/oc_oscore_context.c
+    ${PROJECT_SOURCE_DIR}/src/security/oc_oscore_crypto.c
+    ${PROJECT_SOURCE_DIR}/src/security/oc_oscore_engine.c
+    ${PROJECT_SOURCE_DIR}/src/security/spake2plus.c
 )
 
 set(COAP_SOURCES
-    ${PROJECT_SOURCE_DIR}/messaging/coap/coap.c
-    ${PROJECT_SOURCE_DIR}/messaging/coap/engine.c
-    ${PROJECT_SOURCE_DIR}/messaging/coap/observe.c
-    ${PROJECT_SOURCE_DIR}/messaging/coap/oscore.c
-    ${PROJECT_SOURCE_DIR}/messaging/coap/separate.c
-    ${PROJECT_SOURCE_DIR}/messaging/coap/transactions.c
+    ${PROJECT_SOURCE_DIR}/src/messaging/coap/coap.c
+    ${PROJECT_SOURCE_DIR}/src/messaging/coap/engine.c
+    ${PROJECT_SOURCE_DIR}/src/messaging/coap/observe.c
+    ${PROJECT_SOURCE_DIR}/src/messaging/coap/oscore.c
+    ${PROJECT_SOURCE_DIR}/src/messaging/coap/separate.c
+    ${PROJECT_SOURCE_DIR}/src/messaging/coap/transactions.c
 )
 
 ## KNX-IoT Stack Options ##
@@ -333,7 +332,7 @@ if(KNX_LOG_CAST_64_BIT_INTS_ENABLED)
 endif()
 
 ### KNX-IoT Stack - Platform Ports ###
-add_subdirectory(port)
+add_subdirectory(src/port)
 
 ### KNX-IoT Stack ###
 # physical library targets, with default type STATIC
@@ -407,8 +406,8 @@ target_compile_definitions(kis-common INTERFACE
 # Optional library that registers /test/restart, /test/factory-reset and
 # /test/trigger endpoints.  Link kisTestControl in any app that needs
 # automated testing (e.g. eitt_virtual_gui, runtime_test_server).
-add_library(kisTestControl STATIC ${PROJECT_SOURCE_DIR}/api/oc_test_control.c)
-target_include_directories(kisTestControl PUBLIC ${PROJECT_SOURCE_DIR}/api)
+add_library(kisTestControl STATIC ${PROJECT_SOURCE_DIR}/src/api/oc_test_control.c)
+target_include_directories(kisTestControl PUBLIC ${PROJECT_SOURCE_DIR}/src/api PRIVATE ${KNX_PRIVATE_INCLUDE_DIRS})
 target_link_libraries(kisTestControl PUBLIC kisClientServer)
 target_compile_options(kisTestControl PRIVATE ${KNX_STACK_C_FLAGS})
 target_compile_definitions(kisTestControl PRIVATE ${KNX_STACK_C_DEFINITIONS})

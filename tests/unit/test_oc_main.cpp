@@ -20,7 +20,7 @@
  */
 
 extern "C" {
-#include "api/oc_main.h"
+#include "oc_main.h"
 }
 
 #include "gtest/gtest.h"

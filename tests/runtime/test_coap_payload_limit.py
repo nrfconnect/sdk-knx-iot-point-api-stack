@@ -5,12 +5,12 @@ The DUT must reject a CoAP request whose application payload does not fit
 into its application data buffer (KNX_PAYLOAD_SIZE / OC_MAX_APP_DATA_SIZE)
 with "4.13 Request Entity Too Large" instead of silently truncating it.
 
-The rejection happens in the CoAP parser (messaging/coap/coap.c,
+The rejection happens in the CoAP parser (src/messaging/coap/coap.c,
 coap_oscore_parse_options) before the request is routed to a resource, so the
 target path and the missing OSCORE protection are irrelevant for the result.
 
 A datagram larger than the receive buffer (OC_PDU_SIZE) never reaches the
-parser: the Linux IP adapter (port/linux/ipadapter.c, recv_msg) drops it on
+parser: the Linux IP adapter (src/port/linux/ipadapter.c, recv_msg) drops it on
 MSG_TRUNC without any answer.
 
 Reference:
@@ -41,7 +41,7 @@ SIZE1_OPTION = 60
 # CoAP Block1 option (RFC 7959 2.1)
 BLOCK1_OPTION = 27
 
-# Must mirror COAP_MAX_MESSAGE_SIZE (messaging/coap/constants.h): api/oc_main.c static_asserts
+# Must mirror COAP_MAX_MESSAGE_SIZE (include/messaging/coap/constants.h): src/api/oc_main.c static_asserts
 # OC_PDU_SIZE = KNX_PAYLOAD_SIZE + OC_COAP_HEADER_BUDGET <= COAP_MAX_MESSAGE_SIZE
 COAP_MAX_MESSAGE_SIZE = 1152
 

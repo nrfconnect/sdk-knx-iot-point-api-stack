@@ -18,7 +18,7 @@
 
 extern "C"
 {
-#include "api/oc_knx_fp.h"
+#include "oc_knx_fp.h"
 #include "oc_core_res.h"
 #include "oc_helpers.h"
 }

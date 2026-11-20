@@ -16,11 +16,11 @@
 #include "test_helpers_coap_frame.h"
 
 extern "C" {
-#include "coap.h"
+#include "messaging/coap/coap.h"
 #include "oc_buffer.h"
 #include "oc_buffer_settings.h"
 #include "oc_ri.h"
-#include "oscore.h"
+#include "messaging/coap/oscore.h"
 #include "port/oc_network_events_mutex.h"
 }
 

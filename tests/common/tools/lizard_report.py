@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 # The stack's own code; the vendored third-party files are left out
 # (docs/licensing.md, "Pure third-party files").
-SOURCES = ["api", "messaging", "security", "util", "port", "include"]
+SOURCES = ["src", "include"]
 EXCLUDE = ["*/c-timestamp/*", "*/pt/*", "*/mdns/mdns.h"]
 LIMITS = {"CCN": 15, "length": 150, "PARAM": 7}  # lizard -C, -L, -a
 FIELDS = ["NLOC", "CCN", "token", "PARAM", "length", "location", "file",
@@ -73,18 +73,24 @@ def git(*args):
 
 
 def changed_lines(base):
-    """path -> set of changed line numbers (new side) of the stack's C files."""
-    lines, path = {}, None
-    for line in git("diff", "-U0", "--no-color", base, "--", *SOURCES).splitlines():
-        if line.startswith("+++ "):
+    """path -> set of changed line numbers (new side) of the stack's C files,
+    and path -> its path at base (differs for a moved file)."""
+    lines, old_paths, path, old = {}, {}, None, None
+    # no pathspec: a file moved into SOURCES must pair with its old path
+    for line in git("diff", "-M", "-U0", "--no-color", base).splitlines():
+        if line.startswith("--- "):
+            old = line[6:] if line != "--- /dev/null" else None
+        elif line.startswith("+++ "):
             name = line[6:] if line != "+++ /dev/null" else None
-            path = name if name and name.endswith((".c", ".h")) and not any(
+            path = name if name and name.split("/")[0] in SOURCES and name.endswith((".c", ".h")) and not any(
                 fnmatch.fnmatch(name, p) for p in EXCLUDE) else None
+            if path and old:
+                old_paths[path] = old
         elif path and line.startswith("@@"):
             start, count = re.match(r"@@ -\S+ \+(\d+)(?:,(\d+))? @@", line).groups()
             count = 1 if count is None else int(count)
             lines.setdefault(path, set()).update(range(int(start), int(start) + count))
-    return lines
+    return lines, old_paths
 
 
 def over(f):
@@ -93,7 +99,7 @@ def over(f):
 
 def diff_check(base):
     merge_base = git("merge-base", base, "HEAD").strip()
-    lines = changed_lines(merge_base)
+    lines, old_paths = changed_lines(merge_base)
     if not lines:
         print(f"no stack C changes since {base}")
         return 0
@@ -102,10 +108,9 @@ def diff_check(base):
     # the same files at the merge base, to compare a changed function with itself
     with tempfile.TemporaryDirectory() as tmp:
         for p in paths:
-            try:
-                text = git("show", f"{merge_base}:{p}")
-            except subprocess.CalledProcessError:
+            if p not in old_paths:
                 continue  # a new file
+            text = git("show", f"{merge_base}:{old_paths[p]}")
             (Path(tmp) / p).parent.mkdir(parents=True, exist_ok=True)
             (Path(tmp) / p).write_text(text, encoding="utf-8")
         old = functions([p for p in paths if (Path(tmp) / p).exists()], tmp)

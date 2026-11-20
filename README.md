@@ -119,16 +119,16 @@ The `*-coverage-gcc` presets build the same unit suite with gcov instrumentation
 (`--coverage -O0`, CMake option `ENABLE_COVERAGE`). Run it, then let
 [gcovr](https://gcovr.com) (`pip install gcovr`) turn the `.gcda` files into a
 report; the filters restrict it to the stack's own code, leaving out tests,
-fetched dependencies, the vendored `api/c-timestamp` parser and
-`api/oc_test_control.c` (test endpoints of the device used by the runtime and
+fetched dependencies, the vendored `src/api/c-timestamp` parser and
+`src/api/oc_test_control.c` (test endpoints of the device used by the runtime and
 conformance tiers, not part of the product):
 
 ```bash
 cmake --preset linux-coverage-gcc          # windows-coverage-gcc on MSYS2/MinGW
 cmake --build --preset linux-coverage-gcc
 ctest --preset linux-coverage-gcc
-gcovr --root . --filter 'api/' --filter 'messaging/' --filter 'security/' --filter 'util/' \
-      --exclude 'api/c-timestamp/.*' --exclude 'api/oc_test_control[.]c' --print-summary \
+gcovr --root . --filter 'src/api/' --filter 'src/messaging/' --filter 'src/security/' --filter 'src/util/' \
+      --exclude 'src/api/c-timestamp/.*' --exclude 'src/api/oc_test_control[.]c' --print-summary \
   --html-medium-threshold 65 --html-high-threshold 85 \
       --html-details build/linux-coverage-gcc/coverage-html/index.html build/linux-coverage-gcc
 ```
@@ -185,6 +185,14 @@ git clang-format --diff $(git merge-base origin/main HEAD)   # check
 git clang-format $(git merge-base origin/main HEAD)          # fix the working tree
 ```
 
+`git clang-format` does not detect renames, so it checks a moved file as a whole. CI
+therefore runs the rename-aware form, which also works locally:
+
+```bash
+git diff -M -U0 --no-color $(git merge-base origin/main HEAD) | clang-format-diff.py -p1 \
+  -regex '(?!src/api/c-timestamp/|include/util/pt/|src/port/mdns/mdns\.h$)(src|include)/.*\.[ch]'
+```
+
 ### Runtime Conformance Tests
 
 Runtime tests exercise the full stack over real CoAP/OSCORE on IPv6 and build a `runtime_test_server` device under test. They come in two tiers: the conformance tier plays KNX's conformance-test template against the device with the [KNX IoT Point API Test Tool](https://gitlab.knx.org/public-projects/knx-iot-point-api/knx-iot-point-api-test-tool) (git submodule `tests/iot-test-tool`, with this stack's override files in `tests/conformance/`), and `tests/runtime/` holds hand-written tests for behaviour the template does not cover. Both share `tests/common/`. Fetch the tool once with `git submodule update --init tests/iot-test-tool`. They run in Docker only: the device needs its own network namespace and a veth pair with unique local addresses, which the runners create exactly as the CI jobs `conformance-gcc` and `runtime-gcc` do; see `tests/README.md` for the map.
@@ -231,15 +239,23 @@ New crashes land in `artifacts/`. In CI, `fuzz-seed-replay` gates on the seed re
 ## Project Structure
 
 ```text
-api/                     client/server APIs, resource handlers, KNX helpers, CBOR utilities
-include/                 public headers for the stack APIs and helpers
-messaging/coap/          tailored CoAP implementation and OSCORE message handling
-security/                OSCORE and SPAKE2+ security implementation
-util/                    low-level internal primitives used by the core framework
-port/                    shared platform abstractions and OS-specific adaptations
-  linux/                 Linux port
-  windows/               Windows port
-  zephyr/                Zephyr port
+include/                 public headers, the only include root an application needs
+  messaging/coap/        CoAP/OSCORE types and constants the public API exposes
+  port/                  platform abstraction interface (clock, log, storage, network, DNS-SD)
+  security/              access token types
+  util/                  lists, memory pools, timers, processes, protothreads
+src/                     the stack's production code (private)
+  api/                   client/server APIs, resource handlers, KNX helpers, CBOR utilities
+  messaging/coap/        tailored CoAP implementation and OSCORE message handling
+  security/              OSCORE and SPAKE2+ security implementation
+  util/                  low-level internal primitives used by the core framework
+  port/                  shared platform abstractions and OS-specific adaptations
+    linux/               Linux port
+    windows/             Windows port
+    zephyr/              Zephyr port
+    freertos_esp32/      FreeRTOS/ESP-IDF port
+zephyr/                  Zephyr module glue (module.yml, CMakeLists.txt, Kconfig)
+esp-idf/knx_iot/         ESP-IDF component glue
 tests/unit/              Google Test unit tests
 tests/common/            shared Python test infrastructure + the DUT's C source
 tests/conformance/       this stack's override files for the conformance-test tool
@@ -253,13 +269,15 @@ cmake/                   helper CMake modules and toolchain files
 
 Key areas:
 
-- **`api/`** implements client/server APIs, resources, endpoint handling, discovery, and CBOR encode/decode helpers for data points and function blocks.
-- **`messaging/coap/`** contains the CoAP engine tailored for the stack.
-- **`security/`** contains the security model implementation, including OSCORE.
+- **`src/api/`** implements client/server APIs, resources, endpoint handling, discovery, and CBOR encode/decode helpers for data points and function blocks.
+- **`src/messaging/coap/`** contains the CoAP engine tailored for the stack.
+- **`src/security/`** contains the security model implementation, including OSCORE.
 - **`include/oc_api.h`** exposes the main client/server APIs.
 - **`include/oc_rep.h`** provides CBOR encode/decode helpers.
 - **`include/oc_helpers.h`** contains utilities for strings and arrays backed by heap or memory pools.
-- **`port/*.h`** defines shared abstractions for DNS-SD, clocks, logging, randomness, storage, and networking.
+- **`include/port/*.h`** defines shared abstractions for DNS-SD, clocks, logging, storage, and networking; the platform's `oc_config.h` stays in its port directory (`src/port/<platform>/`).
+
+An application puts `include/` and its platform's port directory on the include path; linking `kisClientServer` does both. The CTest `PublicHeaders.*` checks that every public header compiles with only these.
 
 How these parts work together — the layers and their boundaries, the single-threaded runtime model, the send and receive flows, OSCORE replay protection, SPAKE2+ etc. is described in [docs/software-design.md](docs/software-design.md).
 

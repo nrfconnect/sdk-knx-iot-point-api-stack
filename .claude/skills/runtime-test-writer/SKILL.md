@@ -31,7 +31,7 @@ template does not cover, or covers with a materially weaker assertion
   for the wire): `tests/iot-test-tool/tests/fixtures/reference-traces/5_X.xml`
   (5.4 is `5_4_1.xml`). Decode `RawContent` with
   `cbor2.loads(bytes.fromhex(...))`; rows marked `Active="N"` were not run.
-- The stack handler for the resource (e.g. `api/oc_knx_sec.c` for
+- The stack handler for the resource (e.g. `src/api/oc_knx_sec.c` for
   `/auth/*`): payload keys and types, preconditions, response codes. The
   device's C is the authority, not the RFC or memory.
 - If the knx-iot-rag MCP server is configured: the test and API specs.
@@ -89,7 +89,7 @@ since tests share device state.
 
 ## Rules
 
-- Never change stack C code (`api/`, `messaging/`, `security/`, `port/`,
+- Never change stack C code (`src/api/`, `src/messaging/`, `src/security/`, `src/port/`,
   `tests/common/runtime_test_server.c`) or `tests/common/fixtures.py` /
   `tests/conftest.py` without approval.
 - Never edit `tests/iot-test-tool/` here; changes to the tool belong in its

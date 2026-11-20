@@ -22,9 +22,9 @@
 
 extern "C" {
 #include <string.h>
-#include "api/oc_knx_dev.h"
+#include "oc_knx_dev.h"
 #include "api/oc_knx_observe.h"
-#include "api/oc_knx_sec.h"
+#include "oc_knx_sec.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/constants.h"
 #include "messaging/coap/observe.h"

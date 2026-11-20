@@ -150,7 +150,7 @@
       "name": "windows-coverage-gcc",
       "inherits": "windows-test-gcc",
       "displayName": "Windows Coverage (MinGW GCC)",
-      "description": "Debug build with unit tests and gcov source coverage (--coverage -O0). Report with: gcovr -r . --filter 'api/' --filter 'messaging/' --filter 'security/' --filter 'util/' --exclude 'api/c-timestamp/.*' --exclude 'api/oc_test_control[.]c' <builddir> (MSYS2 gcov + pip gcovr)",
+      "description": "Debug build with unit tests and gcov source coverage (--coverage -O0). Report with: gcovr -r . --filter 'src/api/' --filter 'src/messaging/' --filter 'src/security/' --filter 'src/util/' --exclude 'src/api/c-timestamp/.*' --exclude 'src/api/oc_test_control[.]c' <builddir> (MSYS2 gcov + pip gcovr)",
       "cacheVariables": {
         "BUILD_TESTING": true,
         "ENABLE_COVERAGE": true
@@ -186,7 +186,7 @@
       "name": "linux-coverage-gcc",
       "inherits": "linux-test-gcc",
       "displayName": "Linux Coverage (GCC)",
-      "description": "Debug build with unit tests and gcov source coverage (--coverage -O0). Report with: gcovr -r . --filter 'api/' --filter 'messaging/' --filter 'security/' --filter 'util/' --exclude 'api/c-timestamp/.*' --exclude 'api/oc_test_control[.]c' <builddir>",
+      "description": "Debug build with unit tests and gcov source coverage (--coverage -O0). Report with: gcovr -r . --filter 'src/api/' --filter 'src/messaging/' --filter 'src/security/' --filter 'src/util/' --exclude 'src/api/c-timestamp/.*' --exclude 'src/api/oc_test_control[.]c' <builddir>",
       "cacheVariables": {
         "BUILD_TESTING": true,
         "ENABLE_COVERAGE": true
@@ -212,7 +212,7 @@
       "name": "linux-fuzz-coverage-clang",
       "inherits": "linux-fuzz-clang",
       "displayName": "Linux Fuzz Coverage (clang + libFuzzer)",
-      "description": "Same as linux-fuzz-clang, plus gcov-compatible source coverage. Report with: gcovr -r . --gcov-executable 'llvm-cov gcov' --filter 'api/' --filter 'messaging/' --filter 'security/' --filter 'util/' --exclude 'api/c-timestamp/.*' --exclude 'api/oc_test_control[.]c' <builddir>",
+      "description": "Same as linux-fuzz-clang, plus gcov-compatible source coverage. Report with: gcovr -r . --gcov-executable 'llvm-cov gcov' --filter 'src/api/' --filter 'src/messaging/' --filter 'src/security/' --filter 'src/util/' --exclude 'src/api/c-timestamp/.*' --exclude 'src/api/oc_test_control[.]c' <builddir>",
       "cacheVariables": {
         "ENABLE_COVERAGE": true
       }

@@ -7,10 +7,10 @@ This document explains how the production code of the KNX IoT Point API stack is
 The stack implements the KNX IoT Point API (CoAP, OSCORE, SPAKE2+, mDNS) for Linux, Windows, Zephyr and RTOS. Three constraints shape most of the design:
 
 - **Constrained devices.** The same code runs on microcontrollers with a few KiB of RAM. The stack therefore keeps fixed data in flash, sizes its tables at compile time, allocates messages only while they are in use, and caps the message queues (see [Memory](#memory-flash-for-fixed-data-ram-only-for-state)).
-- **Many platforms, one core.** Everything that depends on the operating system (sockets, threads, clock, storage, random numbers, logging) sits behind small headers in `port/`. The rest of the code is identical on all platforms.
+- **Many platforms, one core.** Everything that depends on the operating system (sockets, threads, clock, storage, random numbers, logging) sits behind small headers in `src/port/`. The rest of the code is identical on all platforms.
 - **Integration into an existing application.** The stack does not own a thread. The application calls `oc_main_poll()` from its own loop, a dedicated thread or a UI timer. The stack wakes the loop when there is work.
 
-The code base descends from IoTivity-Lite (`oc_` prefix, `api/`, `util/`) and Contiki (CoAP engine in `messaging/coap/`, protothreads in `util/`). Its structure follows from that origin, with a KNX application layer added on top.
+The code base descends from IoTivity-Lite (`oc_` prefix, `src/api/`, `src/util/`) and Contiki (CoAP engine in `src/messaging/coap/`, protothreads in `src/util/`). Its structure follows from that origin, with a KNX application layer added on top.
 
 ## Layers
 
@@ -57,12 +57,12 @@ flowchart TB
 
 | Layer | Colour | Code | Responsibility |
 |---|---|---|---|
-| **KNX** | purple | `api/oc_knx*.c` | The KNX IoT Point API: `/dev`, `/fp`, `/p`, `/f`, `/auth`, `/swu`, `/.well-known/knx` and its sub-resources, s-mode group communication, the access token (AT) table, PASE, and the implementation of the hooks (`oc_knx_hooks.c`). |
-| **api-core** | green | the other files in `api/`, public headers in `include/` | Generic stack core: `oc_main_init()` and `oc_main_poll()`, the resource directory and request dispatch (`oc_ri.c`, `oc_core_res.c`), message routing (`oc_buffer.c`, `oc_network_events.c`), the OSCORE replay window (`oc_replay.c`), server and client API, blockwise transfer, CBOR (`oc_rep.c`), discovery. |
-| **messaging** | blue | `messaging/coap/` | CoAP parsing and serialisation, CON/NON transactions and retransmission, observe, separate responses, OSCORE message framing. |
-| **security** | red | `security/` | OSCORE encryption, decryption, security contexts with their sender sequence numbers, and the echo ring (`oc_oscore_*.c`), SPAKE2+ (`spake2plus.c`), on top of PSA Crypto / Mbed TLS. |
-| **port** | orange | `port/` and one directory per platform | Platform adaptation behind the headers in `port/`: sockets and the network receive thread, clock, storage, mutex, random numbers, logging, mDNS / DNS-SD. |
-| **util** | grey | `util/` | Platform-independent building blocks: protothread processes and their event queue, event timers, lists, memory helpers. |
+| **KNX** | purple | `src/api/oc_knx*.c` | The KNX IoT Point API: `/dev`, `/fp`, `/p`, `/f`, `/auth`, `/swu`, `/.well-known/knx` and its sub-resources, s-mode group communication, the access token (AT) table, PASE, and the implementation of the hooks (`oc_knx_hooks.c`). |
+| **api-core** | green | the other files in `src/api/`, public headers in `include/` | Generic stack core: `oc_main_init()` and `oc_main_poll()`, the resource directory and request dispatch (`oc_ri.c`, `oc_core_res.c`), message routing (`oc_buffer.c`, `oc_network_events.c`), the OSCORE replay window (`oc_replay.c`), server and client API, blockwise transfer, CBOR (`oc_rep.c`), discovery. |
+| **messaging** | blue | `src/messaging/coap/` | CoAP parsing and serialisation, CON/NON transactions and retransmission, observe, separate responses, OSCORE message framing. |
+| **security** | red | `src/security/` | OSCORE encryption, decryption, security contexts with their sender sequence numbers, and the echo ring (`oc_oscore_*.c`), SPAKE2+ (`spake2plus.c`), on top of PSA Crypto / Mbed TLS. |
+| **port** | orange | `src/port/` and one directory per platform | Platform adaptation behind the headers in `src/port/`: sockets and the network receive thread, clock, storage, mutex, random numbers, logging, mDNS / DNS-SD. |
+| **util** | grey | `src/util/` | Platform-independent building blocks: protothread processes and their event queue, event timers, lists, memory helpers. |
 
 The arrows show the intended direction of use. The one boundary that is enforced is the hook rule in [Lower layers reach KNX only through hooks](#lower-layers-reach-knx-only-through-hooks).
 
@@ -70,7 +70,7 @@ The arrows show the intended direction of use. The one boundary that is enforced
 
 ### One thread runs the stack
 
-All stack code runs on the thread that calls `oc_main_poll()`. Inside it, cooperative processes (protothreads from `util/oc_process.c`) take turns; none of them blocks and none is pre-empted. Only the hand-over from platform threads (and the message allocation they share) is protected by a mutex.
+All stack code runs on the thread that calls `oc_main_poll()`. Inside it, cooperative processes (protothreads from `src/util/oc_process.c`) take turns; none of them blocks and none is pre-empted. Only the hand-over from platform threads (and the message allocation they share) is protected by a mutex.
 
 Platform threads stay at the edge. The network receive thread in the port hands a datagram over with `oc_network_event()`: it appends the message to a list under the network-event mutex, polls the `oc_network_events` process, and calls the application's `signal_event_loop()` to wake the main loop. Interface and address changes take the same way. The mDNS responder on the socket ports runs its own listener thread, which answers mDNS queries on its own socket.
 
@@ -82,7 +82,7 @@ A message moves between api-core, messaging and security as an event posted to t
 
 ### Lower layers reach KNX only through hooks
 
-`messaging/`, `security/` and `port/` do not include KNX headers and do not call KNX functions. Each declares what it needs in its own header: `coap_knx_hooks.h` (s-mode echo payload, unicast result, echo delay), `oscore_knx_hooks.h` (AT table lookups, sequence number storage) and `port_knx_hooks.h` (group multicast join and leave, device info). `oc_knx_hooks.c` implements all of them as thin forwarders, and the linker connects the two sides; there is no registration and no function pointer.
+`src/messaging/`, `src/security/` and `src/port/` do not include KNX headers and do not call KNX functions. Each declares what it needs in its own header: `coap_knx_hooks.h` (s-mode echo payload, unicast result, echo delay), `oscore_knx_hooks.h` (AT table lookups, sequence number storage) and `port_knx_hooks.h` (group multicast join and leave, device info). `oc_knx_hooks.c` implements all of them as thin forwarders, and the linker connects the two sides; there is no registration and no function pointer.
 
 The CTest `LayeringCheck.LowerLayersUseOnlyTheirKnxHooks` (script `check_layering.cmake`) fails the build when a file in these three layers includes an `oc_knx*.h` header or calls a function that a KNX header declares.
 
@@ -102,7 +102,7 @@ Resource handlers (`oc_request_handler_t` per CoAP method), client response call
 
 ### Platform adaptation by link-time selection
 
-`port/` declares the platform interface in small headers (`oc_connectivity.h`, `oc_clock.h`, `oc_storage.h`, `oc_random.h`, `oc_network_events_mutex.h`, `oc_log.h`, `dns-sd.h`). Each platform directory implements them and provides its own `oc_config.h` for compile-time sizes. The build links one implementation.
+`src/port/` declares the platform interface in small headers (`oc_connectivity.h`, `oc_clock.h`, `oc_storage.h`, `oc_random.h`, `oc_network_events_mutex.h`, `oc_log.h`, `dns-sd.h`). Each platform directory implements them and provides its own `oc_config.h` for compile-time sizes. The build links one implementation.
 
 ## Runtime model
 

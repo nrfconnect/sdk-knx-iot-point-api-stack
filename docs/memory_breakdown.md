@@ -258,12 +258,12 @@ overhead per block. The figures are the same for all three backends.
 | Constant | Value | Where |
 | --- | --- | --- |
 | `KNX_PAYLOAD_SIZE`, max application data | 768 B | `zephyr/CMakeLists.txt` / top-level CMake |
-| CoAP header reserve per PDU | outer ~48 B + inner 224 B = ~272 B | `messaging/coap/conf.h` |
+| CoAP header reserve per PDU | outer ~48 B + inner 224 B = ~272 B | `src/messaging/coap/conf.h` |
 | `OC_PDU_SIZE`, one CoAP message buffer | ~1 040 B | payload + header reserve |
 | On-wire block size | 512 B | largest power of two ≤ payload |
 | `OC_MAX_OBSERVE_SIZE` | 512 B | port `oc_config.h` |
-| CON retransmission window | 5 s × 4 retries ≈ 155 s | `messaging/coap/constants.h` |
-| `OC_EXCHANGE_LIFETIME` | 318 s | `messaging/coap/constants.h` |
+| CON retransmission window | 5 s × 4 retries ≈ 155 s | `include/messaging/coap/constants.h` |
+| `OC_EXCHANGE_LIFETIME` | 318 s | `include/messaging/coap/constants.h` |
 
 ### 7.2 What is allocated
 

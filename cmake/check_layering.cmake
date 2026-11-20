@@ -2,14 +2,14 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# Layering check: the lower layers (messaging/, security/, port/) neither include the KNX headers
-# (oc_knx*.h) nor call a function the KNX layer declares (api/oc_knx*.h, include/oc_knx*.h,
+# Layering check: the lower layers (src/ and include/ messaging/, security/, port/) neither include the KNX headers
+# (oc_knx*.h) nor call a function the KNX layer declares (src/api/oc_knx*.h, include/oc_knx*.h,
 # include/oc_core_res.h). What a layer needs from the KNX layer it declares in its hooks header
-# (messaging/coap/coap_knx_hooks.h, security/oscore_knx_hooks.h, port/port_knx_hooks.h), implemented
-# in api/oc_knx_hooks.c.
+# (src/messaging/coap/coap_knx_hooks.h, src/security/oscore_knx_hooks.h, include/port/port_knx_hooks.h), implemented
+# in src/api/oc_knx_hooks.c.
 #
 # Exempt: the hooks headers themselves (the sanctioned gateway), the KNX shell commands (port/knx_shell*,
-# application code), the vendored mDNS library (port/mdns) and comment lines.
+# application code), the vendored mDNS library (src/port/mdns) and comment lines.
 #
 # Run: cmake -DROOT=<stack root> -P cmake/check_layering.cmake
 
@@ -18,7 +18,7 @@ if(NOT ROOT)
 endif()
 
 # the functions of the KNX layer: every name declared as a function in its headers
-file(GLOB knx_headers "${ROOT}/api/oc_knx*.h" "${ROOT}/include/oc_knx*.h" "${ROOT}/include/oc_core_res.h")
+file(GLOB knx_headers "${ROOT}/src/api/oc_knx*.h" "${ROOT}/include/oc_knx*.h" "${ROOT}/include/oc_core_res.h")
 set(knx_functions "")
 foreach(header ${knx_headers})
     file(STRINGS "${header}" header_lines)
@@ -57,15 +57,16 @@ list(JOIN knx_functions "|" knx_function_alternatives)
 set(knx_call_regex "(^|[^a-zA-Z0-9_])(${knx_function_alternatives})[ \t]*\\(")
 
 file(GLOB_RECURSE files
-    "${ROOT}/messaging/*.c" "${ROOT}/messaging/*.h"
-    "${ROOT}/security/*.c" "${ROOT}/security/*.h"
-    "${ROOT}/port/*.c" "${ROOT}/port/*.h"
+    "${ROOT}/src/messaging/*.c" "${ROOT}/src/messaging/*.h"
+    "${ROOT}/src/security/*.c" "${ROOT}/src/security/*.h"
+    "${ROOT}/src/port/*.c" "${ROOT}/src/port/*.h"
+    "${ROOT}/include/messaging/*.h" "${ROOT}/include/security/*.h" "${ROOT}/include/port/*.h"
 )
 
 set(violations "")
 foreach(file ${files})
     file(RELATIVE_PATH rel "${ROOT}" "${file}")
-    if(rel MATCHES "_knx_hooks\\.h$" OR rel MATCHES "^port/(.*/)?knx_shell" OR rel MATCHES "^port/mdns/"
+    if(rel MATCHES "_knx_hooks\\.h$" OR rel MATCHES "^(src|include)/port/(.*/)?knx_shell" OR rel MATCHES "^src/port/mdns/"
        OR rel MATCHES "/CMakeFiles/")
         continue()
     endif()

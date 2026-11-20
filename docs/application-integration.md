@@ -65,7 +65,7 @@ applications built on the stack. Build and run one before writing your own:
   device state in a window.
 - Zephyr boards: follow `HOW-TO-BUILD-ZEPHYR.md` for the LSAB, LSSB and EITT
   apps. An application of your own on Zephyr needs the Zephyr patches in
-  `port/zephyr/patches/`: `README.md` there says which ones a board needs.
+  `src/port/zephyr/patches/`: `README.md` there says which ones a board needs.
 
 Then onboard and configure the device with ETS and switch a datapoint. The
 KNX IoT documentation site has a walkthrough under "Point API Stack →
@@ -673,13 +673,13 @@ The headers contain the full function documentation.
 | Callbacks | `oc_set_restart_cb`, `oc_set_reset_cb`, `oc_set_factory_presets_cb`, `oc_set_programming_mode_cb`, `oc_set_swu_cb`, `oc_set_swu_upgrade_cb` | `include/oc_api.h` |
 | Load state callback and setter | `oc_set_lsm_change_cb`, `oc_knx_set_and_store_lsm` | `include/oc_knx.h` |
 | Device data | `oc_core_set_device_*`, `oc_core_set_and_store_device_*`, `oc_core_get_device_info` | `include/oc_core_res.h` |
-| Storage | `oc_storage_config` | `port/oc_storage.h` |
+| Storage | `oc_storage_config` | `include/port/oc_storage.h` |
 | Resources | `oc_new_resource`, `oc_resource_bind_*`, `oc_resource_set_*`, `oc_add_resource` | `include/oc_api.h` |
 | Responses | `oc_prepare_cbor_response`, `oc_prepare_no_format_response_no_payload`, `oc_ignore_request`, `oc_accept_header_is_ok` | `include/oc_api.h`, `include/oc_ri.h` |
 | Query parameters | `oc_query_value_exists`, `oc_get_query_value`, `oc_iterate_query` | `include/oc_api.h` |
 | Observers | `oc_notify_observers` | `include/oc_api.h` |
-| Group communication | `oc_send_s_mode_mc_or_uc_message`, `oc_is_redirected_request_from` | `api/oc_knx_client.h` |
-| Programming mode | `oc_knx_device_in_programming_mode`, `oc_knx_device_set_programming_mode` | `api/oc_knx_dev.h` |
-| Software update | `oc_swu_set_state`, `oc_swu_set_result`, `oc_swu_set_package_*`, `oc_swu_set_last_update`, `oc_swu_set_hwref` | `api/oc_knx_swu.h` |
+| Group communication | `oc_send_s_mode_mc_or_uc_message`, `oc_is_redirected_request_from` | `include/oc_knx_client.h` |
+| Programming mode | `oc_knx_device_in_programming_mode`, `oc_knx_device_set_programming_mode` | `include/oc_knx_dev.h` |
+| Software update | `oc_swu_set_state`, `oc_swu_set_result`, `oc_swu_set_package_*`, `oc_swu_set_last_update`, `oc_swu_set_hwref` | `include/oc_knx_swu.h` |
 | Timers | `oc_set_delayed_callback`, `oc_set_delayed_callback_ms`, `oc_remove_delayed_callback` | `include/oc_api.h` |
 | SPAKE2+ record | `app_get_precalculated_spake_data` (you implement it) | `include/oc_knx.h` |

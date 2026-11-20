@@ -38,9 +38,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "api/oc_knx_fp.h"
-#include "api/oc_knx_sec.h"
-#include "api/oc_knx_swu.h"
+#include "oc_knx_fp.h"
+#include "oc_knx_sec.h"
+#include "oc_knx_swu.h"
 #include "messaging/coap/engine.h"
 #include "messaging/coap/observe.h"
 #include "messaging/coap/oc_coap.h"

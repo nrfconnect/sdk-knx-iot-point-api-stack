@@ -48,7 +48,7 @@ The directory holds one file per license, named after its SPDX identifier (REUSE
 | `LICENSES/Apache-2.0.txt` | Apache License 2.0 | The project |
 | `LICENSES/BSD-3-Clause.txt` | BSD 3-Clause | Contiki (Swedish Institute of Computer Science) and er-coap (ETH Zurich) derived files |
 | `LICENSES/BSD-2-Clause.txt` | BSD 2-Clause | c-timestamp |
-| `LICENSES/Unlicense.txt` | The Unlicense | `port/mdns/mdns.h` |
+| `LICENSES/Unlicense.txt` | The Unlicense | `src/port/mdns/mdns.h` |
 
 - **The texts are the ones the repository carried in its files.**
   Word for word they equal the texts of the SPDX License List, apart from the copyright lines and
@@ -106,8 +106,8 @@ The files and the holder of their BSD-3-Clause part:
 
 | Files | Origin | Holder of the BSD-3-Clause part |
 |---|---|---|
-| `messaging/coap/coap.c`, `coap.h`, `conf.h`, `constants.h`, `engine.c`, `engine.h`, `observe.c`, `observe.h`, `transactions.c`, `transactions.h` | er-coap | Institute for Pervasive Computing, ETH Zurich (2013) |
-| `util/oc_etimer.c`, `oc_etimer.h`, `oc_list.c`, `oc_list.h`, `oc_mmem.c`, `oc_mmem.h`, `oc_process.c`, `oc_process.h`, `port/oc_clock.h` | Contiki | Swedish Institute of Computer Science (2004, 2005) |
+| `src/messaging/coap/coap.c`, `coap.h`, `conf.h`, `constants.h`, `engine.c`, `engine.h`, `observe.c`, `observe.h`, `transactions.c`, `transactions.h` | er-coap | Institute for Pervasive Computing, ETH Zurich (2013) |
+| `src/util/oc_etimer.c`, `oc_list.c`, `oc_mmem.c`, `oc_process.c`, `include/util/oc_etimer.h`, `oc_list.h`, `oc_mmem.h`, `oc_process.h`, `include/port/oc_clock.h` | Contiki | Swedish Institute of Computer Science (2004, 2005) |
 
 ### Pure third-party files
 
@@ -122,10 +122,10 @@ The files:
 
 | Files | Copyright holder | Identifier |
 |---|---|---|
-| `api/c-timestamp/timestamp.h`, `timestamp_compare.c`, `timestamp_format.c`, `timestamp_parse.c`, `timestamp_tm.c`, `timestamp_valid.c` | Christian Hansen (2014) | `BSD-2-Clause` |
-| `util/pt/lc-addrlabels.h`, `lc-switch.h`, `lc.h`, `pt-sem.h`, `pt.h` | Swedish Institute of Computer Science (2004, 2004-2005) | `BSD-3-Clause` |
-| `util/oc_timer.c`, `util/oc_timer.h` | Swedish Institute of Computer Science (2004) | `BSD-3-Clause` |
-| `port/mdns/mdns.h` (with `LICENSE` and `README.md` next to it) | Mattias Jansson, released into the public domain | `Unlicense` |
+| `src/api/c-timestamp/timestamp.h`, `timestamp_compare.c`, `timestamp_format.c`, `timestamp_parse.c`, `timestamp_tm.c`, `timestamp_valid.c` | Christian Hansen (2014) | `BSD-2-Clause` |
+| `include/util/pt/lc-addrlabels.h`, `lc-switch.h`, `lc.h`, `pt-sem.h`, `pt.h` | Swedish Institute of Computer Science (2004, 2004-2005) | `BSD-3-Clause` |
+| `src/util/oc_timer.c`, `include/util/oc_timer.h` | Swedish Institute of Computer Science (2004) | `BSD-3-Clause` |
+| `src/port/mdns/mdns.h` (with `LICENSE` and `README.md` next to it) | Mattias Jansson, released into the public domain | `Unlicense` |
 
 ## Rules for changes
 
@@ -137,7 +137,7 @@ The files:
   A file that was rewritten completely may no longer carry the third-party license. This is
   checked per file.
 - **Automated header normalization must skip pure third-party files.**
-  A normalization pass in 2026 put `Apache-2.0` on the protothread headers in `util/pt/`, which
+  A normalization pass in 2026 put `Apache-2.0` on the protothread headers in `include/util/pt/`, which
   carry only the BSD-3-Clause notice of the Swedish Institute of Computer Science. The headers are
   restored to their original form since.
 - **New third-party code keeps its license text** and gets the correct identifier in addition. A

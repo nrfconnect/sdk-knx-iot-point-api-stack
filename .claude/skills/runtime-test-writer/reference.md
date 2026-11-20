@@ -342,7 +342,7 @@ cbor2.dumps({4: 0x1101, 5: {7: 65535, 6: "a", 1: False}})
   test class; a class that reuses sender IDs from SSN 0 must start from a
   fresh device (`auth_prepare()`: factory reset, SPAKE2+, access token).
 - **GO table cflags** (bitmask): 0x10 write, 0x08 read, 0x20 init,
-  0x40 transmit, 0x80 update (`api/oc_knx_fp.h`).
+  0x40 transmit, 0x80 update (`include/oc_knx_fp.h`).
 
 ## Troubleshooting
 

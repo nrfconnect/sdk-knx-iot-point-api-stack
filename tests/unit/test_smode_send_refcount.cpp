@@ -55,7 +55,7 @@ extern "C" {
 #include "messaging/coap/transactions.h"
 #include "messaging/coap/coap.h"
 #include "port/oc_network_events_mutex.h"
-#include "include/oc_endpoint.h"
+#include "oc_endpoint.h"
 }
 
 /* -- linker --wrap stubs -------------------------------------------------- */

@@ -24,8 +24,8 @@
 extern "C" {
 #include "oc_api.h"
 #include "oc_buffer.h"
-#include "api/oc_knx_client.h"
-#include "api/oc_knx_sec.h"
+#include "oc_knx_client.h"
+#include "oc_knx_sec.h"
 #include "oc_helpers.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/transactions.h"

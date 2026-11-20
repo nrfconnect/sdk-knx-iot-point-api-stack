@@ -22,7 +22,7 @@
  */
 
 extern "C" {
-#include "api/oc_knx_client.h"
+#include "oc_knx_client.h"
 #include "oc_ri.h"
 }
 

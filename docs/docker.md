@@ -53,7 +53,7 @@ docker run --rm knx-iot-stack bash -c "cmake --preset=linux-test-asan && cmake -
 ### Coverage (`unit-coverage-gcc`)
 
 ```bash
-docker run --rm -v "${PWD}:/w" -v knx-cov-build:/w/build -v "${PWD}/build/coverage-html:/out" -w /w knx-iot-stack bash -c "cmake --preset=linux-coverage-gcc && cmake --build --preset=linux-coverage-gcc && ctest --preset=linux-coverage-gcc && gcovr --root . --filter api/ --filter messaging/ --filter security/ --filter util/ --exclude 'api/c-timestamp/.*' --exclude 'api/oc_test_control[.]c' --html-medium-threshold 65 --html-high-threshold 85 --html-details /out/index.html --print-summary --fail-under-branch 62 build/linux-coverage-gcc"
+docker run --rm -v "${PWD}:/w" -v knx-cov-build:/w/build -v "${PWD}/build/coverage-html:/out" -w /w knx-iot-stack bash -c "cmake --preset=linux-coverage-gcc && cmake --build --preset=linux-coverage-gcc && ctest --preset=linux-coverage-gcc && gcovr --root . --filter src/api/ --filter src/messaging/ --filter src/security/ --filter src/util/ --exclude 'src/api/c-timestamp/.*' --exclude 'src/api/oc_test_control[.]c' --html-medium-threshold 65 --html-high-threshold 85 --html-details /out/index.html --print-summary --fail-under-branch 62 build/linux-coverage-gcc"
 ```
 
 The working tree is mounted, so the current code is measured without an image

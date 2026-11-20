@@ -17,7 +17,7 @@
 
 extern "C" {
 #include "security/oc_oscore_context.h"
-#include "api/oc_knx_fp.h"
+#include "oc_knx_fp.h"
 #include "messaging/coap/oscore_constants.h"
 #include "messaging/coap/transactions.h"
 #include "port/oc_network_events_mutex.h"

@@ -29,7 +29,7 @@ target_link_libraries(kis-app-stubs PRIVATE kis-common)
 # linking them would re-append their archives at the end of each test executable's
 # link line and break the carefully ordered kisClientServer <-> kis-port circular link.
 target_include_directories(kis-app-stubs PRIVATE
-    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/src
     ${PROJECT_SOURCE_DIR}/include
     $<TARGET_PROPERTY:kis-port,INTERFACE_INCLUDE_DIRECTORIES>
     $<TARGET_PROPERTY:tinycbor,INTERFACE_INCLUDE_DIRECTORIES>
@@ -61,10 +61,10 @@ function(kis_add_test TEST_NAME TEST_SOURCE)
     add_executable(${TEST_NAME} ${TEST_SOURCE})
 
     target_include_directories(${TEST_NAME} PRIVATE
-        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/src
         ${PROJECT_SOURCE_DIR}/include
-        ${PROJECT_SOURCE_DIR}/port
-        ${PROJECT_SOURCE_DIR}/api
+        ${PROJECT_SOURCE_DIR}/src/port
+        ${PROJECT_SOURCE_DIR}/src/api
         ${KNX_PRIVATE_INCLUDE_DIRS}
     )
 
@@ -91,9 +91,34 @@ function(kis_add_test TEST_NAME TEST_SOURCE)
 endfunction()
 
 # ── Test targets ───────────────────────────────────────────────────────────────
-# Layering: messaging/, security/ and port/ reach the KNX layer only through their *_knx_hooks.h
+# Layering: src/messaging/, src/security/ and src/port/ reach the KNX layer only through their *_knx_hooks.h
 add_test(NAME LayeringCheck.LowerLayersUseOnlyTheirKnxHooks
          COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${PROJECT_SOURCE_DIR}/cmake/check_layering.cmake)
+
+# Public headers: an application needs only include/ (plus its platform's oc_config.h directory and
+# TinyCBOR) on the include path. Every header under include/ compiles on its own with nothing else;
+# the platform-specific log backends are left out, oc_log.h includes them on their platform only.
+file(GLOB_RECURSE kis_public_headers RELATIVE ${PROJECT_SOURCE_DIR}/include CONFIGURE_DEPENDS
+     ${PROJECT_SOURCE_DIR}/include/*.h)
+list(FILTER kis_public_headers EXCLUDE REGEX "^port/log_(zephyr|esp-idf)\\.h$")
+set(kis_public_header_sources "")
+foreach(header ${kis_public_headers})
+    string(MAKE_C_IDENTIFIER "${header}" header_id)
+    set(source "${CMAKE_CURRENT_BINARY_DIR}/public_headers/${header_id}.c")
+    file(CONFIGURE OUTPUT "${source}" CONTENT "#include \"${header}\"\n")
+    list(APPEND kis_public_header_sources "${source}")
+endforeach()
+add_library(kis-public-headers OBJECT EXCLUDE_FROM_ALL ${kis_public_header_sources})
+target_include_directories(kis-public-headers PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PORT_DIR}
+    $<TARGET_PROPERTY:tinycbor,INTERFACE_INCLUDE_DIRECTORIES>
+)
+target_compile_definitions(kis-public-headers PRIVATE
+    OC_CLIENT OC_SERVER $<TARGET_PROPERTY:kis-common,INTERFACE_COMPILE_DEFINITIONS>
+)
+add_test(NAME PublicHeaders.CompileWithOnlyTheIncludeDirectory
+         COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target kis-public-headers --config $<CONFIG>)
 
 # Pure-function tests (no platform/network dependencies)
 kis_add_test(test_oc_knx_hooks test_oc_knx_hooks.cpp)
