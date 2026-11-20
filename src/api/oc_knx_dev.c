@@ -22,7 +22,7 @@
 #include "oc_knx_client.h"
 #include "oc_knx_fp.h"
 #include "oc_knx_helpers.h"
-#include "oc_knx_sec.h"
+#include "oc_knx_sec_internal.h"
 #include "oc_main.h"
 #include "port/dns-sd.h"
 #include "port/oc_storage.h"

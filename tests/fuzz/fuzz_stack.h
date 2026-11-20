@@ -38,9 +38,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "oc_knx_fp.h"
-#include "oc_knx_sec.h"
-#include "oc_knx_swu.h"
 #include "messaging/coap/engine.h"
 #include "messaging/coap/observe.h"
 #include "messaging/coap/oc_coap.h"
@@ -51,6 +48,9 @@
 #include "oc_buffer_settings.h"
 #include "oc_core_res.h"
 #include "oc_knx.h"
+#include "oc_knx_fp.h"
+#include "oc_knx_sec_internal.h"
+#include "oc_knx_swu.h"
 #include "oc_rep.h"
 #include "oc_ri.h"
 #include "port/dns-sd.h"

@@ -8,7 +8,7 @@
 #include "oc_knx_client.h"
 #include "oc_api.h"
 #include "oc_knx_fp.h"
-#include "oc_knx_sec.h"
+#include "oc_knx_sec_internal.h"
 
 #include "security/spake2plus.h"
 

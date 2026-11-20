@@ -21,7 +21,7 @@
 #include "oc_knx.h"
 #include "oc_knx_dev.h"
 #include "oc_knx_fp.h"
-#include "oc_knx_sec.h"
+#include "oc_knx_sec_internal.h"
 #include "oc_replay.h"
 #include "port/dns-sd.h"
 #include "port/oc_assert.h"

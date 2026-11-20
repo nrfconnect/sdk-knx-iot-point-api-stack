@@ -27,7 +27,7 @@
 #include "oc_buffer.h"
 #include "oc_core_res.h"
 #include "oc_events.h"
-#include "oc_knx_sec.h"
+#include "oc_knx_sec_internal.h"
 #include "oc_network_events.h"
 #include "oc_ri.h"
 #include "oc_signal_event_loop.h"

@@ -17,7 +17,7 @@
 #include "oc_core_res.h"
 #include "oc_knx_client.h"
 #include "oc_knx_fp.h"
-#include "oc_knx_sec.h"
+#include "oc_knx_sec_internal.h"
 #include "port/oc_log.h"
 #include "port/port_knx_hooks.h"
 #include "security/oscore_knx_hooks.h"

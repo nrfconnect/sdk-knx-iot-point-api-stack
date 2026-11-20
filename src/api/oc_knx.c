@@ -19,7 +19,7 @@
 #include "oc_knx_dev.h"
 #include "messaging/coap/observe.h"
 #include "oc_knx_fp.h"
-#include "oc_knx_sec.h"
+#include "oc_knx_sec_internal.h"
 #include "oc_main.h"
 #include "oc_rep.h"
 #include "port/dns-sd.h"

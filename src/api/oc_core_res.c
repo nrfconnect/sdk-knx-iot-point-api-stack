@@ -23,7 +23,7 @@
 #include "oc_knx_fp.h"
 #include "oc_knx_helpers.h"
 #include "oc_knx_p.h"
-#include "oc_knx_sec.h"
+#include "oc_knx_sec_internal.h"
 #include "oc_knx_sub.h"
 #include "oc_knx_swu.h"
 #include "oc_main.h"

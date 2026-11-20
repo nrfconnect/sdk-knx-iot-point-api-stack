@@ -10,7 +10,6 @@
 
 #define __STDC_FORMAT_MACROS // defined to use format specifiers also in C++
 
-#include "oc_knx_sec.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -24,6 +23,7 @@
 #include "oc_helpers.h"
 #include "oc_knx_dev.h"
 #include "oc_knx_helpers.h"
+#include "oc_knx_sec_internal.h"
 #include "oc_replay.h"
 #include "port/oc_storage.h"
 #include "security/oc_oscore_context.h"

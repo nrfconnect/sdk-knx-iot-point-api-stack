@@ -21,9 +21,7 @@
 extern "C" {
 #include <stdlib.h>
 #include <string.h>
-#include "oc_knx_fp.h"
 #include "api/oc_knx_observe.h"
-#include "oc_knx_sec.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/conf.h"
 #include "messaging/coap/constants.h"
@@ -33,6 +31,8 @@ extern "C" {
 #include "messaging/coap/transactions.h"
 #include "oc_blockwise.h"
 #include "oc_buffer.h"
+#include "oc_knx_fp.h"
+#include "oc_knx_sec_internal.h"
 #include "oc_rep.h"
 #include "oc_ri.h"
 #include "port/oc_network_events_mutex.h"

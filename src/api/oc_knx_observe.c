@@ -16,7 +16,7 @@
   #include "oc_knx_client.h"
   #include "oc_knx_fp.h"
   #include "oc_knx_helpers.h"
-  #include "oc_knx_sec.h"
+  #include "oc_knx_sec_internal.h"
 
   // /k "u": delay between two update notifications of one observer
   #define K_UPDATE_TICKS (OC_CLOCK_SECOND / 5)
