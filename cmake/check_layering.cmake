@@ -5,7 +5,7 @@
 # Layering check: the lower layers (src/ and include/ messaging/, security/, port/) neither include the KNX headers
 # (oc_knx*.h) nor call a function the KNX layer declares (src/api/oc_knx*.h, include/oc_knx*.h,
 # include/oc_core_res.h). What a layer needs from the KNX layer it declares in its hooks header
-# (src/messaging/coap/coap_knx_hooks.h, src/security/oscore_knx_hooks.h, include/port/port_knx_hooks.h), implemented
+# (src/messaging/coap/coap_knx_hooks.h, src/security/oscore_knx_hooks.h, src/port/port_knx_hooks.h), implemented
 # in src/api/oc_knx_hooks.c.
 #
 # Exempt: the hooks headers themselves (the sanctioned gateway), the KNX shell commands (port/knx_shell*,

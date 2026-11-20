@@ -10,7 +10,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "port/port_knx_hooks.h" // oc_device_info_t, KNX constants
+#include "oc_core_res.h" // oc_device_info_t, SN_STR_LEN_MAX
 
 #ifdef __cplusplus
 extern "C"
