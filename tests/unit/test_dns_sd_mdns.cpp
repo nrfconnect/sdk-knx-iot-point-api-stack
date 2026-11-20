@@ -87,15 +87,15 @@
 #include <unistd.h>
 
 extern "C" {
+#include "ipadapter.h"       /* ip_context_t */
 #include "oc_api.h"          /* oc_main_poll */
 #include "oc_core_res.h"     /* oc_core_set_device_hostname */
-#include "oc_knx_dev.h"      /* oc_knx_device_set_programming_mode */
-#include "port/oc_storage.h" /* oc_storage_config */
 #include "oc_endpoint.h"     /* oc_endpoint_t, IPV6 */
-#include "oc_ri.h"           /* oc_ri_init / oc_ri_shutdown */
+#include "oc_knx_dev.h"      /* oc_knx_device_set_programming_mode */
+#include "oc_ri_internal.h"  /* oc_ri_init / oc_ri_shutdown */
 #include "port/dns-sd.h"     /* functions under test */
 #include "port/oc_clock.h"   /* OC_CLOCK_SECOND */
-#include "ipadapter.h"       /* ip_context_t */
+#include "port/oc_storage.h" /* oc_storage_config */
 #include "util/oc_list.h"
 #include "util/oc_mmem.h"
 }

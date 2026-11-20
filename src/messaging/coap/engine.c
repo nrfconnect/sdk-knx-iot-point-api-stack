@@ -25,6 +25,7 @@
 #include "observe.h"
 #include "oc_buffer.h"
 #include "oc_main.h"
+#include "oc_ri_internal.h"
 #include "port/oc_random.h"
 
 #include "oc_blockwise.h"

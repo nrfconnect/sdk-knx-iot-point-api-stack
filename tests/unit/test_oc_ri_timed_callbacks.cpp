@@ -31,7 +31,7 @@
 
 extern "C" {
 #include "oc_api.h"        /* oc_main_poll */
-#include "oc_ri.h"
+#include "oc_ri_internal.h"
 #include "port/oc_clock.h" /* OC_CLOCK_SECOND */
 #include "util/oc_mmem.h"
 }

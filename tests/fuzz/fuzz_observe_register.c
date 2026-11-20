@@ -45,6 +45,7 @@
 #include "fuzz_stack.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/conf.h"
+#include "oc_ri_internal.h"
 #include "psa/crypto.h"
 
 #define MAX_RECORDS 24

@@ -23,11 +23,11 @@
 #include <vector>
 
 extern "C" {
-#include "oc_api.h"
-#include "oc_buffer.h"
-#include "oc_ri.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/engine.h"
+#include "oc_api.h"
+#include "oc_buffer.h"
+#include "oc_ri_internal.h"
 #include "port/oc_clock.h"
 #include "port/oc_network_events_mutex.h"
 #include "port/oc_random.h"

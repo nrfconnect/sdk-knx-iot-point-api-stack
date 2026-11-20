@@ -32,13 +32,13 @@
 #include <vector>
 
 extern "C" {
-#include "oc_buffer.h"
-#include "oc_buffer_settings.h"
-#include "oc_client_state.h"
-#include "oc_ri.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/engine.h"
 #include "messaging/coap/transactions.h"
+#include "oc_buffer.h"
+#include "oc_buffer_settings.h"
+#include "oc_client_state.h"
+#include "oc_ri_internal.h"
 #include "port/oc_network_events_mutex.h"
 #include "port/oc_random.h"
 #include "util/oc_mmem.h"

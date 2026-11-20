@@ -8,24 +8,25 @@
  * Copyright 2026 KNXA (to the extent protectable under applicable law)
  */
 
+#include "oc_knx.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <stdlib.h>
-#include "oc_knx.h"
 #include "api/oc_knx_helpers.h"
+#include "messaging/coap/observe.h"
+#include "messaging/coap/oscore.h"
+#include "messaging/coap/transactions.h"
 #include "oc_api.h"
 #include "oc_core_res.h"
 #include "oc_knx_client.h"
 #include "oc_knx_dev.h"
-#include "messaging/coap/observe.h"
 #include "oc_knx_fp.h"
 #include "oc_knx_sec_internal.h"
 #include "oc_main.h"
 #include "oc_rep.h"
+#include "oc_ri_internal.h"
 #include "port/dns-sd.h"
 #include "port/oc_storage.h"
-#include "messaging/coap/oscore.h"
-#include "messaging/coap/transactions.h"
 
 #define __STDC_FORMAT_MACROS // defined to use format specifiers also in C++
 

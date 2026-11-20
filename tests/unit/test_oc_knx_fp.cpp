@@ -18,16 +18,15 @@
 #include <vector>
 
 extern "C" {
-#include "oc_knx_fp.h"
-#include "oc_ri.h"
-#include "oc_rep.h"
-#include "oc_helpers.h"
-#include "oc_knx.h"                 /* oc_knx_get_lsm / LSM_S_LOADING */
-#include "oc_core_res.h"            /* oc_core_get_device_info */
 #include "messaging/coap/oc_coap.h" /* full def of oc_response_buffer_s */
-#include "util/oc_mmem.h"
+#include "oc_core_res.h"            /* oc_core_get_device_info */
+#include "oc_helpers.h"
+#include "oc_knx.h" /* oc_knx_get_lsm / LSM_S_LOADING */
+#include "oc_knx_fp.h"
+#include "oc_rep.h"
+#include "oc_ri_internal.h"
 #include "port/oc_storage.h"
-
+#include "util/oc_mmem.h"
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

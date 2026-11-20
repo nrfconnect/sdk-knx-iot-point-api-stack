@@ -10,12 +10,11 @@
 #include "test_helpers_guarded_get.h"
 
 extern "C" {
-#include "oc_ri.h"
-#include "messaging/coap/oc_coap.h"
-#include "api/oc_knx_fb.h"
-#include "util/oc_mmem.h"
 #include <string.h>
-
+#include "api/oc_knx_fb.h"
+#include "messaging/coap/oc_coap.h"
+#include "oc_ri_internal.h"
+#include "util/oc_mmem.h"
 }
 
 extern "C" const oc_resource_t core_resource_knx_f;

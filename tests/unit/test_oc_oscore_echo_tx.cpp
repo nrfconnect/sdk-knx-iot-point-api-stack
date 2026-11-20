@@ -40,22 +40,22 @@
 #include "test_helpers_coap_frame.h"
 
 extern "C" {
-#include "messaging/coap/oscore.h"
-#include "messaging/coap/oscore_constants.h"
+#include "api/oc_events.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/engine.h"
+#include "messaging/coap/oscore.h"
+#include "messaging/coap/oscore_constants.h"
 #include "oc_buffer.h"
+#include "oc_helpers.h"
 #include "oc_knx_fp.h"
+#include "oc_ri_internal.h"
+#include "port/oc_connectivity.h"
+#include "port/oc_network_events_mutex.h"
+#include "psa/crypto.h"
 #include "security/oc_oscore.h"
 #include "security/oc_oscore_context.h"
 #include "security/oc_oscore_crypto.h"
-#include "api/oc_events.h"
-#include "oc_ri.h"
-#include "oc_helpers.h"
-#include "port/oc_connectivity.h"
-#include "port/oc_network_events_mutex.h"
 #include "util/oc_process.h"
-#include "psa/crypto.h"
 }
 
 static int g_oscore_send_calls;

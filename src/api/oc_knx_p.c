@@ -12,6 +12,7 @@
 #include "oc_core_res.h"
 #include "oc_discovery.h"
 #include "oc_knx_fp.h"
+#include "oc_ri_internal.h"
 
 #include "api/oc_core_resources.h"
 

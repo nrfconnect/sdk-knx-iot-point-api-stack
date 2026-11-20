@@ -10,6 +10,7 @@
 #include "messaging/coap/oc_coap.h"
 #include "messaging/coap/separate.h"
 #include "oc_api.h"
+#include "oc_ri_internal.h"
 
 #include <stdlib.h>
 

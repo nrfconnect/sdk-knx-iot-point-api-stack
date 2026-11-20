@@ -23,6 +23,7 @@
 #include "oc_knx_fp.h"
 #include "oc_knx_sec_internal.h"
 #include "oc_replay.h"
+#include "oc_ri_internal.h"
 #include "port/dns-sd.h"
 #include "port/oc_assert.h"
 #include "port/oc_connectivity.h"
