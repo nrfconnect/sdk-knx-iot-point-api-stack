@@ -178,10 +178,8 @@ target_include_directories(kis-port
     PUBLIC "${PORT_DIR}"
 )
 target_include_directories(kis-port PRIVATE "${tinycbor_SOURCE_DIR}/src" PRIVATE "${tinycbor_BINARY_DIR}")
-# mDNS header-only library (src/port/mdns/mdns.h)
-# Note:
-# PUBLIC because dns-sd_mdns.c is a PUBLIC source that gets compiled by targets linking to kis-port.
-target_include_directories(kis-port PUBLIC "${MDNS_INCLUDE_DIR}")
+# mDNS header-only library (src/port/mdns/mdns.h), used only by dns-sd_mdns.c
+target_include_directories(kis-port PRIVATE "${MDNS_INCLUDE_DIR}")
 
 ## KNX-IoT Stack - Platform Port Options ##
 target_link_libraries(kis-port PUBLIC kis-common)
