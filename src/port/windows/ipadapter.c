@@ -713,7 +713,8 @@ network_event_thread_error:
   return 0;
 }
 
-oc_endpoint_t * oc_connectivity_get_endpoints() {
+oc_endpoint_t* oc_connectivity_get_endpoints(void)
+{
   ip_context_t *dev = get_ip_context_for_device();
   if (!dev) {
     return NULL;
@@ -1299,7 +1300,8 @@ int oc_connectivity_init(void) {
   return 0;
 }
 
-void oc_connectivity_shutdown() {
+void oc_connectivity_shutdown(void)
+{
   ip_context_t *dev = get_ip_context_for_device();
   dev->terminate = TRUE;
   // Signal WSASelectEvent() in the thread to leave.

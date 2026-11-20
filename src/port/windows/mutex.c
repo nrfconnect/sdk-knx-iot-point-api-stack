@@ -13,7 +13,7 @@
 #include "mutex.h"
 
 HANDLE
-mutex_new()
+mutex_new(void)
 {
   HANDLE mutex = CreateMutex(NULL, FALSE, NULL);
   if (mutex == NULL) {
