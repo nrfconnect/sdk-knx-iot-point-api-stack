@@ -13,7 +13,8 @@
 #include "port/port_knx_hooks.h" // oc_device_info_t, KNX constants
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
   /**
@@ -80,29 +81,29 @@ extern "C" {
       bool pm;                     /**< programming mode */
       uint16_t sp;                 /**< sleep period in seconds (0 = wakeful) */
     } knx;
-} mdns_knx_record_t;
+  } mdns_knx_record_t;
 
-/**
- * @brief Return a by-value snapshot of the current mDNS advertisement record.
- *
- * Safe to call at any time. When the returned record's valid field is false,
- * no mDNS service is currently being announced and all other fields are zero.
- *
- * IP addresses and port are not included; obtain them from
- * oc_connectivity_get_endpoints() and knx_dns_sd_get_used_port().
- */
-mdns_knx_record_t knx_dns_sd_get_current_record(void);
+  /**
+   * @brief Return a by-value snapshot of the current mDNS advertisement record.
+   *
+   * Safe to call at any time. When the returned record's valid field is false,
+   * no mDNS service is currently being announced and all other fields are zero.
+   *
+   * IP addresses and port are not included; obtain them from
+   * oc_connectivity_get_endpoints() and knx_dns_sd_get_used_port().
+   */
+  mdns_knx_record_t knx_dns_sd_get_current_record(void);
 
-/**
- * @brief Stop the device's DNS-SD service advertisement during shutdown.
- *
- * On the mDNS transports (Wi-Fi on Zephyr, Linux, Windows) this sends the mDNS
- * goodbye (TTL 0), stops the listener thread, and closes the multicast socket,
- * fully tearing down the service. On Zephyr Thread (SRP) it is currently a stub.
- *
- * Call this from oc_main_shutdown before tearing down the network stack.
- */
-void knx_dns_sd_stop(void);
+  /**
+   * @brief Stop the device's DNS-SD service advertisement during shutdown.
+   *
+   * On the mDNS transports (Wi-Fi on Zephyr, Linux, Windows) this sends the mDNS
+   * goodbye (TTL 0), stops the listener thread, and closes the multicast socket,
+   * fully tearing down the service. On Zephyr Thread (SRP) it is currently a stub.
+   *
+   * Call this from oc_main_shutdown before tearing down the network stack.
+   */
+  void knx_dns_sd_stop(void);
 
 #ifdef __cplusplus
 }

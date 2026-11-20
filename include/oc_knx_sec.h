@@ -15,11 +15,12 @@
 #include "security/oc_auth_at.h"
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 #ifndef DEFAULT_OSN_DELAY
-  #define DEFAULT_OSN_DELAY (1000)	// default (ms) defined by iot specification -> able to be modified by PUT
+  #define DEFAULT_OSN_DELAY (1000) // default (ms) defined by iot specification -> able to be modified by PUT
 #endif
 
 // AT and SSN storage keys, max 15 characters (ESP-IDF NVS limit, NVS_KEY_NAME_MAX_SIZE 16
@@ -124,65 +125,65 @@ extern "C" {
    */
   int oc_delete_at_table_entry(oc_auth_at_t* entry);
 
- 	/**
+  /**
    * @brief frees the RAM-only allocations of every AT table entry, without
    * touching persistent storage (SPAKE2+/PASE shared secret, kid, kid-context, ga array)
    *
-   * @note oc_delete_at_table_entry() must not be used there since it also erases the 
+   * @note oc_delete_at_table_entry() must not be used there since it also erases the
    *       provisioned credential from storage
    */
   void oc_free_at_table_ram(void);
 
-	/**
-	 * @brief Creation of the KNX security resources.
-	 *
-	 *
-	 * creates the following resources:
-	 * - /auth/o
-	 * - /auth/o/rplwdo
-	 * - /auth/o/osndelay
-	 * - /auth
-	 *
-	 */
-	void oc_create_knx_sec_resources(void);
+  /**
+   * @brief Creation of the KNX security resources.
+   *
+   *
+   * creates the following resources:
+   * - /auth/o
+   * - /auth/o/rplwdo
+   * - /auth/o/osndelay
+   * - /auth
+   *
+   */
+  void oc_create_knx_sec_resources(void);
 
-	/**
-	 * @brief initialize all OSCORE context from AT table content, called after device reset/ restart or
-	 *        on an inbound POST to /auth/at table
-	 *
-	 * @note
-	 * - If true the SNN is increased after reading from storage by at least the replay window size
-	 * - POST /auth/at that changes the key (cnf, profile) of the token protecting the request itself:
-	 *       - the request is applied, but its 2.04 is not sent. All contexts of the token are freed on the key change,
-	 *         only the sender context is rebuilt here, and the response must be protected with the request's (old)
-	 *         context (RFC 8613 8.3). 
-	 *       - key rotation per spec 3.5.4.1: create a NEW token, switch to it, delete the old one.
-	 *
-	 * @param read_ssn_from_storage affects if the to be used, send out SSN is increased on reading from storage
-	 *                              (true usually after device reset/ restart)
-	 */
-	void oc_init_oscore_from_storage(bool read_ssn_from_storage);
+  /**
+   * @brief initialize all OSCORE context from AT table content, called after device reset/ restart or
+   *        on an inbound POST to /auth/at table
+   *
+   * @note
+   * - If true the SNN is increased after reading from storage by at least the replay window size
+   * - POST /auth/at that changes the key (cnf, profile) of the token protecting the request itself:
+   *       - the request is applied, but its 2.04 is not sent. All contexts of the token are freed on the key change,
+   *         only the sender context is rebuilt here, and the response must be protected with the request's (old)
+   *         context (RFC 8613 8.3).
+   *       - key rotation per spec 3.5.4.1: create a NEW token, switch to it, delete the old one.
+   *
+   * @param read_ssn_from_storage affects if the to be used, send out SSN is increased on reading from storage
+   *                              (true usually after device reset/ restart)
+   */
+  void oc_init_oscore_from_storage(bool read_ssn_from_storage);
 
-	/**
-	 * @brief check access control based on:
-	 *        - acl scope (auth table)
-	 *        - resource scope
-	 *        - if the method is available for the resource
-	 *
-	 * @param method invocation method for this call
-	 * @param resource the resource being called
-	 * @param endpoint the endpoint that calls for an operation
-	 * @param value_object the value object pointer, to check the group address in case of scope 'if.g.s'
-	 *
-	 * @note unsecured resources are always allowed
-	 *
-	 * @return OC_STATUS_OK has access (the resource is unsecured/public or the ACL has a match)
-	 * @return OC_STATUS_METHOD_NOT_ALLOWED the resource has no handler slot for the method (e.g. FETCH) -> 4.05
-	 * @return OC_STATUS_UNAUTHORIZED a secured resource, but the request was not decrypted with OSCORE (no valid
-	 *         credentials) -> 4.01
-	 * @return OC_STATUS_FORBIDDEN decrypted, but the access token scope (or its group addresses) does not cover the
-	 *         resource -> 4.03
-	 */
+  /**
+   * @brief check access control based on:
+   *        - acl scope (auth table)
+   *        - resource scope
+   *        - if the method is available for the resource
+   *
+   * @param method invocation method for this call
+   * @param resource the resource being called
+   * @param endpoint the endpoint that calls for an operation
+   * @param value_object the value object pointer, to check the group address in case of scope 'if.g.s'
+   *
+   * @note unsecured resources are always allowed
+   *
+   * @return OC_STATUS_OK has access (the resource is unsecured/public or the ACL has a match)
+   * @return OC_STATUS_METHOD_NOT_ALLOWED the resource has no handler slot for the method (e.g. FETCH) -> 4.05
+   * @return OC_STATUS_UNAUTHORIZED a secured resource, but the request was not decrypted with OSCORE (no valid
+   *         credentials) -> 4.01
+   * @return OC_STATUS_FORBIDDEN decrypted, but the access token scope (or its group addresses) does not cover the
+   *         resource -> 4.03
+   */
   oc_status_t oc_knx_sec_check_acl(coap_method_t method, const oc_resource_t* resource, oc_endpoint_t* endpoint, oc_rep_t* value_object);
 
   /**
@@ -247,14 +248,14 @@ extern "C" {
   /**
    * @brief get the access token table index from an entry
    *
-   * @param entry access token table entry 
+   * @param entry access token table entry
    *
    * @return index 0...n  (entry is part of the table)
    * @return index -1 (entry is not part of the table or entry is NULL)
    */
   int32_t get_at_index(const oc_auth_at_t* entry);
 
-	/**
+  /**
    * @brief sets the OSCORE OSN Delay Time and store it
    *
    * @note stored first, RAM is set only if the write succeeds (NVM + RAM stay unchanged otherwise)
@@ -264,7 +265,7 @@ extern "C" {
    */
   int set_and_store_oscore_osn_delay_ms(int64_t milliseconds);
 
-	/**
+  /**
    * @brief write SSN to storage
    *
    * @param entry the 'Sender ID' and 'ID Context' are used to identify the storage name

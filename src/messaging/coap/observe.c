@@ -7,17 +7,17 @@
  * SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
  */
 
+#include "conf.h"
 #include "oc_config.h"
 #include "separate.h"
-#include "conf.h"
 
 #ifdef OC_SERVER
-#include "observe.h"
-#include <stdio.h>
-#include <string.h>
-#include "oc_buffer.h"
-#include "port/oc_clock.h"
-#include <stdlib.h>
+  #include <stdio.h>
+  #include <stdlib.h>
+  #include <string.h>
+  #include "observe.h"
+  #include "oc_buffer.h"
+  #include "port/oc_clock.h"
 
   #include "messaging/coap/oc_coap.h"
   #include "oc_blockwise.h"
@@ -116,9 +116,8 @@ static void remove_observer(coap_observer_t* o)
 {
   OC_DBG("removing observer for %s", oc_string_checked(o->resource->uri));
 
-  oc_blockwise_state_t* response_state = oc_blockwise_find_response_buffer(
-    oc_string(o->resource->uri) + 1, oc_string_len(o->resource->uri) - 1,
-    &o->endpoint, COAP_GET, NULL, 0, OC_BLOCKWISE_SERVER);
+  oc_blockwise_state_t* response_state = oc_blockwise_find_response_buffer(oc_string(o->resource->uri) + 1, oc_string_len(o->resource->uri) - 1,
+                                                                           &o->endpoint, COAP_GET, NULL, 0, OC_BLOCKWISE_SERVER);
   if (response_state)
   {
     response_state->ref_count = 0;
@@ -401,7 +400,7 @@ static int notify_observers(const oc_resource_t* resource, oc_response_buffer_t*
   }
 
   /*
-      prepare request from "void" with data needed for the application callback GET to retrieve the 
+      prepare request from "void" with data needed for the application callback GET to retrieve the
       current state of the resource, which will be used for notifications to observers
       NOTE:
       - set only data that are not zero, C99 ensures the rest is '0'/'NULL'
@@ -409,8 +408,7 @@ static int notify_observers(const oc_resource_t* resource, oc_response_buffer_t*
 
   oc_response_buffer_t response_buffer = {.buffer_size = OC_MAX_OBSERVE_SIZE, .content_format = CONTENT_NONE};
   oc_response_t response_obj = {.response_buffer = &response_buffer};
-  oc_request_t request =
-  {
+  oc_request_t request = {
     .response = &response_obj,
     .resource = resource,
     .request_method = COAP_GET,
@@ -419,9 +417,9 @@ static int notify_observers(const oc_resource_t* resource, oc_response_buffer_t*
   };
 
   if (!response_buf)
-  { /* 
-       no response buffer passed (in this case resource is NOT NULL), so we will create a temporary 
-       response buffer and populate it by calling the resource's GET handler, and then use this 
+  { /*
+       no response buffer passed (in this case resource is NOT NULL), so we will create a temporary
+       response buffer and populate it by calling the resource's GET handler, and then use this
        buffer for notifications to observers
     */
 
