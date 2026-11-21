@@ -35,6 +35,7 @@ extern "C" {
 #include "messaging/coap/coap.h"
 #include "messaging/coap/engine.h"
 #include "messaging/coap/transactions.h"
+#include "oc_blockwise.h"
 #include "oc_buffer.h"
 #include "oc_buffer_settings.h"
 #include "oc_client_state.h"

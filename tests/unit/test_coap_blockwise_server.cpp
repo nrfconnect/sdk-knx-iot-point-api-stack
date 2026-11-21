@@ -21,6 +21,7 @@
 
 extern "C" {
 #include "oc_api.h"
+#include "oc_blockwise.h"
 #include "oc_buffer.h"
 #include "oc_ri.h"
 #include "messaging/coap/coap.h"

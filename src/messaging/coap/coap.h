@@ -9,12 +9,12 @@
 
 #pragma once
 
-#include "constants.h"
 #include <stddef.h> // for size_t
 #include <stdint.h>
-#include "oscore.h"
-#include "oc_buffer.h"
+#include "api/oc_buffer.h"
+#include "messaging/coap/constants.h"
 #include "oc_ri.h"
+#include "oscore.h"
 #include "port/oc_connectivity.h"
 #include "port/oc_log.h"
 

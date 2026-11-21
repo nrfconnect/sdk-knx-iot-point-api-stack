@@ -26,7 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "oc_buffer.h"
+#include "api/oc_buffer.h"
 #include "oc_endpoint.h"
 #include "port/dns-sd.h"
 #include "port/oc_connectivity.h"

@@ -6,13 +6,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "port/zephyr/connectivity_thread.h"
 #include <stddef.h>
-#include "oc_buffer.h"
+#include "api/oc_buffer.h"
 #include "oc_endpoint.h"
 #include "port/oc_connectivity.h"
 #include "port/oc_log.h"
 #include "port/oc_network_interface.h"
-#include "port/zephyr/connectivity_thread.h"
 #include "util/oc_list.h"
 
 #include <zephyr/kernel.h>

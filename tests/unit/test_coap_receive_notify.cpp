@@ -31,6 +31,7 @@ extern "C" {
 #include "messaging/coap/separate.h"
 #include "messaging/coap/transactions.h"
 #include "oc_api.h"
+#include "oc_blockwise.h"
 #include "oc_buffer.h"
 #include "oc_ri.h"
 #include "port/oc_network_events_mutex.h"

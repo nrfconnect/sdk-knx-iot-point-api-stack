@@ -29,7 +29,7 @@ typedef enum {
   OC_BLOCKWISE_SEPARATE_BUILD  /**< build buffer of a separate response (the application writes the body into it), never found by a lookup */
 } oc_blockwise_role_t;
 
-typedef struct oc_blockwise_state_s
+struct oc_blockwise_state_s
 {
   struct oc_blockwise_state_s *next;
   oc_string_t href;           /**< href e.g. path of the transfer */
@@ -48,9 +48,8 @@ typedef struct oc_blockwise_state_s
   uint8_t token_len;             /**< token length */
   uint16_t mid;                  /**< the message id */
   void *client_cb;               /**< client callback */
-  #endif                          
-
-} oc_blockwise_state_t;
+#endif
+};
 
 /**
  * @brief the blockwise request state

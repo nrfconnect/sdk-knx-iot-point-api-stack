@@ -72,7 +72,7 @@
 /* Internal interface of this backend, the bound port for port/dns-sd_srp.c */
 #include "connectivity_lwip.h"
 
-#include "oc_buffer.h"
+#include "api/oc_buffer.h"
 #include "oc_endpoint.h"
 #include "port/dns-sd.h"
 #include "port/oc_assert.h"

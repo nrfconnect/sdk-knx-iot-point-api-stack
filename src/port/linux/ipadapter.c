@@ -28,9 +28,9 @@
 #include <sys/select.h>
 #include <sys/un.h>
 
+#include "api/oc_buffer.h"
 #include "ipadapter.h"
 #include "ipcontext.h"
-#include "oc_buffer.h"
 #include "oc_config.h"
 #include "oc_endpoint.h"
 #include "oc_network_monitor.h"

@@ -11,21 +11,18 @@
 
 #pragma once
 
-#ifndef __ZEPHYR__
-#include "ipadapter.h"
-#endif
 #include "oc_config.h"
 #include "oc_endpoint.h"
 #include "oc_rep.h"
 #include "util/oc_etimer.h"
 #include "messaging/coap/constants.h"
 
+/* Opaque to applications: the struct is defined in the stack's private oc_blockwise.h. */
+typedef struct oc_blockwise_state_s oc_blockwise_state_t;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* The blockwise state is only forward declared here, oc_blockwise.h includes this header. */
-struct oc_blockwise_state_s;
 
 /**
  * @brief CoAP observe codes, see https://www.rfc-editor.org/rfc/rfc7641#section-2

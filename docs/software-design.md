@@ -7,10 +7,10 @@ This document explains how the production code of the KNX IoT Point API stack is
 The stack implements the KNX IoT Point API (CoAP, OSCORE, SPAKE2+, mDNS) for Linux, Windows, Zephyr and RTOS. Three constraints shape most of the design:
 
 - **Constrained devices.** The same code runs on microcontrollers with a few KiB of RAM. The stack therefore keeps fixed data in flash, sizes its tables at compile time, allocates messages only while they are in use, and caps the message queues (see [Memory](#memory-flash-for-fixed-data-ram-only-for-state)).
-- **Many platforms, one core.** Everything that depends on the operating system (sockets, threads, clock, storage, random numbers, logging) sits behind small headers in `src/port/`. The rest of the code is identical on all platforms.
+- **Many platforms, one core.** Everything that depends on the operating system (sockets, threads, clock, storage, random numbers, logging) sits behind small headers in `include/port/`. The rest of the code is identical on all platforms.
 - **Integration into an existing application.** The stack does not own a thread. The application calls `oc_main_poll()` from its own loop, a dedicated thread or a UI timer. The stack wakes the loop when there is work.
 
-The code base descends from IoTivity-Lite (`oc_` prefix, `src/api/`, `src/util/`) and Contiki (CoAP engine in `src/messaging/coap/`, protothreads in `src/util/`). Its structure follows from that origin, with a KNX application layer added on top.
+The code base descends from IoTivity-Lite (`oc_` prefix, `src/api/`, `src/util/`) and Contiki (CoAP engine in `src/messaging/coap/`, protothreads in `src/util/` and `include/util/pt/`). Its structure follows from that origin, with a KNX application layer added on top.
 
 ## Layers
 
@@ -61,10 +61,10 @@ flowchart TB
 | **api-core** | green | the other files in `src/api/`, public headers in `include/` | Generic stack core: `oc_main_init()` and `oc_main_poll()`, the resource directory and request dispatch (`oc_ri.c`, `oc_core_res.c`), message routing (`oc_buffer.c`, `oc_network_events.c`), the OSCORE replay window (`oc_replay.c`), server and client API, blockwise transfer, CBOR (`oc_rep.c`), discovery. |
 | **messaging** | blue | `src/messaging/coap/` | CoAP parsing and serialisation, CON/NON transactions and retransmission, observe, separate responses, OSCORE message framing. |
 | **security** | red | `src/security/` | OSCORE encryption, decryption, security contexts with their sender sequence numbers, and the echo ring (`oc_oscore_*.c`), SPAKE2+ (`spake2plus.c`), on top of PSA Crypto / Mbed TLS. |
-| **port** | orange | `src/port/` and one directory per platform | Platform adaptation behind the headers in `src/port/`: sockets and the network receive thread, clock, storage, mutex, random numbers, logging, mDNS / DNS-SD. |
-| **util** | grey | `src/util/` | Platform-independent building blocks: protothread processes and their event queue, event timers, lists, memory helpers. |
+| **port** | orange | `src/port/` and one directory per platform | Platform adaptation behind the headers in `include/port/`: sockets and the network receive thread, clock, storage, mutex, random numbers, logging, mDNS / DNS-SD. |
+| **util** | grey | `src/util/`, headers in `include/util/` | Platform-independent building blocks: protothread processes and their event queue, event timers, lists, memory helpers. |
 
-The arrows show the intended direction of use. The one boundary that is enforced is the hook rule in [Lower layers reach KNX only through hooks](#lower-layers-reach-knx-only-through-hooks).
+The arrows show the intended direction of use. Two boundaries are enforced: the hook rule in [Lower layers reach KNX only through hooks](#lower-layers-reach-knx-only-through-hooks), and the public API in `include/`, which the CTest `PublicHeaders.CompileWithOnlyTheIncludeDirectory` compiles header by header with only `include/` and the platform's `src/port/<platform>/` on the include path. Headers that only the stack uses stay next to their sources in `src/`.
 
 ## Design principles
 
@@ -102,7 +102,7 @@ Resource handlers (`oc_request_handler_t` per CoAP method), client response call
 
 ### Platform adaptation by link-time selection
 
-`src/port/` declares the platform interface in small headers (`oc_connectivity.h`, `oc_clock.h`, `oc_storage.h`, `oc_random.h`, `oc_network_events_mutex.h`, `oc_log.h`, `dns-sd.h`). Each platform directory implements them and provides its own `oc_config.h` for compile-time sizes. The build links one implementation.
+`include/port/` declares the platform interface in small headers (`oc_connectivity.h`, `oc_clock.h`, `oc_storage.h`, `oc_network_events_mutex.h`, `oc_log.h`, `dns-sd.h`), and `src/port/oc_random.h` the stack-internal random source. Each platform directory under `src/port/` implements them and provides its own `oc_config.h` for compile-time sizes. The build links one implementation.
 
 ## Runtime model
 
