@@ -26,7 +26,6 @@ extern "C" {
 #include "messaging/coap/coap.h"
 #include "messaging/coap/constants.h"
 #include "messaging/coap/observe.h"
-#include "messaging/coap/oc_coap.h" /* full def of oc_response_buffer_s */
 #include "oc_core_res.h"
 #include "oc_endpoint.h"
 #include "oc_helpers.h"

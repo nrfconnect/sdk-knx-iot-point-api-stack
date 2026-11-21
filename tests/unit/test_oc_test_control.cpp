@@ -25,7 +25,6 @@ extern "C" {
 #include "oc_ri.h"
 #include "oc_rep.h"
 #include "oc_helpers.h"
-#include "messaging/coap/oc_coap.h" /* full def of oc_response_buffer_s */
 #include <string.h>
 
 /* Brings the static handlers + file-scope globals into this TU. */

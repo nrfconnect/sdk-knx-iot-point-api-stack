@@ -20,7 +20,6 @@ extern "C" {
 #include "messaging/coap/coap.h"
 #include "messaging/coap/constants.h"
 #include "messaging/coap/observe.h"
-#include "messaging/coap/oc_coap.h" /* full def of oc_response_buffer_s */
 #include "oc_ri.h"
 #include "port/oc_network_events_mutex.h"
 

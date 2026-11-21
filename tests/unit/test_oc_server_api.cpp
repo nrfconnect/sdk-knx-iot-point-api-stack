@@ -30,7 +30,6 @@ extern "C" {
 #include "oc_ri.h"
 #include "oc_rep.h"
 #include "oc_helpers.h"
-#include "messaging/coap/oc_coap.h"
 #include "messaging/coap/coap.h" /* coap_method_t */
 #include "util/oc_mmem.h"
 #include <string.h>

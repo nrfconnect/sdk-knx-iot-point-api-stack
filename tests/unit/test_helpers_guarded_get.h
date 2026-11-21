@@ -23,10 +23,10 @@ extern "C"
 {
 #include "messaging/coap/coap.h"
 #include "messaging/coap/observe.h"
-#include "messaging/coap/oc_coap.h" /* full definition of oc_response_buffer_s */
 #include "oc_blockwise.h"
 #include "oc_knx_sec.h"
 #include "oc_rep.h"
+#include "oc_ri.h"
 #include "oc_ri_internal.h"
 }
 

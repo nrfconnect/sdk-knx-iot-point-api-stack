@@ -38,9 +38,7 @@
 */
 
 #pragma once
-#include "messaging/coap/oc_coap.h"
 #include "oc_client_state.h"
-#include "oc_knx.h"
 #include "oc_ri.h"
 #include "port/oc_connectivity.h"
 #include "port/oc_log.h"

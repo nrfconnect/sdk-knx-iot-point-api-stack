@@ -14,7 +14,6 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include "api/oc_core_resources.h"
-#include "messaging/coap/oc_coap.h"
 #include "oc_api.h"
 #include "oc_discovery.h"
 #include "oc_knx.h"
@@ -28,6 +27,7 @@
 #include "oc_knx_swu.h"
 #include "oc_main.h"
 #include "oc_rep.h"
+#include "oc_ri.h"
 #include "port/dns-sd.h"
 #include "port/oc_assert.h"
 #include "port/oc_storage.h"

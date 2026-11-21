@@ -14,13 +14,13 @@
 #ifndef _MSC_VER
 #include <strings.h>         /* strncasecmp */
 #endif
+#include "messaging/coap/constants.h"
+#include "messaging/coap/engine.h"
+#include "messaging/coap/observe.h"
+#include "oc_ri.h"
 #include "util/oc_etimer.h"
 #include "util/oc_list.h"
 #include "util/oc_process.h"
-#include "messaging/coap/constants.h"
-#include "messaging/coap/engine.h"
-#include "messaging/coap/oc_coap.h"
-#include "messaging/coap/observe.h"
 
 #include "api/oc_knx_observe.h"
 #include "oc_api.h"

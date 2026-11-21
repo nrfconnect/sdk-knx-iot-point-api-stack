@@ -22,10 +22,10 @@
 extern "C" {
 #include <string.h>
 #include "api/oc_knx_p.h"
-#include "messaging/coap/oc_coap.h" /* full def of oc_response_buffer_s */
 #include "oc_api.h"
 #include "oc_helpers.h"
 #include "oc_rep.h"
+#include "oc_ri.h"
 #include "oc_ri_internal.h"
 
   extern const oc_resource_t core_resource_knx_p;

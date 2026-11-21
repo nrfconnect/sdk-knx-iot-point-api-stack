@@ -47,7 +47,6 @@ extern "C" {
   extern const oc_resource_t core_resource_knx_k;
 #include "oc_rep.h"       /* oc_rep_new */
 #include "oc_helpers.h"   /* oc_new_string / oc_free_string */
-#include "messaging/coap/oc_coap.h" /* full def of oc_response_buffer_s */
 #include "util/oc_mmem.h"
 #include "port/oc_storage.h" /* oc_storage_config for the '/ap/pv' PUT */
 #include <string.h>

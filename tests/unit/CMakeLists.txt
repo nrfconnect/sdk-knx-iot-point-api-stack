@@ -24,7 +24,8 @@ add_library(kis-app-stubs STATIC test_app_stubs.c)
 # headers parse consistently with the rest of the build.
 target_link_libraries(kis-app-stubs PRIVATE kis-common)
 # Compile-only include dirs needed to parse oc_knx.h's transitive chain
-# (oc_api.h -> oc_ri.h -> ipadapter.h via kis-port; oc_rep.h -> cbor.h via tinycbor).
+# (oc_knx.h -> oc_api.h -> oc_ri.h -> oc_config.h in the port directory kis-port exports;
+# oc_rep.h -> cbor.h via tinycbor).
 # Pulled via generator expressions so the real static libraries are NOT linked here:
 # linking them would re-append their archives at the end of each test executable's
 # link line and break the carefully ordered kisClientServer <-> kis-port circular link.

@@ -12,7 +12,7 @@
 extern "C" {
 #include <string.h>
 #include "api/oc_knx_fb.h"
-#include "messaging/coap/oc_coap.h"
+#include "oc_ri.h"
 #include "oc_ri_internal.h"
 #include "util/oc_mmem.h"
 }

@@ -40,7 +40,6 @@
 
 #include "messaging/coap/engine.h"
 #include "messaging/coap/observe.h"
-#include "messaging/coap/oc_coap.h"
 #include "messaging/coap/transactions.h"
 #include "oc_api.h"
 #include "oc_blockwise.h"

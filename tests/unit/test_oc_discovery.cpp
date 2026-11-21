@@ -36,7 +36,6 @@ extern "C" {
 #include "oc_core_res.h"
 #include "oc_knx_dev.h"
 #include "oc_knx_fp.h"
-#include "messaging/coap/oc_coap.h"
 #include "util/oc_mmem.h"
 
 extern const oc_resource_t core_resource_well_known_core;

@@ -11,11 +11,12 @@
 
 #pragma once
 
+#include "messaging/coap/constants.h"
 #include "oc_config.h"
 #include "oc_endpoint.h"
 #include "oc_rep.h"
 #include "util/oc_etimer.h"
-#include "messaging/coap/constants.h"
+#include "util/oc_list.h"
 
 /* Opaque to applications: the struct is defined in the stack's private oc_blockwise.h. */
 typedef struct oc_blockwise_state_s oc_blockwise_state_t;
@@ -168,13 +169,26 @@ typedef enum oc_content_format {
  *        that tracks the process/schedule of origin request -> delayed response
  *
  */
-typedef struct oc_separate_response_s oc_separate_response_t;
+typedef struct oc_separate_response_s
+{
+  OC_LIST_STRUCT(requests); // LOCAL list to all requests where a separate response belongs to
+  bool active;              // a separate response is still pending (true) or not anymore (false)
+  oc_blockwise_state_t* response_state;
+} oc_separate_response_t;
 
 /**
  * @brief response buffer type
  *
  */
-typedef struct oc_response_buffer_s oc_response_buffer_t;
+typedef struct oc_response_buffer_s
+{
+  uint8_t* buffer;        // the payload (response) byte buffer
+  size_t buffer_size;     // the total payload buffer size
+  size_t response_length; // the actual response length (which is usually less than the buffer size)
+  int code;               // coap code
+  oc_content_format_t content_format;
+  uint32_t max_age; // defines the maximum time in seconds that a response can be cached before it is considered "not fresh"
+} oc_response_buffer_t;
 
 /**
  * @brief response type

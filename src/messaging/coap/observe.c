@@ -19,7 +19,6 @@
   #include "oc_buffer.h"
   #include "port/oc_clock.h"
 
-  #include "messaging/coap/oc_coap.h"
   #include "oc_blockwise.h"
   #include "oc_endpoint.h"
   #include "oc_rep.h"

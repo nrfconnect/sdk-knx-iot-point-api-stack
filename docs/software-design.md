@@ -64,7 +64,7 @@ flowchart TB
 | **port** | orange | `src/port/` and one directory per platform | Platform adaptation behind the headers in `include/port/`: sockets and the network receive thread, clock, storage, mutex, random numbers, logging, mDNS / DNS-SD. |
 | **util** | grey | `src/util/`, headers in `include/util/` | Platform-independent building blocks: protothread processes and their event queue, event timers, lists, memory helpers. |
 
-The arrows show the intended direction of use. Two boundaries are enforced: the hook rule in [Lower layers reach KNX only through hooks](#lower-layers-reach-knx-only-through-hooks), and the public API in `include/`, which the CTest `PublicHeaders.CompileWithOnlyTheIncludeDirectory` compiles header by header with only `include/` and the platform's `src/port/<platform>/` on the include path. Headers that only the stack uses stay next to their sources in `src/`.
+The arrows show the intended direction of use. Two boundaries are enforced: the hook rule in [Lower layers reach KNX only through hooks](#lower-layers-reach-knx-only-through-hooks), and the public API in `include/`, which the CTest `PublicHeaders.CompileWithOnlyTheIncludeDirectory` compiles header by header with only `include/` and the platform's `src/port/<platform>/` on the include path. `oc_knx.h` builds on `oc_api.h`, not the other way round. Headers that only the stack uses stay next to their sources in `src/`.
 
 ## Design principles
 

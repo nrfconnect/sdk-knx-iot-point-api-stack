@@ -9,7 +9,6 @@
 #pragma once
 
 #include "messaging/coap/coap.h"
-#include "messaging/coap/oc_coap.h"
 #include "oc_ri.h"
 
 #ifdef __cplusplus

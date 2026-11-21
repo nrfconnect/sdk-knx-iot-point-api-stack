@@ -15,7 +15,6 @@ extern "C" {
 #include "oc_rep.h"
 #include "oc_helpers.h"
 #include "api/oc_knx_helpers.h"
-#include "messaging/coap/oc_coap.h"
 #include "messaging/coap/constants.h"
 
 }

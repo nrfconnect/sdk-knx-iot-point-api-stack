@@ -33,7 +33,7 @@ overlaps").
    (`set_source_files_properties(... PROPERTIES LANGUAGE C)` or a `.c` shim) so
    the `void*` aggregate initializers don't trip g++'s C++ strictness.
 3. Build a minimal `oc_request_t` + `oc_response_t` + `oc_response_buffer_t`
-   (full struct in `include/messaging/coap/oc_coap.h`) to drive request handlers.
+   (full struct in `include/oc_ri.h`) to drive request handlers.
 
 ---
 

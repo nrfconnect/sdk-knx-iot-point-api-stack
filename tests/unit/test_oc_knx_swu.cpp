@@ -54,7 +54,6 @@ extern "C" {
 #include "oc_ri.h"
 #include "oc_rep.h"
 #include "oc_helpers.h"
-#include "messaging/coap/oc_coap.h"
 #include "util/oc_mmem.h"
 #include "port/oc_storage.h"
 #include <string.h>

@@ -13,6 +13,7 @@
 #pragma once
 
 #include "oc_api.h"
+#include "oc_knx.h" // oc_lsm_change_cb_t of oc_loadstate_t
 
 #ifdef __cplusplus
 extern "C" {
