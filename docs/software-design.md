@@ -10,61 +10,75 @@ The stack implements the KNX IoT Point API (CoAP, OSCORE, SPAKE2+, mDNS) for Lin
 - **Many platforms, one core.** Everything that depends on the operating system (sockets, threads, clock, storage, random numbers, logging) sits behind small headers in `include/port/`. The rest of the code is identical on all platforms.
 - **Integration into an existing application.** The stack does not own a thread. The application calls `oc_main_poll()` from its own loop, a dedicated thread or a UI timer. The stack wakes the loop when there is work.
 
-The code base descends from IoTivity-Lite (`oc_` prefix, `src/api/`, `src/util/`) and Contiki (CoAP engine in `src/messaging/coap/`, protothreads in `src/util/` and `include/util/pt/`). Its structure follows from that origin, with a KNX application layer added on top.
+The code base descends from IoTivity-Lite (`oc_` prefix) and Contiki (CoAP engine in `src/messaging/coap/`, protothreads in `src/util/` and `include/util/pt/`). The source tree separates KNX resources, the Resource Interface, runtime core, protocol/security components, platform adapters and shared primitives.
 
-## Layers
+## Components
 
-The stack has six layers. The colours below are used for these layers in every diagram of this document.
+This is a source-ownership map, not a strict call hierarchy. Runtime flows cross component boundaries through callbacks and posted process events; the diagrams below show those interactions.
 
 ```mermaid
-flowchart TB
+flowchart LR
   APP["<b>Application</b><br/>device data, datapoint handlers, event loop"]
-  KNX["<b>KNX</b><br/>Point API resources, s-mode, security tables"]
-  API["<b>api-core</b><br/>init and main loop, resource dispatch,<br/>message routing, timers, CBOR"]
-  MSG["<b>messaging</b><br/>CoAP engine, transactions,<br/>observe, OSCORE framing"]
-  SEC["<b>security</b><br/>OSCORE crypto and contexts, SPAKE2+"]
-  PORT["<b>port</b><br/>sockets, clock, storage,<br/>mutex, random, mDNS / DNS-SD"]
-  UTIL["<b>util</b><br/>processes, event timers, lists"]
+  KNX["<b>KNX API</b><br/>Point API resources, s-mode, KNX tables"]
+  RI["<b>Resource Interface</b><br/>resource registry, dispatch, client/server API"]
+  CORE["<b>Runtime core</b><br/>lifecycle, routing, network events, timers"]
+  MSG["<b>CoAP messaging</b><br/>parsing, transactions, observe, blockwise"]
+  SEC["<b>Security</b><br/>OSCORE, replay protection, SPAKE2+"]
+  PORT["<b>Platform adapters</b><br/>sockets, clock, storage, mutex, logging"]
+  UTIL["<b>Shared primitives</b><br/>containers and platform-independent helpers"]
   NET(["network"])
 
   APP -->|"public API"| KNX
-  KNX --> API
-  API --> MSG
-  MSG --> SEC
+  KNX --> RI
+  RI <--> CORE
+  CORE -. "process events" .-> MSG
+  CORE -. "OSCORE events" .-> SEC
+  MSG -. "OSCORE events" .-> SEC
+  CORE --> PORT
+  MSG --> PORT
   SEC --> PORT
-  PORT --> UTIL
   PORT <--> NET
   MSG -.->|"coap_knx_hooks.h"| KNX
   SEC -.->|"oscore_knx_hooks.h"| KNX
   PORT -.->|"port_knx_hooks.h"| KNX
+  UTIL -. "shared use" .-> RI
+  UTIL -. "shared use" .-> KNX
+  UTIL -. "shared use" .-> CORE
+  UTIL -. "shared use" .-> MSG
+  UTIL -. "shared use" .-> SEC
+  UTIL -. "shared use" .-> PORT
 
   classDef ext fill:#ffffff,stroke:#888888,color:#000,stroke-dasharray:4 3
   classDef knx fill:#efe0ff,stroke:#8e6cc0,color:#000
-  classDef api fill:#d9f2d9,stroke:#4f9a4f,color:#000
+  classDef ri fill:#d9f2d9,stroke:#4f9a4f,color:#000
+  classDef core fill:#e7f2e7,stroke:#4f9a4f,color:#000
   classDef msg fill:#d7ebff,stroke:#4a7fc1,color:#000
   classDef sec fill:#f8d0d0,stroke:#c05050,color:#000
   classDef port fill:#fde2c8,stroke:#d08a3c,color:#000
   classDef util fill:#e6e6e6,stroke:#888888,color:#000
   class APP,NET ext
   class KNX knx
-  class API api
+  class RI ri
+  class CORE core
   class MSG msg
   class SEC sec
   class PORT port
   class UTIL util
-  linkStyle 7,8,9 stroke:#d08a3c,stroke-width:2px
 ```
 
-| Layer | Colour | Code | Responsibility |
-|---|---|---|---|
-| **KNX** | purple | `src/api/oc_knx*.c` | The KNX IoT Point API: `/dev`, `/fp`, `/p`, `/f`, `/auth`, `/swu`, `/.well-known/knx` and its sub-resources, s-mode group communication, the access token (AT) table, PASE, and the implementation of the hooks (`oc_knx_hooks.c`). |
-| **api-core** | green | the other files in `src/api/`, public headers in `include/` | Generic stack core: `oc_main_init()` and `oc_main_poll()`, the resource directory and request dispatch (`oc_ri.c`, `oc_core_res.c`), message routing (`oc_buffer.c`, `oc_network_events.c`), the OSCORE replay window (`oc_replay.c`), server and client API, blockwise transfer, CBOR (`oc_rep.c`), discovery. |
-| **messaging** | blue | `src/messaging/coap/` | CoAP parsing and serialisation, CON/NON transactions and retransmission, observe, separate responses, OSCORE message framing. |
-| **security** | red | `src/security/` | OSCORE encryption, decryption, security contexts with their sender sequence numbers, and the echo ring (`oc_oscore_*.c`), SPAKE2+ (`spake2plus.c`), on top of PSA Crypto / Mbed TLS. |
-| **port** | orange | `src/port/` and one directory per platform | Platform adaptation behind the headers in `include/port/`: sockets and the network receive thread, clock, storage, mutex, random numbers, logging, mDNS / DNS-SD. |
-| **util** | grey | `src/util/`, headers in `include/util/` | Platform-independent building blocks: protothread processes and their event queue, event timers, lists, memory helpers. |
+| Component | Source | Responsibility |
+|---|---|---|
+| **KNX API** | `src/resources/knx/` | KNX Point API resources, s-mode and KNX security tables; implements the KNX hooks in `oc_knx_hooks.c`. |
+| **Resource Interface** | `src/resources/ri/` | Resource registry and dispatch, client/server API, discovery and CBOR representation. |
+| **Runtime core** | `src/core/` | Stack lifecycle, message routing, network-event hand-off and runtime timers. |
+| **CoAP messaging** | `src/messaging/coap/` | CoAP parsing, transactions, observe and blockwise transfer. |
+| **Security** | `src/security/` | OSCORE, replay protection, Echo state and SPAKE2+, on top of PSA Crypto / Mbed TLS. |
+| **Platform adapters** | `src/port/` | Sockets, platform threads, clock, storage, mutexes and logging. |
+| **Shared primitives** | `src/util/` | Platform-independent containers and primitives used across components. |
 
-The arrows show the intended direction of use. Two boundaries are enforced: the hook rule in [Lower layers reach KNX only through hooks](#lower-layers-reach-knx-only-through-hooks), and the public API in `include/`, which the CTest `PublicHeaders.CompileWithOnlyTheIncludeDirectory` compiles header by header with only `include/` and the platform's `src/port/<platform>/` on the include path. `oc_knx.h` builds on `oc_api.h`, not the other way round. Headers that only the stack uses stay next to their sources in `src/`.
+`oc_blockwise.*` lives with CoAP because it implements CoAP blockwise transfer; `oc_replay.*` lives with Security because it maintains OSCORE replay state. These moves clarify ownership but do not by themselves remove cross-component calls.
+
+Public headers remain under `include/`; applications do not include these private source directories. The CTest `PublicHeaders.CompileWithOnlyTheIncludeDirectory` compiles public headers with only `include/` and the platform's `src/port/<platform>/` on the include path. The KNX API builds on the generic API, not the other way round. Headers that only the stack uses stay next to their component sources.
 
 ## Design principles
 
@@ -76,9 +90,9 @@ Platform threads stay at the edge. The network receive thread in the port hands 
 
 Why: the core needs no thread or scheduler from the operating system, so it is the same on all platforms, and the application chooses how to drive the loop. The integration guide states the resulting rule for applications: call stack functions only from the thread that runs `oc_main_poll()`.
 
-### Layers are coupled at runtime by events
+### Components are coupled at runtime by events
 
-A message moves between api-core, messaging and security as an event posted to the next process (see [Runtime model](#runtime-model)), not as a chain of direct calls. Each process does one job (route, encrypt or decrypt, run CoAP) and returns to the scheduler. The routing process decides once per message whether it goes through OSCORE, so senders and receivers do not handle encryption themselves.
+A message moves between runtime core, CoAP messaging and security as an event posted to the next process (see [Runtime model](#runtime-model)), not as a chain of direct calls. Each process does one job (route, encrypt or decrypt, run CoAP) and returns to the scheduler. The routing process decides once per message whether it goes through OSCORE, so senders and receivers do not handle encryption themselves.
 
 ### Lower layers reach KNX only through hooks
 
@@ -90,12 +104,12 @@ Why: the generic CoAP, OSCORE and platform code stays free of KNX knowledge, and
 
 ### Handlers and callbacks are function pointers
 
-Resource handlers (`oc_request_handler_t` per CoAP method), client response callbacks and delayed callbacks are stored as function pointers and called by api-core. The dispatcher does not know which KNX or application function it calls, and application code is reached without a compile-time dependency.
+Resource handlers (`oc_request_handler_t` per CoAP method), client response callbacks and delayed callbacks are stored as function pointers and called by the Resource Interface. The dispatcher does not know which KNX or application function it calls, and application code is reached without a compile-time dependency.
 
 ### Memory: flash for fixed data, RAM only for state
 
-- **Core resources are `const`.** Each KNX and core resource (for example `core_resource_sub`) is a `const oc_resource_t` defined in its source file, with `is_const = true`. A `const` registry in `oc_core_res.c`, indexed by `oc_core_resource_t`, lists them. The linker can place them in read-only memory (flash). The only per-resource RAM is a small `oc_resource_data_t` (observer count) that `runtime_data` points to. `oc_ri_add_resource()` and `oc_ri_delete_resource()` refuse `const` resources.
-- **Application resources are on the heap.** `oc_new_resource()` allocates them, and `oc_ri.c` keeps them in a list. Dispatch looks at the core registry first (exact match or a trailing `*` wildcard) and then at the application list.
+- **Core resources are `const`.** Each KNX and core resource (for example `core_resource_sub`) is a `const oc_resource_t` defined in its source file, with `is_const = true`. A `const` registry in `src/resources/ri/oc_core_res.c`, indexed by `oc_core_resource_t`, lists them. The linker can place them in read-only memory (flash). The only per-resource RAM is a small `oc_resource_data_t` (observer count) that `runtime_data` points to. `oc_ri_add_resource()` and `oc_ri_delete_resource()` refuse `const` resources.
+- **Application resources are on the heap.** `oc_new_resource()` allocates them, and `src/resources/ri/oc_ri.c` keeps them in a list. Dispatch looks at the core registry first (exact match or a trailing `*` wildcard) and then at the application list.
 - **Messages are allocated per use.** The stack has no static message buffers. `oc_allocate_message()` allocates a message and its PDU buffer on the heap. The message is reference-counted. `oc_message_post()` is the single place that releases the reference when the target queue is full.
 - **Message queues are capped.** Received messages waiting for the loop (`KNX_NET_MAX_RX_PENDING`), process events (`OC_PROCESS_MAX_EVENTS`) and open CoAP transactions (`KNX_COAP_MAX_OPEN_TRANSACTIONS`) have a limit. A message beyond the limit is dropped, and CoAP retransmission recovers it.
 - **Tables are fixed-size.** The group object, publisher, recipient and AT tables are static arrays with a compile-time capacity. Only variable-length fields (hrefs, ids, group address lists) are allocated when an entry is written.
@@ -114,11 +128,11 @@ The application then calls `oc_main_poll()` in a loop. It runs `oc_process_run()
 
 | Process | File | Layer | Job |
 |---|---|---|---|
-| `oc_network_events` | `oc_network_events.c` | api-core | takes received datagrams and interface events from the port |
-| `message_buffer_handler` | `oc_buffer.c` | api-core | routes every inbound and outbound message, with or without OSCORE |
+| `oc_network_events` | `src/core/oc_network_events.c` | Runtime core | takes received datagrams and interface events from the port |
+| `message_buffer_handler` | `src/core/oc_buffer.c` | Runtime core | routes every inbound and outbound message, with or without OSCORE |
 | `oc_oscore_handler` | `oc_oscore_engine.c` | security | decrypts inbound and encrypts outbound OSCORE messages |
 | `coap_engine` | `engine.c` | messaging | processes CoAP messages (`coap_receive()`) and retransmissions |
-| `timed_callback_events` | `oc_ri.c` | api-core | runs delayed callbacks (`oc_set_delayed_callback()`) |
+| `timed_callback_events` | `src/resources/ri/oc_ri.c` | Resource Interface | runs delayed callbacks (`oc_set_delayed_callback()`) |
 | `oc_etimer_process` | `oc_etimer.c` | util | expires event timers and wakes the owning process |
 
 The message events are defined in `oc_events.h`:
@@ -138,7 +152,7 @@ The message events are defined in `oc_events.h`:
 
 The sequence diagrams use the same conventions:
 
-- Participants are ordered from left to right like the layers from top to bottom, with the network on the right. The boxes use the layer colours from [Layers](#layers).
+- Participants are ordered around the component interaction, with the network on the right. The boxes use the component colours from [Components](#components).
 - `->>` (solid) is a direct call. `--)` (dashed, open arrow) is an event posted to a process; it runs later on the same thread. `-->>` (dashed) is a return value or a response.
 
 ### Receive Message
@@ -152,8 +166,10 @@ sequenceDiagram
     participant H as oc_knx_*.c<br/>handler / callback
     participant KSEC as oc_knx_sec.c
   end
-  box rgb(217,242,217) api-core
+  box rgb(217,242,217) Resource Interface
     participant RI as oc_ri.c
+  end
+  box rgb(231,242,231) Runtime core
     participant BUF as oc_buffer.c
     participant NET as oc_network_events.c
   end
@@ -205,8 +221,10 @@ sequenceDiagram
   box rgb(239,224,255) KNX
     participant KCLI as oc_knx_client.c
   end
-  box rgb(217,242,217) api-core
+  box rgb(217,242,217) Resource Interface
     participant SRV as oc_server_api.c
+  end
+  box rgb(231,242,231) Runtime core
     participant BUF as oc_buffer.c
   end
   box rgb(215,235,255) messaging
@@ -259,7 +277,7 @@ sequenceDiagram
   box rgb(239,224,255) KNX
     participant K as oc_knx*.c
   end
-  box rgb(217,242,217) api-core
+  box rgb(217,242,217) Resource Interface
     participant SRV as oc_server_api.c
     participant RI as oc_ri.c
   end
@@ -298,7 +316,7 @@ sequenceDiagram
     participant KNX as oc_knx.c
     participant KSEC as oc_knx_sec.c
   end
-  box rgb(217,242,217) api-core
+  box rgb(217,242,217) Resource Interface
     participant RI as oc_ri.c
     participant SRV as oc_server_api.c
   end
@@ -366,7 +384,7 @@ OSCORE uses the sender sequence number (SSN) of each message as the nonce for en
 | State | Where | Kept in | Purpose |
 |---|---|---|---|
 | Own SSN per sender context | `oc_oscore_context.c` (security) | RAM, saved in the AT entry every 32 SSNs through the `oscore_knx_store_ssn` hook | never send the same SSN twice with the same key |
-| Replay window per peer | `oc_replay.c` (api-core), called by `engine.c` (messaging) | RAM only | accept each inbound SSN of a peer only once |
+| Replay window per peer | `src/security/oc_replay.c`, called by `engine.c` (CoAP messaging) | RAM only | accept each inbound SSN of a peer only once |
 | Echo ring | `oc_oscore_engine.c` (security) | RAM only | accept a 4.01 Echo response to an own s-mode request only once |
 
 #### Device as receiver: replay window and Echo
@@ -376,13 +394,11 @@ Every decrypted OSCORE request is checked against the replay record of its sende
 ```mermaid
 sequenceDiagram
   autonumber
-  box rgb(217,242,217) api-core
-    participant RPL as oc_replay.c
-  end
   box rgb(215,235,255) messaging
     participant ENG as engine.c
   end
   box rgb(248,208,208) security
+    participant RPL as oc_replay.c
     participant OSC as oc_oscore_engine.c
   end
   participant P as peer (network)
@@ -442,7 +458,7 @@ sequenceDiagram
   ENG->>P: echo re-request with the Echo option (Send Message)
 ```
 
-Design decisions visible in `oc_oscore_context.c`, `oc_replay.c`, `engine.c` and `oc_oscore_engine.c`:
+Design decisions visible in `src/security/oc_oscore_context.c`, `src/security/oc_replay.c`, `src/messaging/coap/engine.c` and `src/security/oc_oscore_engine.c`:
 
 - **The SSN is saved in steps, and padded after a restart.** The SSN is saved every 32 messages (`OSCORE_SSN_WRITE_FREQ_K`). When the contexts are rebuilt from storage at start-up, device reset or restart, the stored SSN is raised by 32 plus a padding (`OSCORE_SSN_PAD_F`) and saved again at once. The code comment cites RFC 8613, Appendix B.1.1: an SSN that was used but not yet saved, or a failed write, must not lead to a reused SSN.
 - **The SSN never wraps.** At `OSCORE_SSN_MAX` the context refuses to send, because a wrap would reuse an encryption nonce. Only new keys from the MaC make the device send again.
@@ -454,7 +470,7 @@ Design decisions visible in `oc_oscore_context.c`, `oc_replay.c`, `engine.c` and
 
 ## Glossary
 
-Function names follow `oc_<module>_<action>`, for example `oc_ri_invoke_client_cb()` in `oc_ri.c`. The CoAP code uses `coap_`, the KNX layer `oc_knx_` or `oc_core_knx_`, and the hooks `<layer>_knx_`.
+Function names follow `oc_<module>_<action>`, for example `oc_ri_invoke_client_cb()` in `src/resources/ri/oc_ri.c`. The CoAP code uses `coap_`, the KNX layer `oc_knx_` or `oc_core_knx_`, and the hooks `<layer>_knx_`.
 
 | Term | Meaning |
 |---|---|
@@ -465,7 +481,7 @@ Function names follow `oc_<module>_<action>`, for example `oc_ri_invoke_client_c
 | OSCORE | Object Security for Constrained RESTful Environments (RFC 8613). It protects CoAP messages end to end. |
 | PASE | Password-authenticated session establishment. During commissioning it derives the first OSCORE key with SPAKE2+. |
 | Process | A cooperative protothread (`OC_PROCESS`) scheduled by `oc_process_run()`. |
-| RI | Resource implementation, the resource layer in `oc_ri.c`: resources, request dispatch, client callbacks and timed callbacks. |
+| RI | Resource Interface in `src/resources/ri/`: resources, request dispatch, client callbacks and timed callbacks. |
 | Separate response | A CoAP response sent later than the empty ACK for the request (RFC 7252, section 5.2.2). |
 | SPAKE2+ | Augmented password-authenticated key exchange (RFC 9383). |
 | SSN | Sender sequence number. The OSCORE Partial IV of a message; it is unique per sender key. |

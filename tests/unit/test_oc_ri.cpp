@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_ri.c and api/oc_knx.c — pure lookup functions
+ * Unit tests for resources/ri/oc_ri.c and resources/knx/oc_knx.c — pure lookup functions
  *
  * Covers:
  *   oc_ri.c:  oc_status_code, oc_count_total_interfaces_in_mask,
@@ -22,7 +22,7 @@
 #include <cstring>
 
 extern "C" {
-#include "api/oc_knx_observe.h"
+#include "resources/knx/oc_knx_observe.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/observe.h"
 #include "oc_blockwise.h"

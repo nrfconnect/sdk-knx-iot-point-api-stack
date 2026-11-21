@@ -8,8 +8,8 @@
 /**
   @brief the access token record: the credentials the OSCORE layer derives its security contexts from
 
-  The KNX layer (api/oc_knx_sec.c) owns the access token table and fills the records, the OSCORE layer reads
-  them. The type lives here, in the layer that reads it, so security/ does not depend on api/.
+  The KNX layer (resources/knx/oc_knx_sec.c) owns the access token table and fills the records, the OSCORE layer reads
+  them. The type lives here, in the layer that reads it, so security/ does not depend on resources/.
   @file
 */
 #pragma once

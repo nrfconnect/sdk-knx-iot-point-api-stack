@@ -3,10 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Layering check: the lower layers (src/ and include/ messaging/, security/, port/) neither include the KNX headers
-# (oc_knx*.h) nor call a function the KNX layer declares (src/api/oc_knx*.h, include/oc_knx*.h,
+# (oc_knx*.h) nor call a function the KNX layer declares (src/resources/knx/oc_knx*.h, include/oc_knx*.h,
 # include/oc_core_res.h). What a layer needs from the KNX layer it declares in its hooks header
 # (src/messaging/coap/coap_knx_hooks.h, src/security/oscore_knx_hooks.h, src/port/port_knx_hooks.h), implemented
-# in src/api/oc_knx_hooks.c.
+# in src/resources/knx/oc_knx_hooks.c.
 #
 # Exempt: the hooks headers themselves (the sanctioned gateway), the KNX shell commands (port/knx_shell*,
 # application code), the vendored mDNS library (src/port/mdns) and comment lines.
@@ -18,7 +18,7 @@ if(NOT ROOT)
 endif()
 
 # the functions of the KNX layer: every name declared as a function in its headers
-file(GLOB knx_headers "${ROOT}/src/api/oc_knx*.h" "${ROOT}/include/oc_knx*.h" "${ROOT}/include/oc_core_res.h")
+file(GLOB knx_headers "${ROOT}/src/resources/knx/oc_knx*.h" "${ROOT}/include/oc_knx*.h" "${ROOT}/include/oc_core_res.h")
 set(knx_functions "")
 foreach(header ${knx_headers})
     file(STRINGS "${header}" header_lines)

@@ -1,5 +1,5 @@
 /*
- * Unit tests for util/oc_mmem.c and api/oc_helpers.c when malloc fails
+ * Unit tests for util/oc_mmem.c and util/oc_helpers.c when malloc fails
  *
  * The test links with -Wl,--wrap=malloc: __wrap_malloc() fails exactly the NEXT call once a test arms it, every
  * other call goes to the real malloc. A separate executable, so the wrap does not touch test_oc_helpers.

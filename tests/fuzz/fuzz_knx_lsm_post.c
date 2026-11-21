@@ -1,6 +1,6 @@
 /*
  * libFuzzer harness for the Load State Machine POST /a/lsm
- * (oc_core_a_lsm_post_handler, api/oc_knx.c) on an initialised stack.
+ * (oc_core_a_lsm_post_handler, resources/knx/oc_knx.c) on an initialised stack.
  *
  * A single event on an empty device only exercises the event decoding. The
  * transitions are what matter: entering LOADING or UNLOADED drops the group

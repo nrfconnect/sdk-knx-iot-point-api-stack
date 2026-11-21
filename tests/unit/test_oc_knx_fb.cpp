@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_knx_fb.c
+ * Unit tests for resources/knx/oc_knx_fb.c
  */
 
 #include <cstdlib>
@@ -11,7 +11,7 @@
 
 extern "C" {
 #include <string.h>
-#include "api/oc_knx_fb.h"
+#include "resources/knx/oc_knx_fb.h"
 #include "oc_ri.h"
 #include "oc_ri_internal.h"
 #include "util/oc_mmem.h"

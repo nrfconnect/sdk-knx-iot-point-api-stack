@@ -440,7 +440,7 @@ class TestWriteAccessToken:
 # Entry limit of one POST /auth/at request (stack limit, not in the template)
 # ===========================================================================
 
-# entries the device checks in one POST /auth/at request (KNX_POST_MAX_ENTRIES in src/api/oc_knx_helpers.h)
+# entries the device checks in one POST /auth/at request (KNX_POST_MAX_ENTRIES in src/resources/knx/oc_knx_helpers.h)
 AT_POST_MAX_ENTRIES = 10
 # CoAP block size of the device: a request without Block1 above it gets 4.13 from the engine already
 AT_POST_BLOCK_SIZE = 512

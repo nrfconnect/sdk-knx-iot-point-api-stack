@@ -1,5 +1,5 @@
 /*
- * libFuzzer harness for the software update resources (api/oc_knx_swu.c):
+ * libFuzzer harness for the software update resources (resources/knx/oc_knx_swu.c):
  * the package upload PUT /a/swu, PUT /swu/protocol, /swu/method and
  * /swu/update, the GETs of all /swu/x resources and the /swu list.
  *

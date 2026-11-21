@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Regression tests for the internal group object update ("loopback") in
- * oc_send_s_mode_mc_or_uc_message() - api/oc_knx_client.c.
+ * oc_send_s_mode_mc_or_uc_message() - resources/knx/oc_knx_client.c.
  *
  * Background (finding F-022)
  * --------------------------

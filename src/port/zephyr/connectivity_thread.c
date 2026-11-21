@@ -8,7 +8,7 @@
 
 #include "port/zephyr/connectivity_thread.h"
 #include <stddef.h>
-#include "api/oc_buffer.h"
+#include "core/oc_buffer.h"
 #include "oc_endpoint.h"
 #include "port/oc_connectivity.h"
 #include "port/oc_log.h"

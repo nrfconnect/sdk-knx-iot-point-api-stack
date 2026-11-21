@@ -1,6 +1,6 @@
 /*
- * Unit tests for the CoAP message-buffer pool (api/oc_buffer.c,
- * declared in src/api/oc_buffer.h).
+ * Unit tests for the CoAP message-buffer pool (core/oc_buffer.c,
+ * declared in src/core/oc_buffer.h).
  *
  * Covers the unit-testable pool primitives:
  *   oc_allocate_message  — allocate a message + its OC_PDU_SIZE data buffer,
@@ -24,7 +24,7 @@
 #include <vector>
 
 extern "C" {
-#include "api/oc_events.h"
+#include "core/oc_events.h"
 #include "messaging/coap/engine.h"
 #include "messaging/coap/oscore.h"
 #include "oc_buffer.h"

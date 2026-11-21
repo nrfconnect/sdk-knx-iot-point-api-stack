@@ -40,7 +40,7 @@
 #include "test_helpers_coap_frame.h"
 
 extern "C" {
-#include "api/oc_events.h"
+#include "core/oc_events.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/engine.h"
 #include "messaging/coap/oscore.h"

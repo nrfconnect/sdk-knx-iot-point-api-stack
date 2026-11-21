@@ -4,17 +4,17 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Regression test for the multicast s-mode READ answer payload length -
- * oc_core_knx_k_post_handler() in api/oc_knx.c.
+ * oc_core_knx_k_post_handler() in resources/knx/oc_knx.c.
  *
  * Background (finding F-023)
  * --------------------------
  * A GA may be linked to several read-enabled GOs. oc_core_knx_k_post_handler() then answers ONCE
  * PER MATCHING GO, calling each resource's GET handler and transmitting the encoded value.
  *
- * The CBOR encoder is a single global (g_encoder / g_buf in api/oc_rep.c).
+ * The CBOR encoder is a single global (g_encoder / g_buf in resources/ri/oc_rep.c).
  * oc_ri_invoke_coap_entity_handler() arms it onto the response buffer exactly once, before
  * dispatching into this POST handler. But sending an answer goes through
- * oc_issue_s_mode_message() (api/oc_knx_client.c), which calls oc_rep_new() AGAIN - re-pointing
+ * oc_issue_s_mode_message() (resources/knx/oc_knx_client.c), which calls oc_rep_new() AGAIN - re-pointing
  * that same global encoder at the OUTGOING UDP message buffer.
  *
  * So from the second matching GO onward the GET handler encoded into the already-transmitted

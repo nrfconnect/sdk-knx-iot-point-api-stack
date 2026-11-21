@@ -2,7 +2,7 @@
  * Unit tests for the server side OSCORE replay and Echo admission in coap_receive() (messaging/coap/engine.c)
  *
  * A request that the OSCORE layer has decrypted (endpoint flag OSCORE_DECRYPTED, kid and PIV on the endpoint) is
- * checked against the replay records (api/oc_replay.c) before it reaches the resource handler:
+ * checked against the replay records (security/oc_replay.c) before it reaches the resource handler:
  * - unknown client, no Echo option   -> 4.01 with an Echo option (the current clock), sent through a delayed callback
  *                                        (unicast: delay 0, multicast: random delay below the configured maximum)
  * - replayed SSN, no Echo option     -> unicast: 4.01 without Echo, sent at once; multicast: dropped (F-079, open:

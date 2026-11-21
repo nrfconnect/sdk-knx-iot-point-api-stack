@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Unit tests for api/oc_knx_client.c
+ * Unit tests for resources/knx/oc_knx_client.c
  * Scope note
  * ----------
  * oc_knx_client.c is almost entirely an s-mode / discovery *transport* module:

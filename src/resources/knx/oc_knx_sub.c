@@ -8,15 +8,15 @@
  * Copyright 2026 KNXA (to the extent protectable under applicable law)
  */
 
-#include <stdlib.h>
 #include "oc_knx_sub.h"
+#include <stdlib.h>
+#include "messaging/coap/observe.h"
+#include "oc_api.h"
+#include "oc_core_res.h"
 #include "oc_helpers.h"
 #include "oc_ri.h"
-#include "oc_core_res.h"
-#include "oc_api.h"
-#include "messaging/coap/observe.h"
 
-#include "api/oc_core_resources.h"
+#include "resources/ri/oc_core_resources.h"
 
 static void oc_core_sub_delete_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data)
 {

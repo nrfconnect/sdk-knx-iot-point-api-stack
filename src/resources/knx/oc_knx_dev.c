@@ -12,7 +12,6 @@
 #include "oc_knx_dev.h"
 #include <inttypes.h>
 #include <stdio.h>
-#include "api/oc_core_resources.h"
 #include "messaging/coap/engine.h"
 #include "messaging/coap/observe.h"
 #include "oc_api.h"
@@ -26,6 +25,7 @@
 #include "oc_main.h"
 #include "port/dns-sd.h"
 #include "port/oc_storage.h"
+#include "resources/ri/oc_core_resources.h"
 
 static void oc_core_dev_sn_get_handler(oc_request_t* request, oc_interface_mask_t iface_mask, void* data) 
 {

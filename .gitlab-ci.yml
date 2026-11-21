@@ -189,12 +189,23 @@ build-gcc:
     expire_in: 1 week
 
 # The publisher-off configuration (OC_PUBLISHER_TABLE_ENABLED=OFF, "plain
-# sender") is built nowhere else and broke unnoticed once; compile only.
+# sender") with an empty KNX_GPT_MAX_ENTRIES, as on Zephyr and ESP-IDF;
+# compile only. The unit tests run it in tests/unit/publisher_off.
 build-plain-sender:
   stage: build
   script:
     - cmake --preset=linux-plain-sender-gcc
     - cmake --build --preset=linux-plain-sender-gcc
+  dependencies: []
+
+# The CMake option OC_CLIENT_ENABLED=OFF (server only), as on Zephyr and
+# ESP-IDF with CONFIG_KNXIOT_CLIENT=n; compile only. The unit tests run the
+# stack without OC_CLIENT in tests/unit/client_off.
+build-server-only:
+  stage: build
+  script:
+    - cmake --preset=linux-server-only-gcc
+    - cmake --build --preset=linux-server-only-gcc
   dependencies: []
 
 # ----------------------------------------------------------
@@ -246,9 +257,9 @@ unit-asan-clang:
 # ----------------------------------------------------------
 # test: unit function coverage (gcov via gcovr)
 # The same GoogleTest suite built with --coverage -O0 (ENABLE_COVERAGE). The
-# filters keep the number honest: this project's own code under src/api/,
-# src/messaging/, src/security/ and src/util/, not tests/, not the fetched dependencies,
-# not the vendored src/api/c-timestamp parser, not src/api/oc_test_control.c (the test
+# filters keep the number honest: this project's own code under src/resources/,
+# src/core/, src/messaging/, src/security/ and src/util/, not tests/ or fetched dependencies,
+# not the vendored src/util/c-timestamp parser, not src/resources/ri/oc_test_control.c (the test
 # endpoints of the runtime/conformance device, built into kisTestControl only).
 # The percentage shows on the job
 # and in the merge request; the HTML report is an artifact.
@@ -269,8 +280,8 @@ unit-coverage-gcc:
     - mkdir -p build/linux-coverage-gcc/coverage-html
     - >
       gcovr --root .
-      --filter 'src/api/' --filter 'src/messaging/' --filter 'src/security/' --filter 'src/util/'
-      --exclude 'src/api/c-timestamp/.*' --exclude 'src/api/oc_test_control[.]c'
+      --filter 'src/resources/' --filter 'src/core/' --filter 'src/messaging/' --filter 'src/security/' --filter 'src/util/'
+      --exclude 'src/util/c-timestamp/.*' --exclude 'src/resources/ri/oc_test_control[.]c'
       --cobertura build/linux-coverage-gcc/coverage.xml
       --html-medium-threshold 65
       --html-high-threshold 85
@@ -328,7 +339,7 @@ quality-code:
         echo "clang-format of the changed lines:"
         # git diff -M without a pathspec: a moved file is compared with its old path, so only its changed lines count
         git diff -M -U0 --no-color "$base" | clang-format-diff.py -p1 \
-          -regex '(?!src/api/c-timestamp/|include/util/pt/|src/port/mdns/mdns\.h$)(src|include)/.*\.[ch]' || rc=1
+          -regex '(?!src/util/c-timestamp/|include/util/pt/|src/port/mdns/mdns\.h$)(src|include)/.*\.[ch]' || rc=1
         exit $rc
       fi
   artifacts:
@@ -350,9 +361,9 @@ quality-code:
 # (FUZZ_COVERAGE_SECONDS) purely to grow line coverage - any crash found there
 # is logged and kept as an artifact but does NOT fail the job (that is what the
 # manual fuzz-explore job gates on).
-# Also reports source coverage (gcov via gcovr, clang): how much of src/api/,
-# src/messaging/, src/security/ and src/util/ the corpus plus the mutation burst reaches.
-# Excludes tests/, third-party dependencies and the vendored src/api/c-timestamp.
+# Also reports source coverage (gcov via gcovr, clang): how much of src/resources/,
+# src/core/, src/messaging/, src/security/ and src/util/ the corpus plus the mutation burst reaches.
+# Excludes tests/, third-party dependencies and the vendored src/util/c-timestamp.
 # ----------------------------------------------------------
 fuzz-seed-replay:
   stage: test
@@ -383,8 +394,8 @@ fuzz-seed-replay:
       done
       cd -
       if ! gcovr --root . --gcov-executable 'llvm-cov-19 gcov' \
-        --filter 'src/api/' --filter 'src/messaging/' --filter 'src/security/' --filter 'src/util/' \
-        --exclude 'src/api/c-timestamp/.*' --exclude 'src/api/oc_test_control[.]c' \
+        --filter 'src/resources/' --filter 'src/core/' --filter 'src/messaging/' --filter 'src/security/' --filter 'src/util/' \
+        --exclude 'src/util/c-timestamp/.*' --exclude 'src/resources/ri/oc_test_control[.]c' \
         --cobertura build/linux-fuzz-coverage-clang/coverage.xml \
         --html-medium-threshold 65 \
         --html-high-threshold 85 \
@@ -549,7 +560,7 @@ conformance-gcc:
 #   runtime error:            UBSan
 # LeakSanitizer output is counted and printed but does not fail the job: a
 # benign 1-byte SPAKE shutdown leak remains (oc_oscore_set_auth_shared,
-# src/api/oc_knx_sec.c). The UBSan nonnull-attribute reports for
+# src/resources/knx/oc_knx_sec.c). The UBSan nonnull-attribute reports for
 # memcpy/memcmp/memchr with a NULL pointer and length 0 were F-025, fixed
 # (git log -p -S F-025 -- tests/FINDINGS.md).
 # The DUT's stderr reaches the log through the

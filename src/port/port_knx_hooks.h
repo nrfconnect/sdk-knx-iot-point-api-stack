@@ -7,10 +7,11 @@
 /**
   @brief what the platform ports need from the KNX layer
 
-  port/ does not include the KNX headers (api/oc_knx_*.h) and does not call into them, it declares here what it
-  needs, and takes the KNX types and constants it uses through this header only. The KNX layer implements these functions (api/oc_knx_hooks.c), the
-  linker connects them. Same pattern as messaging/coap/coap_knx_hooks.h and security/oscore_knx_hooks.h. The KNX shell commands (port/knx_shell*.c)
-  are application code and use the KNX API directly.
+  port/ does not include the KNX headers (resources/knx/oc_knx_*.h) or call into them. It declares what it needs here and
+  takes the KNX types and constants it uses through this header only. The KNX layer implements these functions
+  (resources/knx/oc_knx_hooks.c); the linker connects them. Same pattern as messaging/coap/coap_knx_hooks.h and
+  security/oscore_knx_hooks.h. The KNX shell commands (port/knx_shell*.c) are application code and use the KNX API
+  directly.
   @file
 */
 #pragma once

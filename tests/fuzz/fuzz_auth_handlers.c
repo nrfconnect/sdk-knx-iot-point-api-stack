@@ -1,5 +1,5 @@
 /*
- * libFuzzer harness for the security resources in api/oc_knx_sec.c as a
+ * libFuzzer harness for the security resources in resources/knx/oc_knx_sec.c as a
  * sequence: /auth/at (POST, GET list, DELETE all), /auth/at/x (GET, DELETE),
  * /auth/o/osndelay (GET, PUT), /auth/o and /auth/o/replwdo (GET).
  *

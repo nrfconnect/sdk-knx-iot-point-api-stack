@@ -1,6 +1,6 @@
 /*
- * libFuzzer harness for the CoAP query-string parsers in api/oc_ri.c and the
- * bounded integer parsers in api/oc_knx_helpers.c that consume their values.
+ * libFuzzer harness for the CoAP query-string parsers in resources/ri/oc_ri.c and the
+ * bounded integer parsers in resources/knx/oc_knx_helpers.c that consume their values.
  *
  * oc_ri_get_query_nth_key_value() / oc_ri_get_query_value() /
  * oc_ri_query_nth_key_exists() run on the raw Uri-Query option value of every

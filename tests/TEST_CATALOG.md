@@ -44,13 +44,13 @@ No stack C code was changed to make a test pass.
 <a id="unit-tests"></a>
 ## Part 1: Unit Tests (Google Test / C++)
 
-Built with GCC, run via CTest. 60 `.cpp` files in `tests/unit/`.
+Built with GCC, run via CTest. 69 `.cpp` files in `tests/unit/`.
 
 ---
 
 ### test_oc_knx_hooks.cpp — KNX Hooks of the Lower Layers (3 tests)
 
-**Source:** `src/api/oc_knx_hooks.c` (`src/messaging/coap/coap_knx_hooks.h`). The CTest `LayeringCheck.LowerLayersUseOnlyTheirKnxHooks` (`cmake/check_layering.cmake`, no `.cpp`) fails when `src/messaging/`, `src/security/` or `src/port/` include an `oc_knx*.h` or call `oc_knx_*()` / `oc_core_*()` instead of their hooks header.
+**Source:** `src/resources/knx/oc_knx_hooks.c` (`src/messaging/coap/coap_knx_hooks.h`). The CTest `LayeringCheck.LowerLayersUseOnlyTheirKnxHooks` (`cmake/check_layering.cmake`, no `.cpp`) fails when `src/messaging/`, `src/security/` or `src/port/` include an `oc_knx*.h` or call `oc_knx_*()` / `oc_core_*()` instead of their hooks header.
 
 | Test | What it verifies |
 |------|-----------------|
@@ -62,7 +62,7 @@ Built with GCC, run via CTest. 60 `.cpp` files in `tests/unit/`.
 
 ### test_oc_base64.cpp — Base64 Encoding (14 tests)
 
-**Source:** `src/api/oc_base64.c`
+**Source:** `src/util/oc_base64.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -85,7 +85,7 @@ Built with GCC, run via CTest. 60 `.cpp` files in `tests/unit/`.
 
 ### test_oc_uuid.cpp — UUID Handling (19 tests)
 
-**Source:** `src/api/oc_uuid.c`
+**Source:** `src/util/oc_uuid.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -167,7 +167,7 @@ Built with GCC, run via CTest. 60 `.cpp` files in `tests/unit/`.
 
 ### test_oc_helpers_alloc_fail.cpp — Allocation Failure in the String Layer (8 tests)
 
-**Source:** `src/util/oc_mmem.c`, `src/api/oc_helpers.c`; linked with `-Wl,--wrap=malloc`, `__wrap_malloc()` fails the next call once a test arms it, and `-Wl,--wrap=free`, `__wrap_free()` overwrites the first byte of one armed block with 'X' before it is released
+**Source:** `src/util/oc_mmem.c`, `src/util/oc_helpers.c`; linked with `-Wl,--wrap=malloc`, `__wrap_malloc()` fails the next call once a test arms it, and `-Wl,--wrap=free`, `__wrap_free()` overwrites the first byte of one armed block with 'X' before it is released
 
 | Test | What it verifies |
 |------|-----------------|
@@ -184,7 +184,7 @@ Built with GCC, run via CTest. 60 `.cpp` files in `tests/unit/`.
 
 ### test_oc_helpers.cpp — String & Hex Utilities (99 tests)
 
-**Source:** `src/api/oc_helpers.c`
+**Source:** `src/util/oc_helpers.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -207,7 +207,7 @@ Built with GCC, run via CTest. 60 `.cpp` files in `tests/unit/`.
 
 ### test_c_timestamp.cpp — Timestamp Parsing (28 tests)
 
-**Source:** `src/api/c-timestamp/`
+**Source:** `src/util/c-timestamp/`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -222,7 +222,7 @@ Built with GCC, run via CTest. 60 `.cpp` files in `tests/unit/`.
 
 ### test_oc_rep.cpp — CBOR Representation (91 tests)
 
-**Source:** `src/api/oc_rep.c`
+**Source:** `src/resources/ri/oc_rep.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -251,7 +251,7 @@ Built with GCC, run via CTest. 60 `.cpp` files in `tests/unit/`.
 
 ### test_oc_rep_alloc_fail.cpp — Allocation Failure in the CBOR Parser (8 tests)
 
-**Source:** `src/api/oc_rep.c` (`oc_parse_rep`); linked with `-Wl,--wrap=malloc`, `__wrap_malloc()` fails the next call once a test arms it (rep nodes come from `calloc`, so it hits the first string/array buffer)
+**Source:** `src/resources/ri/oc_rep.c` (`oc_parse_rep`); linked with `-Wl,--wrap=malloc`, `__wrap_malloc()` fails the next call once a test arms it (rep nodes come from `calloc`, so it hits the first string/array buffer)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -346,7 +346,7 @@ OSCORE Option (48 tests)
 
 ### test_oc_knx_sec.cpp — Security Credentials (116 tests)
 
-**Source:** `src/api/oc_knx_sec.c`; linked with `-Wl,--wrap=oc_core_get_core_resource_by_index` (counts the lookups of the list GETs, pass through)
+**Source:** `src/resources/knx/oc_knx_sec.c`; linked with `-Wl,--wrap=oc_core_get_core_resource_by_index` (counts the lookups of the list GETs, pass through)
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -366,7 +366,7 @@ OSCORE Option (48 tests)
 
 Replay Protection (14 tests)
 
-**Source:** `src/api/oc_replay.c`
+**Source:** `src/security/oc_replay.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -502,7 +502,7 @@ Replay Protection (14 tests)
 
 ### test_oc_knx_helpers.cpp - KNX Helpers (35 tests)
 
-**Source:** `src/api/oc_knx_helpers.c`
+**Source:** `src/resources/knx/oc_knx_helpers.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -520,7 +520,7 @@ Replay Protection (14 tests)
 
 ### test_oc_endpoint.cpp — Endpoint Handling (42 tests)
 
-**Source:** `src/api/oc_endpoint.c`
+**Source:** `src/core/oc_endpoint.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -540,9 +540,9 @@ Replay Protection (14 tests)
 
 ---
 
-### test_oc_knx_fp.cpp — Group Object & FP Tables (110 tests)
+### test_oc_knx_fp.cpp — Group Object & FP Tables (112 tests)
 
-**Source:** `src/api/oc_knx_fp.c`
+**Source:** `src/resources/knx/oc_knx_fp.c`. The file runs a second time without `OC_PUBLISHER_TABLE`, see `PublisherOff` below; the publisher tests are left out there.
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -555,15 +555,16 @@ Replay Protection (14 tests)
 | `GoTableHref` | 8 | href getter + find-first/next by href, sending-GA lookup; storing an entry from inside a handler hands the encoder back to the handler's response buffer |
 | `RecipientTable` | 1 | Recipient index-from-id match/miss |
 | `BelongsHref` | 4 | href ownership check, non-discoverable skipped, an entry without href (NULL) belongs to no resource |
-| `FpHandlers` | 49 | CoAP handlers of `/fp/g`, `/fp/p`, `/fp/r` and their `/*` entry resources: wrong-Accept rejection, empty table → 2.05, invalid paging (`ps`/`pn`) → 4.00, populated link-format listing incl. comma separator and next-page indicator, entry GET (unknown id → 4.04, known id → 2.05 CBOR), entry DELETE outside loading state → 4.00; POST (loading state) with a repeated ga key keeps the last one: `/fp/p` and `/fp/r` `[1]` then `[]` → empty ga, `/fp/g` `[1]` then `[2]` → `[2]`; an empty array on a key other than ga (`{0: 1, 11: []}`) on an existing entry → 4.00, the entry unchanged, in all three tables (only the id alone deletes, spec 2.5.7.4.1); an update carrying only an unknown member (`{0: 1, 99: 5}`) is not "id only", 2.04 and the entry stays, in all three tables; `/fp/p` and `/fp/r`: `ia` and `grpid` in one request → 4.00 (a1), an update with only `ia` on a multicast entry switches it to unicast (`grpid` cleared), only `grpid` on a unicast entry switches it to multicast (`ia` and the stale `at` cleared, spec 2.5.7.4.2 Table 21, 6.3.2.1); a collection is atomic: one rejected later entry stores nothing, in all three tables; more than 10 entries (`KNX_POST_MAX_ENTRIES`, shared with `/auth/at`) → 4.13, with `/fp/g` and `/fp/p` confirming no entries were stored (spec 2.6.3.3.2); the same id twice in one request → 4.00; two new entries in one request land in two slots |
+| `FpHandlers` | 50 | CoAP handlers of `/fp/g`, `/fp/p`, `/fp/r` and their `/*` entry resources: a device-scope token may GET `/fp/g/*` (spec 1.1.0, F-080), wrong-Accept rejection, empty table → 2.05, invalid paging (`ps`/`pn`) → 4.00, populated link-format listing incl. comma separator and next-page indicator, entry GET (unknown id → 4.04, known id → 2.05 CBOR), entry DELETE outside loading state → 4.00; POST (loading state) with a repeated ga key keeps the last one: `/fp/p` and `/fp/r` `[1]` then `[]` → empty ga, `/fp/g` `[1]` then `[2]` → `[2]`; an empty array on a key other than ga (`{0: 1, 11: []}`) on an existing entry → 4.00, the entry unchanged, in all three tables (only the id alone deletes, spec 2.5.7.4.1); an update carrying only an unknown member (`{0: 1, 99: 5}`) is not "id only", 2.04 and the entry stays, in all three tables; `/fp/p` and `/fp/r`: `ia` and `grpid` in one request → 4.00 (a1), an update with only `ia` on a multicast entry switches it to unicast (`grpid` cleared), only `grpid` on a unicast entry switches it to multicast (`ia` and the stale `at` cleared, spec 2.5.7.4.2 Table 21, 6.3.2.1); a collection is atomic: one rejected later entry stores nothing, in all three tables; more than 10 entries (`KNX_POST_MAX_ENTRIES`, shared with `/auth/at`) → 4.13, with `/fp/g` and `/fp/p` confirming no entries were stored (spec 2.6.3.3.2); the same id twice in one request → 4.00; two new entries in one request land in two slots |
 | `GroupTableStorage` | 7 | Recipient/publisher entry encode-decode round-trip (NON flag as boolean, empty/multiple GA arrays, absent-NON default) |
 | `RecipientAccessToken` | 5 | `oc_is_unicast_recipient_access_token`: unicast entry naming the token -> true; multicast entry with `at`, unused slot, other/prefix/longer id, empty or NULL id -> false |
+| `GroupMulticasts` | 1 | `oc_register_group_multicasts`: a writable group object whose ga has a publisher entry with `grpid` joins that group (`oc_connectivity_subscribe_mcast_ipv6` wrapped and counted) |
 
 ---
 
 ### test_oc_buffer_settings.cpp — Buffer/PDU Settings (44 tests)
 
-**Source:** `src/api/oc_main.c` (declared in `include/oc_buffer_settings.h`)
+**Source:** `src/core/oc_main.c` (declared in `include/oc_buffer_settings.h`)
 
 Contract under test (D-001, a deliberate design change; `git log -p -S D-001 -- tests/FINDINGS.md` shows the note): the argument of
 `oc_set_pdu_size()` is the **total CoAP PDU size**, i.e. payload plus the CoAP
@@ -663,7 +664,7 @@ must forward. Verified non-vacuous: transposing one argument in
 
 Core Resources & Device Info (57 tests)
 
-**Source:** `src/api/oc_core_res.c`
+**Source:** `src/resources/ri/oc_core_res.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -678,7 +679,7 @@ Core Resources & Device Info (57 tests)
 
 ### test_oc_knx_dev.cpp — Device Programming Mode & Resource Handlers (57 tests)
 
-**Source:** `src/api/oc_knx_dev.c`; linked with `-Wl,--wrap=oc_main_initialized`, `-Wl,--wrap=knx_dns_sd_update_service` and `-Wl,--wrap=oc_core_get_core_resource_by_index` (counts the lookups of the list GETs, pass through)
+**Source:** `src/resources/knx/oc_knx_dev.c`; linked with `-Wl,--wrap=oc_main_initialized`, `-Wl,--wrap=knx_dns_sd_update_service` and `-Wl,--wrap=oc_core_get_core_resource_by_index` (counts the lookups of the list GETs, pass through)
 
 **Programming mode (`KnxDeviceProgrammingMode`, 6 tests)**
 
@@ -714,7 +715,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_oc_clock.cpp — RFC3339 Clock Helpers (12 tests)
 
-**Source:** `src/api/oc_clock.c`
+**Source:** `src/util/oc_clock.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -735,7 +736,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_oc_knx.cpp — KNX Core (34 tests)
 
-**Source:** `src/api/oc_knx.c`
+**Source:** `src/resources/knx/oc_knx.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -751,7 +752,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_oc_knx_fb.cpp — Functional Block Helpers (22 tests)
 
-**Source:** `src/api/oc_knx_fb.c`
+**Source:** `src/resources/knx/oc_knx_fb.c`
 
 **Functional-block discovery (21 tests)**
 
@@ -806,7 +807,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_coap_receive_notify.cpp — Separate Responses and Notifications in coap_receive (3 tests)
 
-**Source:** `src/messaging/coap/engine.c` (`coap_receive`), `src/api/oc_ri.c` (separate response branch, `oc_notify_observers()` after a PUT), `src/messaging/coap/separate.c`; app resource `/p/1` (observable, GET answers with a separate response, PUT answers 2.04); linked with `-Wl,--wrap=oc_main_initialized`, `-Wl,--wrap=oc_etimer_restart`, `-Wl,--wrap=coap_send_message` (records each sent message) and `-Wl,--wrap=calloc` (fails one armed allocation of a separate response store)
+**Source:** `src/messaging/coap/engine.c` (`coap_receive`), `src/resources/ri/oc_ri.c` (separate response branch, `oc_notify_observers()` after a PUT), `src/messaging/coap/separate.c`; app resource `/p/1` (observable, GET answers with a separate response, PUT answers 2.04); linked with `-Wl,--wrap=oc_main_initialized`, `-Wl,--wrap=oc_etimer_restart`, `-Wl,--wrap=coap_send_message` (records each sent message) and `-Wl,--wrap=calloc` (fails one armed allocation of a separate response store)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -818,7 +819,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_coap_receive_oscore_admission.cpp — Server Side OSCORE Replay and Echo Admission (12 tests) — fixture
 
-**Source:** `src/messaging/coap/engine.c` (`coap_receive()` replay/Echo admission of `OSCORE_DECRYPTED` requests, `coap_send_response_with_empty_application_payload[_with_delay]()`, `coap_send_delayed_echo_response()`), `src/api/oc_replay.c`; app resource `/p/1` (GET, no scope); the request is plain CoAP with kid and PIV on the endpoint (no decryption); linked with `-Wl,--wrap=oc_main_initialized`, `-Wl,--wrap=oc_etimer_restart`, `-Wl,--wrap=coap_send_message` (records bytes and endpoint flags), `-Wl,--wrap=oc_set_delayed_callback_ms` (records the delayed Echo response, fired by the test), `-Wl,--wrap=coap_knx_echo_max_delay_ms`, `-Wl,--wrap=oc_clock_time` (fixed clock) and `-Wl,--wrap=malloc` (fails the armed allocation)
+**Source:** `src/messaging/coap/engine.c` (`coap_receive()` replay/Echo admission of `OSCORE_DECRYPTED` requests, `coap_send_response_with_empty_application_payload[_with_delay]()`, `coap_send_delayed_echo_response()`), `src/security/oc_replay.c`; app resource `/p/1` (GET, no scope); the request is plain CoAP with kid and PIV on the endpoint (no decryption); linked with `-Wl,--wrap=oc_main_initialized`, `-Wl,--wrap=oc_etimer_restart`, `-Wl,--wrap=coap_send_message` (records bytes and endpoint flags), `-Wl,--wrap=oc_set_delayed_callback_ms` (records the delayed Echo response, fired by the test), `-Wl,--wrap=coap_knx_echo_max_delay_ms`, `-Wl,--wrap=oc_clock_time` (fixed clock) and `-Wl,--wrap=malloc` (fails the armed allocation)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -841,7 +842,7 @@ Open finding: F-079 (a replayed multicast request gets a unicast 4.01 instead of
 
 ### test_coap_blockwise_server.cpp — Server Side Block-wise Transfer (11 tests)
 
-**Source:** `src/messaging/coap/engine.c` (`coap_receive()`, Block1/Block2 server path), `src/api/oc_ri.c` (response buffer); app resource `/p/1` (GET 100 bytes CBOR, POST records the body); linked with `-Wl,--wrap=oc_main_initialized`, `-Wl,--wrap=oc_etimer_restart`, `-Wl,--wrap=coap_send_message`
+**Source:** `src/messaging/coap/engine.c` (`coap_receive()`, Block1/Block2 server path), `src/resources/ri/oc_ri.c` (response buffer); app resource `/p/1` (GET 100 bytes CBOR, POST records the body); linked with `-Wl,--wrap=oc_main_initialized`, `-Wl,--wrap=oc_etimer_restart`, `-Wl,--wrap=coap_send_message`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1000,7 +1001,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_ri.cpp — Resource Interface (118 tests)
 
-**Source:** `src/api/oc_ri.c`
+**Source:** `src/resources/ri/oc_ri.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -1034,7 +1035,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_ri_timed_callbacks.cpp — RI Timed-Event List (5 tests)
 
-**Source:** `src/api/oc_ri.c` (timed-event list, `poll_event_callback_timers`) via `oc_ri_add_timed_event_callback_ticks` / `oc_ri_remove_timed_event_callback`; linked with `-Wl,--wrap=oc_clock_time`, `oc_main_poll()` drives the list
+**Source:** `src/resources/ri/oc_ri.c` (timed-event list, `poll_event_callback_timers`) via `oc_ri_add_timed_event_callback_ticks` / `oc_ri_remove_timed_event_callback`; linked with `-Wl,--wrap=oc_clock_time`, `oc_main_poll()` drives the list
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1048,7 +1049,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_ri_periodic_observe.cpp — Periodic Observe List (4 tests)
 
-**Source:** `src/api/oc_ri.c` (periodic observe callbacks on the observe list); observer registered through `coap_receive()` (GET + Observe 0 + `lt`), `oc_main_poll()` drives the list; linked with `-Wl,--wrap=oc_clock_time`, `oc_main_initialized`, `coap_send_message`, `oc_notify_observers` (the armed notification deletes its resource)
+**Source:** `src/resources/ri/oc_ri.c` (periodic observe callbacks on the observe list); observer registered through `coap_receive()` (GET + Observe 0 + `lt`), `oc_main_poll()` drives the list; linked with `-Wl,--wrap=oc_clock_time`, `oc_main_initialized`, `coap_send_message`, `oc_notify_observers` (the armed notification deletes its resource)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1076,7 +1077,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_blockwise.cpp — Blockwise Transfer (29 tests)
 
-**Source:** `src/api/oc_blockwise.c`
+**Source:** `src/messaging/coap/oc_blockwise.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -1089,7 +1090,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_buffer.cpp — Message Buffer Pool (23 tests)
 
-**Source:** `src/api/oc_buffer.c`
+**Source:** `src/core/oc_buffer.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1121,7 +1122,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_client_api.cpp — Client API (15 tests)
 
-**Source:** `src/api/oc_client_api.c`
+**Source:** `src/resources/ri/oc_client_api.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -1132,7 +1133,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_discovery.cpp — Discovery (`/.well-known/core`) (237 tests)
 
-**Source:** `src/api/oc_discovery.c`
+**Source:** `src/resources/ri/oc_discovery.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -1170,7 +1171,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_knx_client.cpp — KNX Client Redirect (8 tests)
 
-**Source:** `src/api/oc_knx_client.c`
+**Source:** `src/resources/knx/oc_knx_client.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1187,7 +1188,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_read_on_init.cpp — Read-on-Init Network Gate (9 tests — fixture)
 
-**Source:** `src/api/oc_knx_fp.c` (`oc_init_datapoints_at_initialization()` and its timed callback). The timed-event registry, `oc_connectivity_get_network_scope()` and the s-mode senders are replaced with `--wrap`; the group object and recipient tables are filled with `test_helpers_tables.h`. Covers what the runtime class `TestReadOnInitNetworkGate` cannot run under the Docker runner.
+**Source:** `src/resources/knx/oc_knx_fp.c` (`oc_init_datapoints_at_initialization()` and its timed callback). The timed-event registry, `oc_connectivity_get_network_scope()` and the s-mode senders are replaced with `--wrap`; the group object and recipient tables are filled with `test_helpers_tables.h`. Covers what the runtime class `TestReadOnInitNetworkGate` cannot run under the Docker runner.
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1205,7 +1206,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_knx_publisher.cpp — Publisher of Output Datapoints, S-Mode and /p Observe (50 tests)
 
-**Source:** `src/api/oc_knx_publisher.c` (publish procedure of output datapoints with the metadata `cov`, `hbt`, `mrt`, KNX IoT Point API 2.5.7.4.3 / 2.5.11.2 / 2.5.11.4 / 2.6.10.2). Clock, timed events, load state, resource lookup and the s-mode sender are replaced with `--wrap`; the sender double only returns the outcome a test sets (rc and dispatched flag), the real sender's group object, recipient and /p observer decisions are covered by `SmodeDispatch.*` in `test_smode_loopback_recursion.cpp`.
+**Source:** `src/resources/knx/oc_knx_publisher.c` (publish procedure of output datapoints with the metadata `cov`, `hbt`, `mrt`, KNX IoT Point API 2.5.7.4.3 / 2.5.11.2 / 2.5.11.4 / 2.6.10.2). Clock, timed events, load state, resource lookup and the s-mode sender are replaced with `--wrap`; the sender double only returns the outcome a test sets (rc and dispatched flag), the real sender's group object, recipient and /p observer decisions are covered by `SmodeDispatch.*` in `test_smode_loopback_recursion.cpp`.
 
 | Group | Tests | What it verifies |
 |-------|-------|-----------------|
@@ -1221,7 +1222,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_knx_p.cpp — KNX `/p` Properties Resource (13 tests)
 
-**Source:** `src/api/oc_knx_p.c`
+**Source:** `src/resources/knx/oc_knx_p.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1243,7 +1244,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_knx_sub.cpp — KNX `/sub` Delete (7 tests)
 
-**Source:** `src/api/oc_knx_sub.c`
+**Source:** `src/resources/knx/oc_knx_sub.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1259,7 +1260,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_knx_swu.cpp — Software Update (105 tests)
 
-**Source:** `src/api/oc_knx_swu.c`; linked with `-Wl,--wrap=malloc` and `-Wl,--wrap=free` (pass through unless armed: capture a setter's string buffer, poison a block on free) and `-Wl,--wrap=oc_core_get_core_resource_by_index` (counts the lookups, pass through)
+**Source:** `src/resources/knx/oc_knx_swu.c`; linked with `-Wl,--wrap=malloc` and `-Wl,--wrap=free` (pass through unless armed: capture a setter's string buffer, poison a block on free) and `-Wl,--wrap=oc_core_get_core_resource_by_index` (counts the lookups, pass through)
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -1294,7 +1295,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_main.cpp — Main Callbacks / State (9 tests)
 
-**Source:** `src/api/oc_main.c`
+**Source:** `src/core/oc_main.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -1305,7 +1306,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_main_init.cpp — DNS-SD Registration at Bootstrap (1 test)
 
-**Source:** `src/api/oc_main.c`
+**Source:** `src/core/oc_main.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1315,7 +1316,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_network_events.cpp — Network Events (14 tests)
 
-**Source:** `src/api/oc_network_events.c`
+**Source:** `src/core/oc_network_events.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1391,7 +1392,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_server_api.cpp — Server API (43 tests)
 
-**Source:** `src/api/oc_server_api.c`
+**Source:** `src/resources/ri/oc_server_api.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -1414,7 +1415,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_oc_test_control.cpp — Test Control Trigger (4 tests)
 
-**Source:** `src/api/oc_test_control.c`
+**Source:** `src/resources/ri/oc_test_control.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1427,7 +1428,7 @@ allocation/serialization failures remain follow-up areas.
 
 ### test_separate.cpp — Separate Responses (8 tests)
 
-**Source:** `src/messaging/coap/separate.c`, `src/api/oc_server_api.c` (separate response send); linked with `-Wl,--wrap=coap_send_message`, `-Wl,--wrap=oc_main_initialized`
+**Source:** `src/messaging/coap/separate.c`, `src/resources/ri/oc_server_api.c` (separate response send); linked with `-Wl,--wrap=coap_send_message`, `-Wl,--wrap=oc_main_initialized`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1495,7 +1496,7 @@ strengthened handshake assertions; conformance section 5.3.1 also passed.
 
 ### test_app_precalculated_spake.cpp — Precalculated SPAKE2+ Record (9 tests)
 
-**Source:** `app_get_precalculated_spake_data()` (`include/oc_knx.h`) + `oc_spake2plus_init_data()` (`src/api/oc_knx.c`)
+**Source:** `app_get_precalculated_spake_data()` (`include/oc_knx.h`) + `oc_spake2plus_init_data()` (`src/resources/knx/oc_knx.c`)
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -1536,7 +1537,7 @@ since the source is POSIX-only and `--wrap` is a GNU ld feature.
 
 ### test_smode_issue.cpp — S-Mode Send Path (8 tests)
 
-**Source:** `src/api/oc_knx_client.c` (`oc_issue_s_mode_message()`, driven through the public `oc_send_s_mode_multicast_message()`), network faked with linker `--wrap` (`oc_main_initialized`, `coap_send_message`, `oc_etimer_restart`; `oc_allocate_message` counted; `coap_new_transaction_with_message` can fail; `oc_knx_notify_k_observers` recorded)
+**Source:** `src/resources/knx/oc_knx_client.c` (`oc_issue_s_mode_message()`, driven through the public `oc_send_s_mode_multicast_message()`), network faked with linker `--wrap` (`oc_main_initialized`, `coap_send_message`, `oc_etimer_restart`; `oc_allocate_message` counted; `coap_new_transaction_with_message` can fail; `oc_knx_notify_k_observers` recorded)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1551,9 +1552,34 @@ since the source is POSIX-only and `--wrap` is a GNU ld feature.
 
 ---
 
+### test_oc_knx_client_off.cpp — Stack Without OC_CLIENT (2 tests + 1 build test)
+
+**Source:** `src/resources/knx/oc_knx_client.c` (`ipv6_for_ia_is_resolved()` via `oc_send_s_mode_unicast_message()`), `src/messaging/coap/transactions.c`. Built in `tests/unit/client_off/` against its own stack library without `OC_CLIENT` (as `CONFIG_KNXIOT_CLIENT=n` on Zephyr and ESP-IDF); `ClientOff.StackBuildsAndLinksWithoutOcClient` builds and links it and is the fixture of the run `ClientOff.test_oc_knx_client_off`. The CI job `build-server-only` compiles the stack with the CMake option `OC_CLIENT_ENABLED=OFF`.
+
+| Test | What it verifies |
+|------|-----------------|
+| `ClientOff.StackBuildsAndLinksWithoutOcClient` | The server-only stack compiles warning-free and links without unresolved client symbols |
+| `ClientOff.UnresolvedUnicastRecipientFailsWithoutDiscovery` | Unicast write to an unresolved recipient: nothing handed over, the recipient is marked `FAILED` (no CoAP discovery exists) |
+| `ClientOff.FailedUnicastRecipientIsNotRetried` | A second trigger leaves it `FAILED` and sends nothing |
+
+---
+
+### Stack Without OC_PUBLISHER_TABLE — Plain Sender (`PublisherOff`, 2 runs + 1 build test)
+
+**Source:** `src/resources/knx/oc_knx_fp.c`. Built in `tests/unit/publisher_off/` against its own stack library without `OC_PUBLISHER_TABLE` (as `OC_PUBLISHER_TABLE_ENABLED=OFF` or `CONFIG_KNXIOT_PUBLISHER_TABLE=n`): `kis-common` leaves the definition out for targets with the property `KIS_NO_PUBLISHER_TABLE`. The test files that depend on the switch run a second time, their publisher tests left out: `PublisherOff.test_oc_knx_fp` runs `test_oc_knx_fp.cpp` and `PublisherOff.test_oc_core_res` runs `test_oc_core_res.cpp` (`CoreResourceByIndex` checks the registry without `/fp/p` and `/fp/p/*`).
+
+| Test | What it verifies |
+|------|-----------------|
+| `PublisherOff.StackBuildsAndLinksWithoutPublisherTable` | The plain-sender stack and both test files compile warning-free and link: every publisher function declared in `oc_knx_fp.h` exists |
+| `FpTableSizes.PublisherTableIsEmptyWithoutOcPublisherTable` | Size 0, no entry, an id or group address is never found (-1, NULL) |
+| `FpHandlers.GoEntryGetIsAllowedForADeviceScopeToken` | Same scope for GET `/fp/g/*` as with the publisher table (F-080) |
+| `GroupMulticasts.PlainSenderJoinsNoGroup` | Without a publisher table no group id is known: `oc_register_group_multicasts` joins no group |
+
+---
+
 ### test_smode_loopback_recursion.cpp — S-Mode Write Loopback and Dispatch Result (16 tests)
 
-**Source:** `src/api/oc_knx_client.c` (`oc_send_s_mode_mc_or_uc_message()`, `oc_send_s_mode_mc_or_uc_message_dispatched()`); the transmission is faked with `--wrap=coap_new_transaction_with_message` (records the serialized message or fails), `coap_send_transaction`, `coap_notify_observers_dispatched` and `oc_knx_notify_k_observers`
+**Source:** `src/resources/knx/oc_knx_client.c` (`oc_send_s_mode_mc_or_uc_message()`, `oc_send_s_mode_mc_or_uc_message_dispatched()`); the transmission is faked with `--wrap=coap_new_transaction_with_message` (records the serialized message or fails), `coap_send_transaction`, `coap_notify_observers_dispatched` and `oc_knx_notify_k_observers`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1578,7 +1604,7 @@ since the source is POSIX-only and `--wrap` is a GNU ld feature.
 
 ### test_smode_read_answer_payload.cpp — S-Mode Read Answer Payload (1 test)
 
-**Source:** `src/api/oc_knx.c` (`oc_core_knx_k_post_handler()`)
+**Source:** `src/resources/knx/oc_knx.c` (`oc_core_knx_k_post_handler()`)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1588,7 +1614,7 @@ since the source is POSIX-only and `--wrap` is a GNU ld feature.
 
 ### Runtime-covered source files (no unit tests)
 
-`src/api/oc_test_control.c` and `src/api/oc_knx_p.c` — previously listed here as
+`src/resources/ri/oc_test_control.c` and `src/resources/knx/oc_knx_p.c` — previously listed here as
 runtime-only — now have dedicated unit test files
 ([test_oc_test_control.cpp](unit/test_oc_test_control.cpp),
 [test_oc_knx_p.cpp](unit/test_oc_knx_p.cpp)) that exercise their handlers

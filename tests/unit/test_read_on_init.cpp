@@ -8,7 +8,7 @@
  */
 
 /*
- * Unit tests for the read-on-init network gate in api/oc_knx_fp.c
+ * Unit tests for the read-on-init network gate in resources/knx/oc_knx_fp.c
  * (oc_init_datapoints_at_initialization() and its static timed callback).
  *
  * Covered:

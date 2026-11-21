@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_knx_fp.c
+ * Unit tests for resources/knx/oc_knx_fp.c
  *
  * Covers:
  *   - oc_cflags_as_string (communication flag bitmask to string)
@@ -8,6 +8,9 @@
  *   - Group table persistence: store/load round trip for the Recipient and
  *     Publisher tables (driven through the public loader
  *     oc_create_knx_table_resources), including the 'non' boolean flag.
+ *
+ * Also built without OC_PUBLISHER_TABLE (tests/unit/publisher_off): the
+ * publisher tests are under #ifdef OC_PUBLISHER_TABLE there.
  *
  * This file was created with the assistance of AI tools.
  * Copyright 2026 KNXA (to the extent protectable under applicable law)
@@ -22,6 +25,7 @@ extern "C" {
 #include "oc_helpers.h"
 #include "oc_knx.h" /* oc_knx_get_lsm / LSM_S_LOADING */
 #include "oc_knx_fp.h"
+#include "oc_knx_sec_internal.h" /* oc_knx_sec_check_acl */
 #include "oc_rep.h"
 #include "oc_ri.h"
 #include "oc_ri_internal.h"
@@ -321,11 +325,21 @@ TEST(FpTableSizes, RecipientMatchesBuildConstant)
   EXPECT_EQ(oc_core_get_recipient_table_size(), KNX_GRT_MAX_ENTRIES);
 }
 
+#ifdef OC_PUBLISHER_TABLE
 TEST(FpTableSizes, PublisherMatchesBuildConstant)
 {
-  /* OC_PUBLISHER_TABLE is defined in this build */
   EXPECT_EQ(oc_core_get_publisher_table_size(), KNX_GPT_MAX_ENTRIES);
 }
+#else
+/* plain sender (tests/unit/publisher_off): the publisher API links and reports an empty table */
+TEST(FpTableSizes, PublisherTableIsEmptyWithoutOcPublisherTable)
+{
+  EXPECT_EQ(oc_core_get_publisher_table_size(), 0);
+  EXPECT_EQ(oc_core_get_publisher_table_entry(0), nullptr);
+  EXPECT_EQ(oc_core_find_index_in_publisher_table_from_id(1), -1);
+  EXPECT_EQ(oc_find_entry_in_publisher_table(1), nullptr);
+}
+#endif
 
 TEST(FpTableSizes, RecipientEntryBounds)
 {
@@ -334,12 +348,14 @@ TEST(FpTableSizes, RecipientEntryBounds)
   EXPECT_NE(oc_core_get_recipient_table_entry(0), nullptr);
 }
 
+#ifdef OC_PUBLISHER_TABLE
 TEST(FpTableSizes, PublisherEntryBounds)
 {
   EXPECT_EQ(oc_core_get_publisher_table_entry(-1), nullptr);
   EXPECT_EQ(oc_core_get_publisher_table_entry(KNX_GPT_MAX_ENTRIES), nullptr);
   EXPECT_NE(oc_core_get_publisher_table_entry(0), nullptr);
 }
+#endif
 
 TEST(FpTableSizes, PubTableContainsNoIidDefaultsTrue)
 {
@@ -996,8 +1012,10 @@ TEST_F(GroupTableStorage, WriterEncodesNonAsBoolean)
 extern "C" {
 extern const oc_resource_t core_resource_knx_fp_g;
 extern const oc_resource_t core_resource_knx_fp_g_x;
+#ifdef OC_PUBLISHER_TABLE
 extern const oc_resource_t core_resource_knx_fp_p;
 extern const oc_resource_t core_resource_knx_fp_p_x;
+#endif
 extern const oc_resource_t core_resource_knx_fp_r;
 extern const oc_resource_t core_resource_knx_fp_r_x;
 }
@@ -1141,11 +1159,13 @@ TEST_F(FpHandlers, GoListWrongAcceptBadRequest)
             oc_status_code(OC_STATUS_BAD_REQUEST));
 }
 
+#ifdef OC_PUBLISHER_TABLE
 TEST_F(FpHandlers, PubListWrongAcceptBadRequest)
 {
   EXPECT_EQ(invoke_list(core_resource_knx_fp_p, APPLICATION_CBOR),
             oc_status_code(OC_STATUS_BAD_REQUEST));
 }
+#endif
 
 TEST_F(FpHandlers, RcpListWrongAcceptBadRequest)
 {
@@ -1161,11 +1181,13 @@ TEST_F(FpHandlers, GoListEmptyTableReturnsOk)
             oc_status_code(OC_STATUS_OK));
 }
 
+#ifdef OC_PUBLISHER_TABLE
 TEST_F(FpHandlers, PubListEmptyTableReturnsOk)
 {
   EXPECT_EQ(invoke_list(core_resource_knx_fp_p, APPLICATION_LINK_FORMAT),
             oc_status_code(OC_STATUS_OK));
 }
+#endif
 
 TEST_F(FpHandlers, RcpListEmptyTableReturnsOk)
 {
@@ -1189,12 +1211,14 @@ TEST_F(FpHandlers, GoListInvalidPageNumberBadRequest)
             oc_status_code(OC_STATUS_BAD_REQUEST));
 }
 
+#ifdef OC_PUBLISHER_TABLE
 TEST_F(FpHandlers, PubListInvalidPageSizeBadRequest)
 {
   oc_core_get_publisher_table_entry(0)->id = 1;
   EXPECT_EQ(invoke_list(core_resource_knx_fp_p, APPLICATION_LINK_FORMAT, "ps=0"),
             oc_status_code(OC_STATUS_BAD_REQUEST));
 }
+#endif
 
 TEST_F(FpHandlers, RcpListInvalidPageSizeBadRequest)
 {
@@ -1214,6 +1238,7 @@ TEST_F(FpHandlers, GoListPopulatedListsEntry)
   EXPECT_TRUE(response_contains(";ct=60"));
 }
 
+#ifdef OC_PUBLISHER_TABLE
 TEST_F(FpHandlers, PubListPopulatedListsEntry)
 {
   oc_core_get_publisher_table_entry(0)->id = 3;
@@ -1221,6 +1246,7 @@ TEST_F(FpHandlers, PubListPopulatedListsEntry)
             oc_status_code(OC_STATUS_OK));
   EXPECT_TRUE(response_contains("</fp/p/3>"));
 }
+#endif
 
 TEST_F(FpHandlers, RcpListPopulatedListsEntry)
 {
@@ -1262,18 +1288,34 @@ TEST_F(FpHandlers, GoEntryGetWrongAcceptBadRequest)
             oc_status_code(OC_STATUS_BAD_REQUEST));
 }
 
+#ifdef OC_PUBLISHER_TABLE
 TEST_F(FpHandlers, PubEntryGetWrongAcceptBadRequest)
 {
   EXPECT_EQ(invoke_entry_get(core_resource_knx_fp_p_x, APPLICATION_LINK_FORMAT,
                              "fp/p/1"),
             oc_status_code(OC_STATUS_BAD_REQUEST));
 }
+#endif
 
 TEST_F(FpHandlers, RcpEntryGetWrongAcceptBadRequest)
 {
   EXPECT_EQ(invoke_entry_get(core_resource_knx_fp_r_x, APPLICATION_LINK_FORMAT,
                              "fp/r/1"),
             oc_status_code(OC_STATUS_BAD_REQUEST));
+}
+
+/* spec 1.1.0: GET /fp/g/<id> needs the device scope, with and without a publisher table */
+TEST_F(FpHandlers, GoEntryGetIsAllowedForADeviceScopeToken)
+{
+  oc_auth_at_t token;
+  memset(&token, 0, sizeof(token));
+  token.scope = OC_ACL_D;
+  oc_endpoint_t endpoint;
+  memset(&endpoint, 0, sizeof(endpoint));
+  endpoint.flags = (enum transport_flags)(OSCORE | OSCORE_DECRYPTED);
+  endpoint.access_token.inbound = &token;
+
+  EXPECT_EQ(oc_knx_sec_check_acl(COAP_GET, &core_resource_knx_fp_g_x, &endpoint, nullptr), OC_STATUS_OK);
 }
 
 /* ───────────── entry GET handlers: unknown id -> 4.04 Not Found ──────────── */
@@ -1285,12 +1327,14 @@ TEST_F(FpHandlers, GoEntryGetUnknownIdNotFound)
             oc_status_code(OC_STATUS_NOT_FOUND));
 }
 
+#ifdef OC_PUBLISHER_TABLE
 TEST_F(FpHandlers, PubEntryGetUnknownIdNotFound)
 {
   EXPECT_EQ(invoke_entry_get(core_resource_knx_fp_p_x, APPLICATION_CBOR,
                              "fp/p/9"),
             oc_status_code(OC_STATUS_NOT_FOUND));
 }
+#endif
 
 TEST_F(FpHandlers, RcpEntryGetUnknownIdNotFound)
 {
@@ -1318,6 +1362,7 @@ TEST_F(FpHandlers, GoEntryGetKnownIdReturnsCbor)
   EXPECT_TRUE(response_contains("/p/1"));
 }
 
+#ifdef OC_PUBLISHER_TABLE
 TEST_F(FpHandlers, PubEntryGetKnownIdReturnsCbor)
 {
   oc_group_table_t *e = oc_core_get_publisher_table_entry(0);
@@ -1332,6 +1377,7 @@ TEST_F(FpHandlers, PubEntryGetKnownIdReturnsCbor)
             oc_status_code(OC_STATUS_OK));
   EXPECT_GT(response_buffer.response_length, 0);
 }
+#endif
 
 TEST_F(FpHandlers, RcpEntryGetKnownIdReturnsCbor)
 {
@@ -1357,12 +1403,14 @@ TEST_F(FpHandlers, GoEntryDeleteOutsideLoadingStateBadRequest)
             oc_status_code(OC_STATUS_BAD_REQUEST));
 }
 
+#ifdef OC_PUBLISHER_TABLE
 TEST_F(FpHandlers, PubEntryDeleteOutsideLoadingStateBadRequest)
 {
   ASSERT_NE(oc_knx_get_lsm(), LSM_S_LOADING) << "test assumes the device is not loading";
   EXPECT_EQ(invoke_entry_del(core_resource_knx_fp_p_x, "fp/p/1"),
             oc_status_code(OC_STATUS_BAD_REQUEST));
 }
+#endif
 
 TEST_F(FpHandlers, RcpEntryDeleteOutsideLoadingStateBadRequest)
 {
@@ -1397,6 +1445,7 @@ static const uint8_t kTableDeleteId1[] = {
   0xa1, 0x00, 0xa1, 0x00, 0x01
 };
 
+#ifdef OC_PUBLISHER_TABLE
 TEST_F(FpHandlers, PubPostRepeatedGaThenEmptyKeepsTheEmptyGa)
 {
   ASSERT_EQ(invoke_post(core_resource_knx_fp_p, kGroupTableCreate, sizeof(kGroupTableCreate)),
@@ -1414,6 +1463,7 @@ TEST_F(FpHandlers, PubPostRepeatedGaThenEmptyKeepsTheEmptyGa)
   EXPECT_EQ(invoke_post(core_resource_knx_fp_p, kTableDeleteId1, sizeof(kTableDeleteId1)),
             oc_status_code(OC_STATUS_CHANGED));
 }
+#endif
 
 TEST_F(FpHandlers, RcpPostRepeatedGaThenEmptyKeepsTheEmptyGa)
 {
@@ -1549,12 +1599,14 @@ TEST_F(FpHandlers, RcpPostIaAndGrpidInOneRequestIsRejected)
   EXPECT_EQ(oc_core_find_index_in_recipient_table_from_id(2), -1);
 }
 
+#ifdef OC_PUBLISHER_TABLE
 TEST_F(FpHandlers, PubPostIaAndGrpidInOneRequestIsRejected)
 {
   EXPECT_EQ(invoke_post(core_resource_knx_fp_p, kTableIaAndGrpid, sizeof(kTableIaAndGrpid)),
             oc_status_code(OC_STATUS_BAD_REQUEST));
   EXPECT_EQ(oc_core_find_index_in_publisher_table_from_id(2), -1);
 }
+#endif
 
 /* mc -> uc: ia on a mc entry clears grpid (it used to keep grpid, the entry stayed mc) */
 TEST_F(FpHandlers, RcpPostIaOnAMulticastEntrySwitchesToUnicast)
@@ -1595,6 +1647,7 @@ TEST_F(FpHandlers, RcpPostGrpidOnAUnicastEntrySwitchesToMulticast)
             oc_status_code(OC_STATUS_CHANGED));
 }
 
+#ifdef OC_PUBLISHER_TABLE
 /* the same on the publisher table: mc -> uc */
 TEST_F(FpHandlers, PubPostIaOnAMulticastEntrySwitchesToUnicast)
 {
@@ -1612,6 +1665,7 @@ TEST_F(FpHandlers, PubPostIaOnAMulticastEntrySwitchesToUnicast)
   EXPECT_EQ(invoke_post(core_resource_knx_fp_p, kTableDeleteId1, sizeof(kTableDeleteId1)),
             oc_status_code(OC_STATUS_CHANGED));
 }
+#endif
 
 /* ───────── POST handlers: a collection is atomic (check all, then commit) ────
 
@@ -1657,12 +1711,14 @@ TEST_F(FpHandlers, RcpCollectionRejectedAtALaterEntryStoresNothing)
   EXPECT_EQ(oc_core_find_index_in_recipient_table_from_id(1), -1);
 }
 
+#ifdef OC_PUBLISHER_TABLE
 TEST_F(FpHandlers, PubCollectionRejectedAtALaterEntryStoresNothing)
 {
   EXPECT_EQ(invoke_post(core_resource_knx_fp_p, kTableCollectionLaterEntryFails, sizeof(kTableCollectionLaterEntryFails)),
             oc_status_code(OC_STATUS_BAD_REQUEST));
   EXPECT_EQ(oc_core_find_index_in_publisher_table_from_id(1), -1);
 }
+#endif
 
 TEST_F(FpHandlers, GoCollectionRejectedAtALaterEntryStoresNothing)
 {
@@ -1694,6 +1750,7 @@ TEST_F(FpHandlers, GoCollectionWithMoreThanTenEntriesIsRejectedWith413)
   EXPECT_EQ(oc_core_find_index_in_group_object_table_from_id(11), -1);
 }
 
+#ifdef OC_PUBLISHER_TABLE
 TEST_F(FpHandlers, PubCollectionWithMoreThanTenEntriesIsRejectedWith413)
 {
   EXPECT_EQ(invoke_post(core_resource_knx_fp_p, kTableElevenEntries, sizeof(kTableElevenEntries)),
@@ -1701,6 +1758,7 @@ TEST_F(FpHandlers, PubCollectionWithMoreThanTenEntriesIsRejectedWith413)
   EXPECT_EQ(oc_core_find_index_in_publisher_table_from_id(1), -1);
   EXPECT_EQ(oc_core_find_index_in_publisher_table_from_id(11), -1);
 }
+#endif
 
 TEST_F(FpHandlers, RcpCollectionWithMoreThanTenEntriesIsRejectedWith413)
 {
@@ -1774,6 +1832,7 @@ TEST_F(FpHandlers, GoPostWithOnlyAnUnknownMemberKeepsTheEntry)
   oc_ri_delete_resource(r);
 }
 
+#ifdef OC_PUBLISHER_TABLE
 TEST_F(FpHandlers, PubPostWithOnlyAnUnknownMemberKeepsTheEntry)
 {
   ASSERT_EQ(invoke_post(core_resource_knx_fp_p, kGroupTableCreate, sizeof(kGroupTableCreate)),
@@ -1786,6 +1845,7 @@ TEST_F(FpHandlers, PubPostWithOnlyAnUnknownMemberKeepsTheEntry)
   EXPECT_EQ(invoke_post(core_resource_knx_fp_p, kTableDeleteId1, sizeof(kTableDeleteId1)),
             oc_status_code(OC_STATUS_CHANGED));
 }
+#endif
 
 TEST_F(FpHandlers, RcpPostWithOnlyAnUnknownMemberKeepsTheEntry)
 {
@@ -1800,6 +1860,7 @@ TEST_F(FpHandlers, RcpPostWithOnlyAnUnknownMemberKeepsTheEntry)
             oc_status_code(OC_STATUS_CHANGED));
 }
 
+#ifdef OC_PUBLISHER_TABLE
 /* the PUB entry was kept, but the request was answered 2.04 without a change */
 TEST_F(FpHandlers, PubPostEmptyArrayOnOtherKeyIsRejectedAndKeepsTheEntry)
 {
@@ -1818,6 +1879,7 @@ TEST_F(FpHandlers, PubPostEmptyArrayOnOtherKeyIsRejectedAndKeepsTheEntry)
   EXPECT_EQ(invoke_post(core_resource_knx_fp_p, kTableDeleteId1, sizeof(kTableDeleteId1)),
             oc_status_code(OC_STATUS_CHANGED));
 }
+#endif
 
 /* the RCP entry was kept, but the request was answered 2.04 without a change */
 TEST_F(FpHandlers, RcpPostEmptyArrayOnOtherKeyIsRejectedAndKeepsTheEntry)
@@ -1837,3 +1899,62 @@ TEST_F(FpHandlers, RcpPostEmptyArrayOnOtherKeyIsRejectedAndKeepsTheEntry)
   EXPECT_EQ(invoke_post(core_resource_knx_fp_r, kTableDeleteId1, sizeof(kTableDeleteId1)),
             oc_status_code(OC_STATUS_CHANGED));
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Group multicast membership: oc_register_group_multicasts()
+ *
+ * oc_connectivity_subscribe_mcast_ipv6 is wrapped (tests/unit/CMakeLists.txt
+ * and tests/unit/publisher_off): it counts the joins, no socket is touched.
+ * A group object that may receive (write) has ga 1.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+static int g_mcast_joins = 0;
+extern "C" void __wrap_oc_connectivity_subscribe_mcast_ipv6(oc_endpoint_t *)
+{
+  g_mcast_joins++;
+}
+
+class GroupMulticasts : public FpHandlers {
+protected:
+  uint32_t ga[1] = { 1 };
+
+  void SetUp() override
+  {
+    FpHandlers::SetUp();
+    g_mcast_joins = 0;
+    oc_group_object_table_t *go = oc_core_get_group_object_table_entry(0);
+    go->id = 1;
+    go->ga = ga;
+    go->ga_len = 1;
+    go->cflags = OC_CFLAG_WRITE;
+  }
+  void TearDown() override
+  {
+    oc_core_get_group_object_table_entry(0)->cflags = OC_CFLAG_NONE;
+    FpHandlers::TearDown();
+  }
+};
+
+#ifdef OC_PUBLISHER_TABLE
+/* the publisher entry for ga 1 names the group id: the device joins that group */
+TEST_F(GroupMulticasts, PublisherEntryWithAGroupIdIsJoined)
+{
+  oc_group_table_t *pub = oc_core_get_publisher_table_entry(0);
+  pub->id = 1;
+  pub->ga = ga;
+  pub->ga_len = 1;
+  pub->grpid = 5;
+
+  oc_register_group_multicasts();
+
+  EXPECT_EQ(g_mcast_joins, 1);
+}
+#else
+/* plain sender: without a publisher table no group id is known, the device joins no group */
+TEST_F(GroupMulticasts, PlainSenderJoinsNoGroup)
+{
+  oc_register_group_multicasts();
+
+  EXPECT_EQ(g_mcast_joins, 0);
+}
+#endif

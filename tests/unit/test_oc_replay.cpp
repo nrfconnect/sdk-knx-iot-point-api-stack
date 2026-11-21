@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_replay.c
+ * Unit tests for security/oc_replay.c
  *
  * Covers: oc_replay_add_client, oc_replay_check_client,
  *         oc_oscore_free_all_replay_records, sliding window behaviour.
@@ -12,8 +12,7 @@
 #include <cstring>
 
 extern "C" {
-#include "api/oc_replay.h"
-
+#include "security/oc_replay.h"
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -270,7 +269,7 @@ TEST_F(ReplayTest, ReAdd_ResetsWindow)
  * Record pool exhaustion — get_empty_record() eviction path
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Matches OC_MAX_REPLAY_RECORDS's default in api/oc_replay.c (no override
+/* Matches OC_MAX_REPLAY_RECORDS's default in security/oc_replay.c (no override
    defined anywhere in this build). */
 static constexpr int kMaxReplayRecords = 20;
 

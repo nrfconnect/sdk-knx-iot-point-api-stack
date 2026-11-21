@@ -9,14 +9,14 @@
 #ifdef OC_SERVER
   #include <stdlib.h>
   #include <string.h>
-  #include "api/oc_core_resources.h"
-  #include "api/oc_knx_observe.h"
   #include "messaging/coap/observe.h"
   #include "oc_api.h"
   #include "oc_knx_client.h"
   #include "oc_knx_fp.h"
   #include "oc_knx_helpers.h"
   #include "oc_knx_sec_internal.h"
+  #include "resources/knx/oc_knx_observe.h"
+  #include "resources/ri/oc_core_resources.h"
 
   // /k "u": delay between two update notifications of one observer
   #define K_UPDATE_TICKS (OC_CLOCK_SECOND / 5)

@@ -1,6 +1,6 @@
 ---
 name: test-driven-development
-description: "Use for new, changed or refactored stack C code (src/api/, src/messaging/, src/security/, src/util/, src/port/, include/): approved plan, failing Google Test first, minimum code, leave touched functions better, then code-review."
+description: "Use for new, changed or refactored stack C code (src/resources/, src/core/, src/messaging/, src/security/, src/util/, src/port/, include/): approved plan, failing Google Test first, minimum code, leave touched functions better, then code-review."
 ---
 
 # Test-driven development (stack C)

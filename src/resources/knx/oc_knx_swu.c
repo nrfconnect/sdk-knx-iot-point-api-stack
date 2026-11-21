@@ -17,7 +17,7 @@
 #include "port/oc_assert.h"
 #include "port/oc_storage.h"
 
-#include "api/oc_core_resources.h"
+#include "resources/ri/oc_core_resources.h"
 
 /*
   - static, but not const, since values are changed at runtime 

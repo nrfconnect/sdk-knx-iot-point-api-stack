@@ -29,9 +29,9 @@ already applied, § 1 also says "estimated for `<rev>`"; diff from that one so
 nothing is counted twice.
 
 Discard everything under `tests/`, `docs/`, `.gitlab-ci.yml`, `src/port/linux/`,
-`src/port/windows/`: not in the Zephyr image. Keep `src/api/`, `src/messaging/`,
-`src/security/`, `src/util/`, `include/`, `src/port/zephyr/`, `src/port/*.c`, `CMakeLists.txt`,
-`zephyr/`.
+`src/port/windows/`: not in the Zephyr image. Keep `src/resources/`, `src/core/`,
+`src/messaging/`, `src/security/`, `src/util/`, `include/`, `src/port/zephyr/`,
+`src/port/*.c`, `CMakeLists.txt`, `zephyr/`.
 
 ## 2. Turn each change into a delta
 

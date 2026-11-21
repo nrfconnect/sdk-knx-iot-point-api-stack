@@ -1,8 +1,8 @@
 /*
  * libFuzzer harness for the boot-time load of the persisted tables:
  * oc_create_knx_table_resources() (group object, recipient and publisher
- * table, api/oc_knx_fp.c) and oc_create_knx_sec_resources() (access token
- * table plus the OSCORE contexts built from it, api/oc_knx_sec.c).
+ * table, resources/knx/oc_knx_fp.c) and oc_create_knx_sec_resources() (access token
+ * table plus the OSCORE contexts built from it, resources/knx/oc_knx_sec.c).
  *
  * The POST handlers validate an entry before they store it, the load path
  * does not: it parses whatever CBOR the store holds and copies ids, hrefs,

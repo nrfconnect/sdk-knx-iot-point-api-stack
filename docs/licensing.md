@@ -122,7 +122,7 @@ The files:
 
 | Files | Copyright holder | Identifier |
 |---|---|---|
-| `src/api/c-timestamp/timestamp.h`, `timestamp_compare.c`, `timestamp_format.c`, `timestamp_parse.c`, `timestamp_tm.c`, `timestamp_valid.c` | Christian Hansen (2014) | `BSD-2-Clause` |
+| `src/util/c-timestamp/timestamp.h`, `timestamp_compare.c`, `timestamp_format.c`, `timestamp_parse.c`, `timestamp_tm.c`, `timestamp_valid.c` | Christian Hansen (2014) | `BSD-2-Clause` |
 | `include/util/pt/lc-addrlabels.h`, `lc-switch.h`, `lc.h`, `pt-sem.h`, `pt.h` | Swedish Institute of Computer Science (2004, 2004-2005) | `BSD-3-Clause` |
 | `src/util/oc_timer.c`, `include/util/oc_timer.h` | Swedish Institute of Computer Science (2004) | `BSD-3-Clause` |
 | `src/port/mdns/mdns.h` (with `LICENSE` and `README.md` next to it) | Mattias Jansson, released into the public domain | `Unlicense` |

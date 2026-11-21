@@ -139,10 +139,7 @@ void coap_send_transaction(coap_transaction_t *t)
   const bool multicast = t->message->endpoint.flags & MULTICAST;
   
   const bool smode_non = t->message->endpoint.flags & S_MODE_NON_REQUEST;
-  const bool smode_con = t->message->endpoint.flags & S_MODE_CON_REQUEST;
-
   const bool smode_non_uc = smode_non && !multicast;
-  const bool smode_con_uc = smode_con && !multicast;
 
   if (con_type)
   {
@@ -186,6 +183,7 @@ void coap_send_transaction(coap_transaction_t *t)
       oc_ri_free_client_cbs_by_mid(t->mid);
 
       // s-mode unicast CON: count the missing response for the address resolution
+      const bool smode_con_uc = (t->message->endpoint.flags & S_MODE_CON_REQUEST) && !multicast;
       if (smode_con_uc && t->recipient)
       {
         coap_knx_s_mode_unicast_result(t->recipient, false);

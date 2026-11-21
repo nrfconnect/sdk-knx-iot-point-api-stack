@@ -4,9 +4,11 @@ Goal: smallest flash and RAM on a 32-bit MCU, conformance and security kept.
 
 ## Code
 
-- Layers: `src/api/` KNX, `src/messaging/coap/`, `src/security/`, `src/util/`, `src/port/`.
-  `src/messaging/`, `src/security/`, `src/port/` reach the KNX layer only through their
-  `*_knx_hooks.h` (CTest `LayeringCheck.*`). Reuse `oc_rep_*`, `oc_helpers.h`.
+- Components: `src/resources/knx/` (KNX API), `src/resources/ri/` (Resource Interface),
+  `src/core/` (runtime coordination), `src/messaging/coap/`, `src/security/`,
+  `src/port/` and `src/util/`. `src/messaging/`, `src/security/` and
+  `src/port/` reach the KNX layer only through their `*_knx_hooks.h`
+  (CTest `LayeringCheck.*`). Reuse `oc_rep_*`, `oc_helpers.h`.
 - Limits (`lizard_report.py --diff`, CI gate): a new function CCN ≤ 15,
   length ≤ 150, parameters ≤ 7; a changed one over a limit no worse
   (`FAIL`), better if cheap (`WARN`). A fix that adds lines to such a

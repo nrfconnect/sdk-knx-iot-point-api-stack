@@ -1,5 +1,5 @@
 /*
- * libFuzzer harness for oc_parse_rep() (api/oc_rep.c).
+ * libFuzzer harness for oc_parse_rep() (resources/ri/oc_rep.c).
  *
  * Targets the stack's CBOR-to-oc_rep_t conversion layer, not TinyCBOR itself:
  * the decoder is already fuzzed upstream, the tree construction, allocation and

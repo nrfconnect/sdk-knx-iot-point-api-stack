@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_knx_p.c — the /p (datapoint parameter) resource.
+ * Unit tests for resources/knx/oc_knx_p.c — the /p (datapoint parameter) resource.
  *
  * oc_knx_p.c exposes no public functions; its three statics are:
  *   oc_was_adding_data_points_to_response (private helper)
@@ -21,7 +21,7 @@
 
 extern "C" {
 #include <string.h>
-#include "api/oc_knx_p.h"
+#include "resources/knx/oc_knx_p.h"
 #include "oc_api.h"
 #include "oc_helpers.h"
 #include "oc_rep.h"

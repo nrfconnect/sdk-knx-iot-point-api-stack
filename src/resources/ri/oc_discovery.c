@@ -10,7 +10,6 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <stdlib.h>
-#include "api/oc_core_resources.h"
 #include "oc_api.h"
 #include "oc_client_state.h"
 #include "oc_core_res.h"
@@ -19,6 +18,7 @@
 #include "oc_knx_fb.h"
 #include "oc_knx_fp.h"
 #include "oc_knx_helpers.h"
+#include "resources/ri/oc_core_resources.h"
 
 /*
   -  below first 4 resources (aka Functional Blocks) SHALL be in the uc/mc response for well-known/core (see clause 2.5.4),

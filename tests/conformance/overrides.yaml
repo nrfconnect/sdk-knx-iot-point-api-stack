@@ -190,7 +190,7 @@ accepted_response_codes:
     "</p>;total=5" for the five datapoints /p/1../p/4 + /p/p1. GET /p counts
     every entry on the application-resource chain (oc_knx_p.c: the total loop
     accepts anything with a URI), and this build additionally registers the
-    four /test/* control endpoints from src/api/oc_test_control.c that the Python
+    four /test/* control endpoints from src/resources/ri/oc_test_control.c that the Python
     suite needs to drive the device (restart, factory-reset, trigger,
     sleep-period) — so the device answers total=9. The certified BDUT
     (eitt_virtual_gui) has the same endpoints behind #ifdef KNX_TEST_CONTROL

@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_server_api.c
+ * Unit tests for resources/ri/oc_server_api.c
  *
  * This file is a large collection of PUBLIC server-side helpers. Most are pure
  * logic and are unit-tested here in isolation:

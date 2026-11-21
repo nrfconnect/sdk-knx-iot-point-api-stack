@@ -5,9 +5,11 @@ Linux, Windows, Zephyr and ESP-IDF. README.md has the user view.
 
 ## Layout
 
-- `src/` the stack (`api/`, `messaging/coap/`, `security/`, `port/`, `util/`),
-  `include/` its public headers, the only include root of an application (with
-  the platform's `src/port/<platform>/`); the CTest `PublicHeaders.*` enforces it
+- `src/` the stack: `resources/knx/` (KNX API), `resources/ri/` (Resource Interface),
+  `core/` (runtime coordination), `messaging/coap/`, `security/`, `port/` and
+  `util/`; `include/` holds public headers and is the application's only stack
+  include root (plus the platform's `src/port/<platform>/`);
+  the CTest `PublicHeaders.*` enforces it
 - `tests/` test tiers, see `tests/README.md`:
   - `tests/unit/` Google Test unit tests (CTest)
   - `tests/fuzz/` libFuzzer harnesses (clang)

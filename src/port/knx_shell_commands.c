@@ -18,7 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "api/oc_main.h"
+#include "core/oc_main.h"
 #include "oc_core_res.h"
 #include "oc_knx.h" // RESET_TO_DEFAULT_STATE
 #include "oc_knx_dev.h"

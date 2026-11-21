@@ -83,7 +83,10 @@ config KNXIOT_CLIENT
     bool "KNX-IoT client mode support"
     default y
     help
-      Corresponds to CMake: OC_CLIENT.
+      Corresponds to CMake: OC_CLIENT (host CMake: OC_CLIENT_ENABLED).
+      Without it the IPv6 address of a unicast s-mode recipient is never
+      resolved (no CoAP discovery): such recipients are marked failed and
+      get nothing. Multicast s-mode is not affected.
 
 config KNXIOT_SERVER
     bool "KNX-IoT server mode support"
@@ -317,7 +320,7 @@ config KNXIOT_TEST_CONTROL
     bool "Test-control endpoints (/test/restart, /test/factory-reset, /test/trigger)"
     default n
     help
-      Compiles src/api/oc_test_control.c and defines KNX_TEST_CONTROL for all targets.
+      Compiles src/resources/ri/oc_test_control.c and defines KNX_TEST_CONTROL for all targets.
       Registers the non-standard /test/* CoAP endpoints used by the Python runtime
       conformance suite (tests/runtime) to automate operator actions normally done
       by hand in the EITT GUI: soft restart, factory reset, and sensor trigger.

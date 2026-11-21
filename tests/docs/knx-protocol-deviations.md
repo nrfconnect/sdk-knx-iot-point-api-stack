@@ -18,7 +18,7 @@ Source of truth in this repo:
 | OSCORE | `src/security/oc_oscore_crypto.c`, `oc_oscore_context.c`, `oc_oscore_engine.c`, `src/messaging/coap/oscore.c`, `oscore_constants.h` |
 | SPAKE2+ | `src/security/spake2plus.c` |
 | mDNS/DNS-SD | `src/port/dns-sd_mdns.c` |
-| replay window | `src/api/oc_replay.c` |
+| replay window | `src/security/oc_replay.c` |
 
 ---
 
@@ -75,7 +75,7 @@ Constants (`include/messaging/coap/oscore_constants.h`), all verified against ou
 | Master secret | 32 bytes | |
 | ID context max | 16 bytes | |
 | **SSN space** | **32-bit, rolls over** | **KNX.** `OSCORE_SSN_MAX = 2^32-1`, used as a rollover *mask*, not a hard stop — independent of the 5-byte PIV field. |
-| Replay window | 8 | `src/api/oc_replay.c` also keeps an echo whitelist |
+| Replay window | 8 | `src/security/oc_replay.c` also keeps an echo whitelist |
 | SSN persistence | `K=32`, `F=4K` | RFC 8613 App. B.1 anti-reuse padding on restore |
 
 ### Deviations that are CORRECT — do not "fix" toward the RFC

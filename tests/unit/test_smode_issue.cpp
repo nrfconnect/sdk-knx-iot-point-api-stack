@@ -1,5 +1,5 @@
 /*
-  Unit tests: s-mode send path (oc_issue_s_mode_message in api/oc_knx_client.c), driven through the
+  Unit tests: s-mode send path (oc_issue_s_mode_message in resources/knx/oc_knx_client.c), driven through the
   public oc_send_s_mode_multicast_message()
 
   The s-mode message is built and sent in ONE function: one message buffer (handed over to its

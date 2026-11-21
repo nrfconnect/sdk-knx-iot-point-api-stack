@@ -34,7 +34,7 @@
 #include "mutex.h"
 #include "network_addresses.h"
 
-#include "api/oc_buffer.h"
+#include "core/oc_buffer.h"
 #include "oc_endpoint.h"
 #include "oc_network_monitor.h"
 #include "port/dns-sd.h"

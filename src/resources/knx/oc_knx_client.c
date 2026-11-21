@@ -19,14 +19,33 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "api/oc_knx_observe.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/conf.h"
 #include "messaging/coap/observe.h"
 #include "messaging/coap/transactions.h"
 #include "oc_buffer.h"
 #include "port/oc_random.h"
+#include "resources/knx/oc_knx_observe.h"
 #define __STDC_FORMAT_MACROS  // defined to use format specifiers also in C++
+
+/**
+    @brief schedules the next CoAP discovery of the recipient's IPv6 address and marks it RESOLVING
+
+    RESOLVING is set immediately so rapid re-calls are debounced until the deferred discovery handler fires.
+    Without OC_CLIENT there is no discovery: the recipient is marked FAILED.
+*/
+static void schedule_ipv6_discovery(oc_group_table_t* recipient)
+{
+#ifdef OC_CLIENT
+  recipient->ipv6_res.resolve_status = OC_IP_STATUS_RESOLVING;
+
+  // defer discovery to ensure a possible empty ACK is sent BEFORE the discovery request
+  oc_set_delayed_callback_ms(recipient, knx_add_ipv6_address_coap_discovery_handler, 10);
+#else
+  OC_WRN("no IPv6 address for ia %u: built without OC_CLIENT, unicast recipient not resolved", (unsigned)recipient->ia);
+  recipient->ipv6_res.resolve_status = OC_IP_STATUS_FAILED;
+#endif
+}
 
 /**
     @brief checks the current IPv6 resolving status 
@@ -53,17 +72,13 @@ static bool ipv6_for_ia_is_resolved(char service_type, oc_group_table_t* recipie
       recipient->ipv6_res.group_object = group_object;
       recipient->ipv6_res.service_type = service_type;
 
-      // set RESOLVING immediately so rapid re-calls are debounced here until the deferred 'discovery handler' is fired
-      recipient->ipv6_res.resolve_status = OC_IP_STATUS_RESOLVING;
+      schedule_ipv6_discovery(recipient);
 
-      // defer discovery to ensure a possible empty ACK is sent BEFORE the discovery request
-      oc_set_delayed_callback_ms(recipient, knx_add_ipv6_address_coap_discovery_handler, 10);
+      OC_DBG("Resolve ipv6 address: UNRESOLVED -> count %d", recipient->ipv6_res.attempts);
 
-    OC_DBG("Resolve ipv6 address: UNRESOLVED -> count %d", recipient->ipv6_res.attempts);
+      break;
 
-    break;
-    
-    
+
     case OC_IP_STATUS_TIMED_OUT:
 
       // accept the latest GO + service on timeout - a new s-mode trigger may have a different target
@@ -81,12 +96,7 @@ static bool ipv6_for_ia_is_resolved(char service_type, oc_group_table_t* recipie
       if (recipient->ipv6_res.attempts > 0)
       {
         recipient->ipv6_res.attempts--;
-
-        // defer discovery to ensure a possible empty ACK is sent BEFORE the discovery request
-        oc_set_delayed_callback_ms(recipient, knx_add_ipv6_address_coap_discovery_handler, 10);
-
-        // set RESOLVING immediately so rapid re-calls debounce and do not decrement attempts again
-        recipient->ipv6_res.resolve_status = OC_IP_STATUS_RESOLVING;
+        schedule_ipv6_discovery(recipient);
       }
       else
       {
@@ -943,7 +953,8 @@ int oc_send_s_mode_mc_or_uc_message(uint8_t scope, const char* resource_path, ch
   return oc_send_s_mode_mc_or_uc_message_dispatched(scope, resource_path, srv_type, NULL);
 }
 
-/* CoAP Discovery for IPv6 Resolution */
+/* CoAP Discovery for IPv6 Resolution, only with OC_CLIENT */
+#ifdef OC_CLIENT
 
 // remove discovery response callback handler (on timeout or on valid response)
 static oc_event_callback_retval_t knx_remove_ipv6_address_coap_discovery_handler(void* data)
@@ -1198,6 +1209,24 @@ oc_event_callback_retval_t knx_add_ipv6_address_coap_discovery_handler(void* dat
   return OC_EVENT_DONE;
 }
 
+#endif /* OC_CLIENT */
+
+// drop a pending discovery: the deferred request, its timeout handler and its client callback (*a in oc_reset_unicast_resolvers)
+static void cancel_ipv6_discovery(oc_group_table_t* recipient)
+{
+#ifdef OC_CLIENT
+  oc_remove_delayed_callback(recipient, knx_add_ipv6_address_coap_discovery_handler);
+  oc_remove_delayed_callback(recipient, knx_remove_ipv6_address_coap_discovery_handler);
+
+  if (recipient->ipv6_res.callback && oc_ri_is_client_cb_valid(recipient->ipv6_res.callback))
+  {
+    oc_ri_remove_client_cb(recipient->ipv6_res.callback);
+  }
+#else
+  (void)recipient;
+#endif
+}
+
 void oc_reset_unicast_resolvers(void)
 {
   /*
@@ -1219,13 +1248,7 @@ void oc_reset_unicast_resolvers(void)
   {
     oc_group_table_t* recipient = oc_core_get_recipient_table_entry(i);
 
-    oc_remove_delayed_callback(recipient, knx_add_ipv6_address_coap_discovery_handler);
-    oc_remove_delayed_callback(recipient, knx_remove_ipv6_address_coap_discovery_handler);
-
-    if (recipient->ipv6_res.callback && oc_ri_is_client_cb_valid(recipient->ipv6_res.callback))
-    {
-      oc_ri_remove_client_cb(recipient->ipv6_res.callback);
-    }
+    cancel_ipv6_discovery(recipient);
 
     recipient->ipv6_res.callback = NULL;
     recipient->ipv6_res.group_object = NULL;

@@ -8,7 +8,7 @@
  */
 
 /*
- * Unit tests for the timed event callbacks of api/oc_ri.c
+ * Unit tests for the timed event callbacks of resources/ri/oc_ri.c
  *
  * Covers:
  *   oc_ri_add_timed_event_callback_ticks, oc_ri_remove_timed_event_callback and the event loop

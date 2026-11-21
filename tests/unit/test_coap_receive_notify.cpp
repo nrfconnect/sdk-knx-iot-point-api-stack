@@ -24,7 +24,7 @@
 #include <vector>
 
 extern "C" {
-#include "api/oc_knx_observe.h"
+#include "resources/knx/oc_knx_observe.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/engine.h"
 #include "messaging/coap/observe.h"

@@ -144,57 +144,66 @@ zephyr_include_directories(${STACK_ROOT}/src/port/mdns)
 
 # ── Source files ───────────────────────────────────────────────────────────────
 
-set(API_SOURCES
-    ${STACK_ROOT}/src/api/oc_base64.c
-    ${STACK_ROOT}/src/api/oc_blockwise.c
-    ${STACK_ROOT}/src/api/oc_buffer.c
-    ${STACK_ROOT}/src/api/oc_client_api.c
-    ${STACK_ROOT}/src/api/oc_clock.c
-    ${STACK_ROOT}/src/api/oc_core_res.c
-    ${STACK_ROOT}/src/api/oc_discovery.c
-    ${STACK_ROOT}/src/api/oc_endpoint.c
-    ${STACK_ROOT}/src/api/oc_helpers.c
-    ${STACK_ROOT}/src/api/oc_main.c
-    ${STACK_ROOT}/src/api/oc_network_events.c
-    ${STACK_ROOT}/src/api/oc_rep.c
-    ${STACK_ROOT}/src/api/oc_replay.c
-    ${STACK_ROOT}/src/api/oc_ri.c
-    ${STACK_ROOT}/src/api/oc_server_api.c
-    ${STACK_ROOT}/src/api/oc_uuid.c
-    ${STACK_ROOT}/src/api/oc_knx.c
-    ${STACK_ROOT}/src/api/oc_knx_client.c
-    ${STACK_ROOT}/src/api/oc_knx_dev.c
-    ${STACK_ROOT}/src/api/oc_knx_fb.c
-    ${STACK_ROOT}/src/api/oc_knx_fp.c
-    ${STACK_ROOT}/src/api/oc_knx_helpers.c
-    ${STACK_ROOT}/src/api/oc_knx_hooks.c
-    ${STACK_ROOT}/src/api/oc_knx_observe.c
-    ${STACK_ROOT}/src/api/oc_knx_p.c
-    ${STACK_ROOT}/src/api/oc_knx_publisher.c
-    ${STACK_ROOT}/src/api/oc_knx_sec.c
-    ${STACK_ROOT}/src/api/oc_knx_swu.c
-    ${STACK_ROOT}/src/api/oc_knx_sub.c
-    ${STACK_ROOT}/src/api/c-timestamp/timestamp_compare.c
-    ${STACK_ROOT}/src/api/c-timestamp/timestamp_format.c
-    ${STACK_ROOT}/src/api/c-timestamp/timestamp_parse.c
-    ${STACK_ROOT}/src/api/c-timestamp/timestamp_tm.c
-    ${STACK_ROOT}/src/api/c-timestamp/timestamp_valid.c
+set(RI_SOURCES
+    ${STACK_ROOT}/src/resources/ri/oc_client_api.c
+    ${STACK_ROOT}/src/resources/ri/oc_core_res.c
+    ${STACK_ROOT}/src/resources/ri/oc_discovery.c
+    ${STACK_ROOT}/src/resources/ri/oc_rep.c
+    ${STACK_ROOT}/src/resources/ri/oc_ri.c
+    ${STACK_ROOT}/src/resources/ri/oc_server_api.c
 )
 
-set(CORE_SOURCES
+set(KNX_API_SOURCES
+    ${STACK_ROOT}/src/resources/knx/oc_knx.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_client.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_dev.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_fb.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_fp.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_helpers.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_hooks.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_observe.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_p.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_publisher.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_sec.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_swu.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_sub.c
+)
+
+set(RUNTIME_SOURCES
+    ${STACK_ROOT}/src/core/oc_buffer.c
+    ${STACK_ROOT}/src/core/oc_endpoint.c
+    ${STACK_ROOT}/src/core/oc_main.c
+    ${STACK_ROOT}/src/core/oc_network_events.c
+)
+
+set(UTIL_SOURCES
+    ${STACK_ROOT}/src/util/oc_base64.c
+    ${STACK_ROOT}/src/util/oc_clock.c
     ${STACK_ROOT}/src/util/oc_etimer.c
+    ${STACK_ROOT}/src/util/oc_helpers.c
     ${STACK_ROOT}/src/util/oc_list.c
     ${STACK_ROOT}/src/util/oc_mmem.c
     ${STACK_ROOT}/src/util/oc_process.c
     ${STACK_ROOT}/src/util/oc_timer.c
+    ${STACK_ROOT}/src/util/oc_uuid.c
+    ${STACK_ROOT}/src/util/c-timestamp/timestamp_compare.c
+    ${STACK_ROOT}/src/util/c-timestamp/timestamp_format.c
+    ${STACK_ROOT}/src/util/c-timestamp/timestamp_parse.c
+    ${STACK_ROOT}/src/util/c-timestamp/timestamp_tm.c
+    ${STACK_ROOT}/src/util/c-timestamp/timestamp_valid.c
+)
+
+set(SECURITY_SOURCES
     # Security
     ${STACK_ROOT}/src/security/oc_oscore_context.c
     ${STACK_ROOT}/src/security/oc_oscore_crypto.c
     ${STACK_ROOT}/src/security/oc_oscore_engine.c
+    ${STACK_ROOT}/src/security/oc_replay.c
     ${STACK_ROOT}/src/security/spake2plus.c
 )
 
 set(COAP_SOURCES
+    ${STACK_ROOT}/src/messaging/coap/oc_blockwise.c
     ${STACK_ROOT}/src/messaging/coap/coap.c
     ${STACK_ROOT}/src/messaging/coap/engine.c
     ${STACK_ROOT}/src/messaging/coap/observe.c
@@ -279,14 +288,17 @@ endif()
 # Optional. The application enables the /test/* resources by calling
 # oc_test_control_register() under #ifdef KNX_TEST_CONTROL.
 if(CONFIG_KNXIOT_TEST_CONTROL)
-    list(APPEND API_SOURCES ${STACK_ROOT}/src/api/oc_test_control.c)
+    list(APPEND RI_SOURCES ${STACK_ROOT}/src/resources/ri/oc_test_control.c)
 endif()
 
 zephyr_library_named(knx_iot_stack)
 zephyr_library_sources(
-    ${API_SOURCES}
-    ${CORE_SOURCES}
+    ${RUNTIME_SOURCES}
+    ${UTIL_SOURCES}
+    ${SECURITY_SOURCES}
     ${COAP_SOURCES}
+    ${RI_SOURCES}
+    ${KNX_API_SOURCES}
     ${PORT_SOURCES}
 )
 
@@ -319,7 +331,7 @@ zephyr_include_directories(
     ${STACK_ROOT}/src/port/zephyr        # provides oc_config.h for this platform
 )
 if(CONFIG_KNXIOT_TEST_CONTROL)
-    zephyr_include_directories(${STACK_ROOT}/src/api)   # oc_test_control.h
+    zephyr_include_directories(${STACK_ROOT}/src/resources/ri)   # oc_test_control.h
 endif()
 # The public directories again for the stack library itself: the SYSTEM filter above
 # reads zephyr_interface's INTERFACE_INCLUDE_DIRECTORIES, after which CMake does not add
@@ -329,10 +341,13 @@ zephyr_library_include_directories(
     ${STACK_ROOT}/src/port/zephyr
     ${STACK_ROOT}/src/port/mdns
     ${STACK_ROOT}/src
-    ${STACK_ROOT}/src/api
+    ${STACK_ROOT}/src/resources/knx
+    ${STACK_ROOT}/src/resources/ri
+    ${STACK_ROOT}/src/core
     ${STACK_ROOT}/src/security
     ${STACK_ROOT}/src/messaging/coap
-    ${STACK_ROOT}/src/api/c-timestamp
+    ${STACK_ROOT}/src/util
+    ${STACK_ROOT}/src/util/c-timestamp
 )
 
 # ── Compile definitions ────────────────────────────────────────────────────────
@@ -354,7 +369,7 @@ zephyr_compile_definitions(
 
 ## Testing
 # KNX_TEST_CONTROL gates the /test/* control endpoints in the application
-# (see src/api/oc_test_control.c). Propagated to all targets so the app source
+# (see src/resources/ri/oc_test_control.c). Propagated to all targets so the app source
 # that calls oc_test_control_register() picks it up.
 zephyr_compile_definitions(
     $<$<BOOL:${CONFIG_KNXIOT_TEST_CONTROL}>:KNX_TEST_CONTROL>

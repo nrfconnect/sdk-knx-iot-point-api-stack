@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Unit tests for api/oc_network_events.c
+ * Unit tests for core/oc_network_events.c
  * Scope note
  * ----------
  * This module is the bridge between the platform receive path and the

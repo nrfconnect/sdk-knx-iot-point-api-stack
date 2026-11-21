@@ -22,7 +22,7 @@ extern "C"
 
   /*
     Generic CoAP observe (RFC 7641): observer list, notifications, removal.
-    The KNX IoT registration rules ("lt", "non", "u") live in api/oc_knx_observe.c.
+    The KNX IoT registration rules ("lt", "non", "u") live in resources/knx/oc_knx_observe.c.
   */
 
   // result of a registration or deregistration

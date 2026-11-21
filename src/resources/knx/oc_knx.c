@@ -12,7 +12,6 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <stdlib.h>
-#include "api/oc_knx_helpers.h"
 #include "messaging/coap/observe.h"
 #include "messaging/coap/oscore.h"
 #include "messaging/coap/transactions.h"
@@ -27,13 +26,14 @@
 #include "oc_ri_internal.h"
 #include "port/dns-sd.h"
 #include "port/oc_storage.h"
+#include "resources/knx/oc_knx_helpers.h"
 
 #define __STDC_FORMAT_MACROS // defined to use format specifiers also in C++
 
 
 #include "security/spake2plus.h"
 
-#include "api/oc_core_resources.h"
+#include "resources/ri/oc_core_resources.h"
 
 // ---------------------------Variables
 

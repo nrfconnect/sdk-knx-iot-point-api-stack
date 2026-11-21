@@ -1,5 +1,5 @@
 /*
- * Unit tests for messaging/coap/observe.c and the KNX rules of api/oc_knx_observe.c
+ * Unit tests for messaging/coap/observe.c and the KNX rules of resources/knx/oc_knx_observe.c
  *
  * Covers:
  *   oc_knx_observe_handler   — add observer via OC_OBSERVE_REGISTER
@@ -21,7 +21,7 @@
 extern "C" {
 #include <stdlib.h>
 #include <string.h>
-#include "api/oc_knx_observe.h"
+#include "resources/knx/oc_knx_observe.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/conf.h"
 #include "messaging/coap/constants.h"
@@ -38,10 +38,10 @@ extern "C" {
 #include "port/oc_random.h"
 #include "util/oc_mmem.h"
 
-  /* the /k resource descriptor (api/oc_knx.c) */
+  /* the /k resource descriptor (resources/knx/oc_knx.c) */
   extern const oc_resource_t core_resource_knx_k;
 
-  /* the /auth/at resource descriptor (api/oc_knx_sec.c), its POST handler updates an access token in place */
+  /* the /auth/at resource descriptor (resources/knx/oc_knx_sec.c), its POST handler updates an access token in place */
   extern const oc_resource_t core_resource_knx_auth_at;
 }
 

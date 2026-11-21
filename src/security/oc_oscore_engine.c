@@ -9,7 +9,7 @@
  */
 #include <inttypes.h>
 #include <stdlib.h>
-#include "api/oc_events.h"
+#include "core/oc_events.h"
 #include "messaging/coap/conf.h"
 #include "messaging/coap/engine.h"
 #include "messaging/coap/transactions.h"

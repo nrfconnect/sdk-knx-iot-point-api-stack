@@ -5,7 +5,7 @@
  *
  * This file was created with the assistance of AI tools.
  *
- * Unit tests for the DNS-SD registration at the end of oc_main_init() (api/oc_main.c).
+ * Unit tests for the DNS-SD registration at the end of oc_main_init() (core/oc_main.c).
  *
  * knx_dns_sd_update_service() postpones every call made while oc_main_initialized() is
  * false. The registration at the end of oc_main_init() must therefore run after the stack

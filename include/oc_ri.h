@@ -328,7 +328,7 @@ void oc_print_acl_scopes(oc_acl_mask_t scope);
  *   (oc_core_res.c), used by the 'resource by index' functions
  *
  * - if inserting a new resource, add its enum value here, its declaration
- *   in api/oc_core_resources.h and its entry in the registry
+ *   in resources/ri/oc_core_resources.h and its entry in the registry
  *
  * - some enums are used to calculate the number of resources, such as
  *   OC_DEV - OC_DEV_SN (all device resources)

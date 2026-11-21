@@ -1,5 +1,5 @@
 /*
- * Unit tests for the device hostname API in api/oc_core_res.c
+ * Unit tests for the device hostname API in resources/ri/oc_core_res.c
  * (declared in include/oc_core_res.h).
  *
  * Covers:

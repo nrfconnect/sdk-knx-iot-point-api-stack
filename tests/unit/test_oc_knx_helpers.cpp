@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_knx_helpers.c
+ * Unit tests for resources/knx/oc_knx_helpers.c
  *
  * Covers:
  *   collect_and_rank_status   — accumulate worst CoAP status
@@ -11,12 +11,11 @@
 #include <cstring>
 
 extern "C" {
-#include "oc_ri.h"
-#include "oc_rep.h"
-#include "oc_helpers.h"
-#include "api/oc_knx_helpers.h"
+#include "resources/knx/oc_knx_helpers.h"
 #include "messaging/coap/constants.h"
-
+#include "oc_helpers.h"
+#include "oc_rep.h"
+#include "oc_ri.h"
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

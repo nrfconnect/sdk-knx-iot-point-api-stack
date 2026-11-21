@@ -610,7 +610,7 @@ zephyr_library_include_directories(
 
 ### 4. `oc_knx.c`: Caller Update
 
-With the new byte-array `spake_data_t`, the caller (`src/api/oc_knx.c`) no longer needs to include any Mbed TLS headers or manage struct member lifecycles. All `mbedtls_mpi_init`, `mbedtls_ecp_point_init`, `mbedtls_mpi_free`, and `mbedtls_ecp_point_free` calls on `spake_data_t` fields are replaced with `memset(&spake_data, 0, sizeof(spake_data))`. The local `mbedtls_ecp_point pB` variable and the now-removed `oc_spake_encode_pubkey()` call are replaced by passing `g_pase.shareV` (a `uint8_t[65]`) directly to `oc_spake_calc_shareV()`, which now writes the encoded point directly into the output buffer.
+With the new byte-array `spake_data_t`, the caller (`src/resources/knx/oc_knx.c`) no longer needs to include any Mbed TLS headers or manage struct member lifecycles. All `mbedtls_mpi_init`, `mbedtls_ecp_point_init`, `mbedtls_mpi_free`, and `mbedtls_ecp_point_free` calls on `spake_data_t` fields are replaced with `memset(&spake_data, 0, sizeof(spake_data))`. The local `mbedtls_ecp_point pB` variable and the now-removed `oc_spake_encode_pubkey()` call are replaced by passing `g_pase.shareV` (a `uint8_t[65]`) directly to `oc_spake_calc_shareV()`, which now writes the encoded point directly into the output buffer.
 
 ### 5. `spake2plus.c`: Which mbedTLS Calls Were Replaced and Why
 
@@ -1006,7 +1006,7 @@ The `SALT_LENGTH` and `RND_LENGTH` constants are used as array dimensions in `oc
 call sites use `sizeof()` to pass the lengths, keeping them in sync with the struct.
 
 `app_get_password()` was removed from `spake2plus.c` entirely — the password is now
-passed as an explicit parameter at the call site in `src/api/oc_knx.c`.
+passed as an explicit parameter at the call site in `src/resources/knx/oc_knx.c`.
 
 ### 3. Preprocessor Macro Renames
 
@@ -1106,7 +1106,7 @@ it would diverge from the specification mapping. The struct comment clarifies:
 
 ### 7. CMakeLists and Kconfig
 
-`spake2plus.c` is added unconditionally to `CORE_SOURCES` in both `CMakeLists.txt`
+`spake2plus.c` is added unconditionally to `SECURITY_SOURCES` in both `CMakeLists.txt`
 and `zephyr/CMakeLists.txt` (with a `TODO KNX_IOT_SPAKE2PLUS always on?` comment
 matching the existing note on the compile-definitions line). The existing comment
 blocks in the CMakeLists files that referred to `oc_spake2plus.c` have been updated

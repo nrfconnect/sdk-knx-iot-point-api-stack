@@ -1,6 +1,6 @@
 /*
- * Unit tests for the CoAP/KNX discovery helpers (api/oc_discovery.c,
- * declared in src/api/oc_discovery.h + oc_client_state.h).
+ * Unit tests for the CoAP/KNX discovery helpers (resources/ri/oc_discovery.c,
+ * declared in src/resources/ri/oc_discovery.h + oc_client_state.h).
  *
  * Covers the unit-testable public helpers:
  *   oc_add_resource_to_response_payload — frame one resource as an RFC-6690
@@ -983,7 +983,7 @@ TEST_F(DiscoveryBase, AddPayloadTruncateStripsUrnKnxPrefix)
 }
 
 /* a resource only reports interfaces when at least one method handler is defined,
-   see oc_resource_get_all_interfaces_for_a_resource() in api/oc_server_api.c */
+   see oc_resource_get_all_interfaces_for_a_resource() in resources/ri/oc_server_api.c */
 static void discovery_dummy_get_handler(oc_request_t*, oc_interface_mask_t, void*) {}
 
 static void init_resource_with_interface(oc_resource_t* r)

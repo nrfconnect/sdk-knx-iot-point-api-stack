@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_knx_sub.c — the /sub (subscription) resource.
+ * Unit tests for resources/knx/oc_knx_sub.c — the /sub (subscription) resource.
  *
  * The file's only function is the static request handler
  * oc_core_sub_delete_handler(), which the KNX IoT spec requires to remove ALL
@@ -16,14 +16,14 @@
 
 extern "C" {
 #include <string.h>
-#include "api/oc_knx_observe.h"
+#include "resources/knx/oc_knx_observe.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/constants.h"
 #include "messaging/coap/observe.h"
 #include "oc_ri.h"
 #include "port/oc_network_events_mutex.h"
 
-  /* Resource definition lives in api/oc_knx_sub.c; the static delete handler is
+  /* Resource definition lives in resources/knx/oc_knx_sub.c; the static delete handler is
    * reachable through its function pointer. */
   extern const oc_resource_t core_resource_sub;
 }

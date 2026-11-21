@@ -8,7 +8,7 @@
  */
 
 /*
- * Unit tests for api/oc_knx_publisher.c (periodic s-mode transmit check).
+ * Unit tests for resources/knx/oc_knx_publisher.c (periodic s-mode transmit check).
  *
  * Covered:
  *   - oc_knx_publisher_check(): initial evaluation, send-on-change with cov

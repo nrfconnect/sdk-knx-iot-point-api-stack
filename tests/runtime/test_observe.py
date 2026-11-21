@@ -489,8 +489,8 @@ def test_observe_subsequent_k_notification_has_s_object(
 
     Spec 2.5.9.1/2.5.9.2 - every /k notification after the first carries the
     full Group Notification object { 4: sia, 5: { 6: "w", 7: ga, 1: value } }.
-    oc_knx_notify_k_observers() (src/api/oc_knx_observe.c) now forwards the full
-    envelope captured by oc_issue_s_mode_message() (src/api/oc_knx_client.c).
+    oc_knx_notify_k_observers() (src/resources/knx/oc_knx_observe.c) now forwards the full
+    envelope captured by oc_issue_s_mode_message() (src/resources/knx/oc_knx_client.c).
     """
     _provision_k_sender(coap, oscore_ctx, OBS_DP_ALT)
 

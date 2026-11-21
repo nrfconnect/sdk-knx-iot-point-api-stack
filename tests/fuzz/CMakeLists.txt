@@ -89,7 +89,7 @@ foreach(tgt ${KIS_FUZZ_TARGETS})
         ${PROJECT_SOURCE_DIR}/src
         ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_SOURCE_DIR}/src/port
-        ${PROJECT_SOURCE_DIR}/src/api
+        ${PROJECT_SOURCE_DIR}/src/resources
         ${KNX_PRIVATE_INCLUDE_DIRS}
     )
 

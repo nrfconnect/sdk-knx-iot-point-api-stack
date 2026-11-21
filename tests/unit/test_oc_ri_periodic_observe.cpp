@@ -1,5 +1,5 @@
 /*
- * Unit tests for the periodic observe list (api/oc_ri.c: add/remove_periodic_observe_callback, periodic_observe_handler,
+ * Unit tests for the periodic observe list (resources/ri/oc_ri.c: add/remove_periodic_observe_callback, periodic_observe_handler,
  * poll_event_callback_timers on the observe list).
  *
  * A periodic observable resource gets an observer through coap_receive() (GET + Observe 0 + lt), which adds its periodic

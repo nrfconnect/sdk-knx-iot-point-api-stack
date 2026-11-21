@@ -16,14 +16,14 @@
 
 extern "C"
 {
-#include "oc_knx_client.h"
-#include "oc_knx_dev.h" /* KNX_STORAGE_KEY_FINGERPRINT */
-#include "api/oc_knx_observe.h"
-#include "oc_knx.h"
+#include "resources/knx/oc_knx_observe.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/observe.h"
 #include "oc_core_res.h"
 #include "oc_helpers.h"
+#include "oc_knx.h"
+#include "oc_knx_client.h"
+#include "oc_knx_dev.h" /* KNX_STORAGE_KEY_FINGERPRINT */
 #include "oc_rep.h"
 #include "oc_ri.h"
 #include "port/oc_network_events_mutex.h"

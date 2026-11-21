@@ -14,7 +14,6 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "api/oc_knx_observe.h"
 #include "messaging/coap/observe.h"
 #include "messaging/coap/oscore_constants.h"
 #include "oc_api.h"
@@ -26,9 +25,10 @@
 #include "oc_knx_sec_internal.h"
 #include "oc_replay.h"
 #include "port/oc_storage.h"
+#include "resources/knx/oc_knx_observe.h"
 #include "security/oc_oscore_context.h"
 
-#include "api/oc_core_resources.h"
+#include "resources/ri/oc_core_resources.h"
 
 // AT and SSN storage data
 // See the KNX_STORAGE_KEY_ATT_ENTRY and KNX_STORAGE_KEY_SSNT_ENTRY keys in oc_knx_sec.h

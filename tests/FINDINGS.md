@@ -5,7 +5,7 @@ Defects in the stack found by its tests that are still open.
 A finding is removed once it is fixed (its test then asserts the corrected
 behaviour) or withdrawn. Numbers are never reused, and tests and comments
 keep citing them: `git log -p -S "F-NNN" -- tests/FINDINGS.md` shows a
-removed entry. The next number is F-080.
+removed entry. The next number is F-081.
 
 ## F-079: a replayed multicast OSCORE request is answered with a unicast 4.01
 
@@ -18,10 +18,10 @@ removed entry. The next number is F-080.
 
 ## ~~F-029: `oc_endpoint_print()` frees an uninitialized string for non-IPv6 endpoints~~ - FIXED
 
-- **Files:** `src/api/oc_endpoint.c`, `oc_endpoint_print()` and `oc_endpoint_to_string()`.
+- **Files:** `src/core/oc_endpoint.c`, `oc_endpoint_print()` and `oc_endpoint_to_string()`.
 - **Severity:** Medium - `OC_DEBUG` builds can abort by freeing a stack address. Release builds compile `oc_endpoint_print()` out.
 - **Description:** `oc_endpoint_print()` passes an uninitialized `oc_string_t` to `oc_endpoint_to_string()`. For endpoints without `IPV6`, that function returns `-1` without initializing the output, after which `oc_endpoint_print()` logs and frees the garbage pointer. Its return value is ignored.
-- **Reachability:** the outbound discovery path in `src/api/oc_buffer.c` calls `oc_endpoint_print()` for every `DISCOVERY` message. A discovery endpoint without `IPV6` can therefore crash the debug build.
+- **Reachability:** the outbound discovery path in `src/core/oc_buffer.c` calls `oc_endpoint_print()` for every `DISCOVERY` message. A discovery endpoint without `IPV6` can therefore crash the debug build.
 - **Evidence:** reproduced through `oc_send_message()` with `endpoint.flags = DISCOVERY`; the process aborted with `double free or corruption (out)`, and the backtrace reached `oc_endpoint_print -> oc_free_string` with a stack address passed to `free()`.
 - **Suggested fix:** zero-initialize `ip_str` and only log/free it when `oc_endpoint_to_string()` succeeds. The current test sets `IPV6 | MULTICAST` to avoid masking this production defect.
 - **Fix:** `ip_str` is zero-initialized and only logged and freed when `oc_endpoint_to_string()` returns 0; a non-IPv6 or NULL endpoint logs that it has no IPv6 address. Tests: `test_oc_endpoint`, `EndpointPrint.DoesNotFreeAnythingForNonIpv6Endpoint` (fills the stack with garbage first, so the uninitialized string is not zero by chance), `EndpointPrint.DoesNotCrashOnNullEndpoint`.
@@ -55,7 +55,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-033: a rejected POST /auth/at update still changes the token's scope in RAM~~ - FIXED
 
-- **Files:** `src/api/oc_knx_sec.c`, POST /auth/at handler, scope (key 9) of an existing entry (same id, update in place).
+- **Files:** `src/resources/knx/oc_knx_sec.c`, POST /auth/at handler, scope (key 9) of an existing entry (same id, update in place).
 - **Severity:** Medium - a request answered with 4.00 narrows or clears the scope of a live token; its /k subscribers and its access checks follow the changed entry (the scope is read at use time).
 - **Description:** the entry is changed before the scope is validated.
   - string scope: `free(at_entry->ga)`, `ga = NULL`, `ga_len = 0`, then the names are checked; no valid name -> 4.00, but the GA list is already gone.
@@ -68,7 +68,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-034: a scope update that only changes group addresses re-initializes all OSCORE contexts~~ - FIXED
 
-- **Files:** `src/api/oc_knx_sec.c`, POST /auth/at handler: `scope_updated` is set only in the string-scope branch, not in the int-array (`<ga>`) branch.
+- **Files:** `src/resources/knx/oc_knx_sec.c`, POST /auth/at handler: `scope_updated` is set only in the string-scope branch, not in the int-array (`<ga>`) branch.
 - **Severity:** Low - unnecessary work and a reset of the replay/sequence state of every context on a plain GA update (token rotation of a `<ga>` token).
 - **Description:** after the loop the handler skips `oc_init_oscore_from_storage(false)` only for `OC_STATUS_CHANGED && other_updated == false && scope_updated == true`. An update of `<ga>` alone leaves `scope_updated` false and takes the re-initialization path.
 - **Evidence:** code reading. A test: token with `<ga>` [1], POST the same id with `<ga>` [2] only -> 2.04, and `oc_init_oscore_from_storage` (wrapped) is not called.
@@ -77,16 +77,16 @@ removed entry. The next number is F-080.
 
 ## ~~F-035: a discovery response after the group object was deleted dereferences a NULL `ga`~~ - FIXED
 
-- **Files:** `src/api/oc_knx_client.c`, `ipv6_for_ia_is_resolved()` (caches `recipient->ipv6_res.group_object`) and the discovery response handler (`group_object->ga[0]`); `src/api/oc_knx_fp.c`, `oc_free_group_object_table_entry()`.
+- **Files:** `src/resources/knx/oc_knx_client.c`, `ipv6_for_ia_is_resolved()` (caches `recipient->ipv6_res.group_object`) and the discovery response handler (`group_object->ga[0]`); `src/resources/knx/oc_knx_fp.c`, `oc_free_group_object_table_entry()`.
 - **Severity:** High - crash (NULL read) on a device that resolves a unicast s-mode recipient while the MaC changes the GOT.
 - **Description:** the first unicast s-mode send for an unresolved IA stores a pointer to the GOT entry and starts discovery. If that GO is deleted (POST /fp/g with id only) or the device is reset before the discovery response arrives, `oc_free_group_object_table_entry()` sets `ga = NULL`, `ga_len = 0` and frees `href`. Nothing clears `ipv6_res.group_object`, so the response handler reads `ga[0]` from NULL and `oc_string(href)` from an empty string.
 - **Evidence:** code reading. A test: unicast send to an unresolved IA (status RESOLVING), delete the GO, then call the discovery response handler with a matching IA/IID; under ASan it faults.
 - **Expected:** clear `ipv6_res.group_object` (and reset the status) when a GO or GRT entry is freed, or store the GO id and look it up again in the response handler; check `ga_len > 0` before `ga[0]`.
-- **Fix:** the GO table is only written in LOADING, so `oc_reset_unicast_resolvers()` (`src/api/oc_knx_client.c`) drops every resolver (deferred request, client callback, timeout handler, GO pointer, status) on each load state transition (`src/api/oc_knx.c`, next to `coap_free_s_mode_transactions()`) and in both reset modes of `oc_knx_device_reset()`; with the client callback gone, a late discovery response no longer reaches the handler. Test: `test_oc_knx`, `KnxHandlers.ALsmStartLoadingResetsPendingUnicastResolvers`.
+- **Fix:** the GO table is only written in LOADING, so `oc_reset_unicast_resolvers()` (`src/resources/knx/oc_knx_client.c`) drops every resolver (deferred request, client callback, timeout handler, GO pointer, status) on each load state transition (`src/resources/knx/oc_knx.c`, next to `coap_free_s_mode_transactions()`) and in both reset modes of `oc_knx_device_reset()`; with the client callback gone, a late discovery response no longer reaches the handler. Test: `test_oc_knx`, `KnxHandlers.ALsmStartLoadingResetsPendingUnicastResolvers`.
 
 ## ~~F-036: deleting an observed periodic resource leaves its periodic callback behind (use-after-free)~~ - FIXED
 
-- **Files:** `src/api/oc_ri.c`, `oc_ri_delete_resource()`, `add_periodic_observe_callback()`, `periodic_observe_handler()`.
+- **Files:** `src/resources/ri/oc_ri.c`, `oc_ri_delete_resource()`, `add_periodic_observe_callback()`, `periodic_observe_handler()`.
 - **Severity:** High - use-after-free on the next period of a deleted resource.
 - **Description:** a GET observe on an `OC_PERIODIC` resource adds an entry to `observe_callbacks` with `data = resource`. `oc_ri_delete_resource()` removes the observers and frees the resource, but not that entry (`remove_periodic_observe_callback()` only runs on deregister). The next expiry calls `oc_notify_observers()` on the freed resource. Related: F-052.
 - **Evidence:** code reading. A test: observe a periodic resource, `oc_ri_delete_resource()`, advance the clock past the period and poll; ASan reports heap-use-after-free.
@@ -95,7 +95,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-037: the cnf:osc:alg check reads the wrong rep node, a correct token is rejected but still stored~~ - FIXED
 
-- **Files:** `src/api/oc_knx_sec.c`, POST /auth/at handler, `cnf:osc` alg (8:4:4) branch.
+- **Files:** `src/resources/knx/oc_knx_sec.c`, POST /auth/at handler, `cnf:osc` alg (8:4:4) branch.
 - **Severity:** Medium - a valid request is answered with 4.00; an invalid one (missing `ms`/`osc_id`) is stored anyway.
 - **Description:** the check tests `object->value.integer` (the outer `OC_REP_OBJECT`, whose `value` is a union holding a pointer) instead of `oscore_object->value.integer`, so the value 10 is effectively always rejected and `return_status` becomes `BAD_REQUEST` without returning. Because the status is no longer `CREATED`, the mandatory-property check is skipped; the entry gets its id, is stored and `oc_init_oscore_from_storage()` runs, while the client gets 4.00.
 - **Evidence:** code reading. A test: POST a new token with alg 10 -> expect 2.01 (today 4.00); POST a new token with alg 10 but without `ms` -> expect 4.00 and no entry (today an entry is stored).
@@ -104,7 +104,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-038: a rejected POST /auth/at update still changes the token's OSCORE key material in RAM~~ - FIXED
 
-- **Files:** `src/api/oc_knx_sec.c`, POST /auth/at handler, `cnf:osc` members `ms`, `contextId`, `id`, `salt` of an existing entry.
+- **Files:** `src/resources/knx/oc_knx_sec.c`, POST /auth/at handler, `cnf:osc` members `ms`, `contextId`, `id`, `salt` of an existing entry.
 - **Severity:** Medium - rejected key material can become live; complements F-033 (same in-place pattern for the scope).
 - **Description:** each member frees and replaces the field of the live entry as it is parsed. A later member that fails validation (e.g. a valid `ms`, then an `osc_id` of a wrong size) returns 4.00, but the earlier fields are already replaced. The change is not stored, but the next successful AT POST or PASE calls `oc_init_oscore_from_storage()`, which builds the contexts from RAM, so the rejected key becomes active.
 - **Evidence:** code reading. A test: token with `ms` A, POST the same id with `ms` B and an invalid `osc_id` -> 4.00, then the entry still holds `ms` A.
@@ -113,7 +113,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-039: the endpoint list is freed by the network thread while the main thread walks it~~ - FIXED
 
-- **Files:** `src/port/linux/ipadapter.c`, `refresh_endpoints_list()` / `free_endpoints_list()` and `oc_connectivity_get_endpoints()`, writers: the netlink handler in `oc_network_refresh_endpoints()` (network thread), `oc_connectivity_get_new_port()`; `src/port/windows/ipadapter.c` is affected the same way: `refresh_endpoints_list()` / `free_endpoints_list()`, `oc_connectivity_get_endpoints()`, `oc_network_refresh_endpoints()` called from its interface change notification. Readers: `src/messaging/coap/engine.c` (loopback check, every inbound message), `src/api/oc_endpoint.c`, `src/api/oc_knx_dev.c` (main thread) and `src/port/dns-sd_mdns.c` `device_endpoints()` (mDNS listener thread on Linux and Windows: PTR / SRV / AAAA answers).
+- **Files:** `src/port/linux/ipadapter.c`, `refresh_endpoints_list()` / `free_endpoints_list()` and `oc_connectivity_get_endpoints()`, writers: the netlink handler in `oc_network_refresh_endpoints()` (network thread), `oc_connectivity_get_new_port()`; `src/port/windows/ipadapter.c` is affected the same way: `refresh_endpoints_list()` / `free_endpoints_list()`, `oc_connectivity_get_endpoints()`, `oc_network_refresh_endpoints()` called from its interface change notification. Readers: `src/messaging/coap/engine.c` (loopback check, every inbound message), `src/core/oc_endpoint.c`, `src/resources/knx/oc_knx_dev.c` (main thread) and `src/port/dns-sd_mdns.c` `device_endpoints()` (mDNS listener thread on Linux and Windows: PTR / SRV / AAAA answers).
 - **Severity:** Medium - use-after-free across threads; small window, triggered by an address change while a message is processed.
 - **Description:** an interface change makes the network thread free every node of `dev->eps` and rebuild the list under `oc_network_event_handler_mutex`. `oc_connectivity_get_endpoints()` returns the list head and its callers iterate it without the mutex, so they can read freed nodes. Linux and Windows have the same structure. A second reader thread exists: the mDNS listener walks `dev->eps` (via `get_ip_context_for_device()`) without the mutex while it answers queries, so moving the refresh into the main thread alone does not protect it.
 - **Evidence:** code reading.
@@ -122,7 +122,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-040: allocation failures in the string/array layer write through NULL~~ - FIXED
 
-- **Files:** `src/util/oc_mmem.c` (`oc_mmem_alloc()` sets `size` even when `malloc` fails); `src/api/oc_helpers.c`, `_oc_new_string()`, `oc_concat_strings()`, `_oc_alloc_string_array()`; `include/oc_helpers.h`.
+- **Files:** `src/util/oc_mmem.c` (`oc_mmem_alloc()` sets `size` even when `malloc` fails); `src/util/oc_helpers.c`, `_oc_new_string()`, `oc_concat_strings()`, `_oc_alloc_string_array()`; `include/oc_helpers.h`.
 - **Severity:** Medium - crash on heap exhaustion instead of an error; reachable from remote requests (observe registration, blockwise href, uri_query copies in `engine.c`, `separate.c`).
 - **Description:** the `malloc` result is not checked; `memcpy`/`strcpy` then write to NULL, and `oc_string_len()` reports a length for a NULL buffer. The API returns `void`, so callers cannot detect the failure.
 - **Evidence:** code reading. A test with a failing `malloc` wrap: `oc_new_string()` must leave an empty string (size 0, ptr NULL) instead of faulting.
@@ -131,7 +131,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-041: the CBOR parser writes through NULL when an array or string allocation fails~~ - FIXED
 
-- **Files:** `src/api/oc_rep.c`, array parsing (`oc_new_int_array`/`oc_new_bool_array`/`oc_new_double_array`/string array, then writes at index `k`), scalar strings (`oc_alloc_string` then `cbor_value_copy_*`), object/mixed arrays (`(*prev)->next = 0` after a failed nested parse).
+- **Files:** `src/resources/ri/oc_rep.c`, array parsing (`oc_new_int_array`/`oc_new_bool_array`/`oc_new_double_array`/string array, then writes at index `k`), scalar strings (`oc_alloc_string` then `cbor_value_copy_*`), object/mixed arrays (`(*prev)->next = 0` after a failed nested parse).
 - **Severity:** Medium - peer-triggered crash under heap pressure; string arrays reserve 32 bytes per item, so a 1 KB payload of 1-byte strings needs ~32 KB.
 - **Description:**
   - a failed array allocation is not checked; the next `cbor_value_get_*`/copy writes to `NULL + k`.
@@ -144,7 +144,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-042: a timed callback that removes itself and returns OC_EVENT_DONE is freed twice~~ - FIXED
 
-- **Files:** `src/api/oc_ri.c`, `poll_event_callback_timers()` and `oc_ri_remove_timed_event_callback()`; `src/api/oc_server_api.c`, `oc_remove_delayed_callback()`.
+- **Files:** `src/resources/ri/oc_ri.c`, `poll_event_callback_timers()` and `oc_ri_remove_timed_event_callback()`; `src/resources/ri/oc_server_api.c`, `oc_remove_delayed_callback()`.
 - **Severity:** Low - double free; no stack caller does it today, but it is a natural application pattern and is not documented as forbidden.
 - **Description:** inside the callback `oc_remove_delayed_callback(data, itself)` removes and frees the running entry; on `OC_EVENT_DONE` the poll loop removes and frees the same pointer again. On `OC_EVENT_CONTINUE` it is worse: the poll loop restarts the timer of the freed entry (use-after-free, the freed timer is linked into the etimer list again).
 - **Evidence:** code reading. A test: a delayed callback that calls `oc_remove_delayed_callback()` on itself and returns `OC_EVENT_DONE`; ASan reports a double free.
@@ -174,7 +174,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-045: string setters free their source when called with their own value~~ - FIXED
 
-- **Files:** `src/api/oc_helpers.c`, `oc_string_copy()`, `oc_byte_string_copy()`, `oc_string_copy_from_char*()`; `src/api/oc_core_res.c`, `oc_core_set_device_hostname()`; `src/api/oc_knx_swu.c`, `oc_swu_set_package_name()`, `oc_swu_set_last_update()`.
+- **Files:** `src/util/oc_helpers.c`, `oc_string_copy()`, `oc_byte_string_copy()`, `oc_string_copy_from_char*()`; `src/resources/ri/oc_core_res.c`, `oc_core_set_device_hostname()`; `src/resources/knx/oc_knx_swu.c`, `oc_swu_set_package_name()`, `oc_swu_set_last_update()`.
 - **Severity:** Low - read after free; no in-tree caller passes its own value today, but these are public APIs (e.g. re-announcing the current host name).
 - **Description:** each setter frees the destination first and then copies from the source; when the source points into the destination (`oc_string_copy(&s, s)`, `oc_core_set_device_hostname(oc_string(info->iot_hostname))`), the copy reads freed memory.
 - **Evidence:** code reading. A test: `oc_string_copy(&s, s)` under ASan.
@@ -183,7 +183,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-046: blockwise buffer lookup matches on an href prefix~~ - FIXED
 
-- **Files:** `src/api/oc_blockwise.c`, `oc_blockwise_find_buffer()`.
+- **Files:** `src/messaging/coap/oc_blockwise.c`, `oc_blockwise_find_buffer()`.
 - **Severity:** Low - a request for `k` can be attached to the buffer of `k/1` (same endpoint, method, role, query).
 - **Description:** `strncmp(href, buffer->href, href_len)` compares only the length of the incoming href, so a shorter href matches a longer stored one.
 - **Evidence:** test below.
@@ -192,16 +192,16 @@ removed entry. The next number is F-080.
 
 ## ~~F-047: unicast s-mode loopback parses with a negative size when the value does not fit~~ - FIXED
 
-- **Files:** `src/api/oc_knx_client.c`, unicast s-mode send: `oc_s_mode_get_resource_value()` then `oc_parse_rep(buffer, resource_value_size, ...)`.
+- **Files:** `src/resources/knx/oc_knx_client.c`, unicast s-mode send: `oc_s_mode_get_resource_value()` then `oc_parse_rep(buffer, resource_value_size, ...)`.
 - **Severity:** Low - undefined behaviour (pointer overflow); the parse then fails and the loopback PUT handler gets `request_payload = NULL`.
 - **Description:** when the application's GET handler encodes more than `max_value_size`, the size is -1; it is passed to `oc_parse_rep()` and on to `cbor_parser_init(size_t)`, where it becomes `SIZE_MAX`.
 - **Evidence:** code reading.
 - **Expected:** skip the parse (and the send) when `resource_value_size <= 0`.
-- **Fix:** every send site in `src/api/oc_knx_client.c` checks `resource_value_size <= 0`, logs an error, frees the buffer and stops: the write path of `oc_send_s_mode_mc_or_uc_message()` (returns -1; no send, no loopback, no `/p` notification), the send after IPv6 address resolution, and `oc_create_s_mode_payload_for_go()` (returns -1). Spec 2.5.9.2 makes the value (key 1) mandatory for w/a, so a write without a value is not sent. Tests: `test_smode_loopback_recursion`, `SmodeLoopback.OversizedValueIsNeitherSentNorLoopedBack` (size -1) and `SmodeLoopback.EmptyValueIsNeitherSentNorLoopedBack` (size 0): rc -1, no send, no loopback PUT.
+- **Fix:** every send site in `src/resources/knx/oc_knx_client.c` checks `resource_value_size <= 0`, logs an error, frees the buffer and stops: the write path of `oc_send_s_mode_mc_or_uc_message()` (returns -1; no send, no loopback, no `/p` notification), the send after IPv6 address resolution, and `oc_create_s_mode_payload_for_go()` (returns -1). Spec 2.5.9.2 makes the value (key 1) mandatory for w/a, so a write without a value is not sent. Tests: `test_smode_loopback_recursion`, `SmodeLoopback.OversizedValueIsNeitherSentNorLoopedBack` (size -1) and `SmodeLoopback.EmptyValueIsNeitherSentNorLoopedBack` (size 0): rc -1, no send, no loopback PUT.
 
 ## ~~F-048: `oc_helpers.c/.h` - join overflow, prefix URL match, unbounded URI scan and missing guards~~ - FIXED
 
-- **Files:** `src/api/oc_helpers.c`, `include/oc_helpers.h`; callers `src/api/oc_knx_fp.c` (`oc_belongs_href_to_resource()`), `src/api/oc_knx_fb.c` (`oc_core_fb_x_get_handler()`).
+- **Files:** `src/util/oc_helpers.c`, `include/oc_helpers.h`; callers `src/resources/knx/oc_knx_fp.c` (`oc_belongs_href_to_resource()`), `src/resources/knx/oc_knx_fb.c` (`oc_core_fb_x_get_handler()`).
 - **Severity:** Medium overall (items 2 and 3 are reachable from the network), the rest Low.
 - **Description:** (all functions of `oc_helpers.c/.h` reviewed; the sizing issues of `oc_copy_byte_string_to_array_internal()` and `oc_conv_hex_string_to_oc_string()` stay in F-049)
   1. ~~`oc_join_string_array()` (no production caller):~~ - FIXED
@@ -285,7 +285,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-049: helper conversions with unchecked sizes~~ - FIXED
 
-- **Files:** `src/api/oc_helpers.c`, `oc_copy_byte_string_to_array_internal()`, `oc_conv_hex_string_to_oc_string()`.
+- **Files:** `src/util/oc_helpers.c`, `oc_copy_byte_string_to_array_internal()`, `oc_conv_hex_string_to_oc_string()`.
 - **Severity:** Low - no production caller today.
 - **Description:**
   - `oc_copy_byte_string_to_array_internal()` asserts `strlen(str) < 32` on raw bytes but copies `str_len` bytes unchecked into a 32-byte slot.
@@ -299,7 +299,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-050: the process event queue grows without limit and is used after shutdown~~ - FIXED
 
-- **Files:** `src/util/oc_process.c`, `oc_process_post()`, `oc_process_shutdown()`; `src/api/oc_buffer.c` (ERR_FULL unref paths).
+- **Files:** `src/util/oc_process.c`, `oc_process_post()`, `oc_process_shutdown()`; `src/core/oc_buffer.c` (ERR_FULL unref paths).
 - **Severity:** Low - a flood of events grows the queue until `oc_abort`; a post after shutdown uses freed memory.
 - **Description:** `oc_process_post()` doubles the queue with `realloc` and never returns `OC_PROCESS_ERR_FULL`, so the callers' ERR_FULL paths that unref the message are dead code. `oc_process_shutdown()` frees `events` without setting it to NULL or resetting the counters.
 - **Evidence:** code reading.
@@ -320,7 +320,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-052: one observer's deregister stops the periodic notifications for all observers of the resource~~ - FIXED
 
-- **Files:** `src/api/oc_ri.c`, GET with Observe = 1 (deregister) on an `OC_PERIODIC` resource, `remove_periodic_observe_callback()`.
+- **Files:** `src/resources/ri/oc_ri.c`, GET with Observe = 1 (deregister) on an `OC_PERIODIC` resource, `remove_periodic_observe_callback()`.
 - **Severity:** Low - the remaining observers of a periodic resource get no more periodic notifications.
 - **Description:** the periodic callback exists once per resource, not per observer. When `coap_observe_handler()` removes one observer, the handler calls `remove_periodic_observe_callback(resource)` without checking whether other observers are left. Related: F-036.
 - **Evidence:** test below.
@@ -338,7 +338,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-054: a POST /auth/at update rejected after a valid scope still changes the token in RAM~~ - FIXED
 
-- **Files:** `src/api/oc_knx_sec.c`, POST /auth/at handler: the entry (same id, update in place) is written field by field while the payload is parsed.
+- **Files:** `src/resources/knx/oc_knx_sec.c`, POST /auth/at handler: the entry (same id, update in place) is written field by field while the payload is parsed.
 - **Severity:** Medium - a request answered with 4.00 changes scope, profile or OSCORE fields of a live token; access checks read the entry at use time.
 - **Description:** each property is written to the entry as soon as it is parsed. A later reject (e.g. `cnf:osc:alg` other than 10, short or all-zero master secret, too long sender ID, missing mandatory properties) returns 4.00 without undoing the earlier writes. The change is not stored (`oc_store_at_table_entry` is not reached), so RAM and storage differ until the next reboot or a successful update. Remainder of F-033 (an invalid scope itself no longer changes the entry).
 - **Evidence:** code reading. A test: token "tok" with scope ["if.sec"], POST the same id with scope ["if.swu"] and `cnf:osc:alg` 11 -> 4.00, then the entry still has scope `OC_ACL_SEC`.
@@ -347,7 +347,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-055: an id-only POST /auth/at (delete) keeps the token's OSCORE context when the same request also updates a scope~~ - FIXED
 
-- **Files:** `src/api/oc_knx_sec.c`, POST /auth/at handler: id-only branch (`oc_delete_at_table_entry()`) and the final `scope_updated` / `other_updated` decision before `oc_init_oscore_from_storage(false)`.
+- **Files:** `src/resources/knx/oc_knx_sec.c`, POST /auth/at handler: id-only branch (`oc_delete_at_table_entry()`) and the final `scope_updated` / `other_updated` decision before `oc_init_oscore_from_storage(false)`.
 - **Severity:** Medium - the OSCORE context of a deleted token stays usable; requests protected with its key still decrypt although its AT table slot is empty.
 - **Description:** the id-only branch removes the token's observers, storage and RAM entry, but not its OSCORE context; the POST relies on the full re-initialization after the loop to drop it. The flags are shared by all entries of one request, so a request that deletes one token and changes only the scope of another (`[{0: "A"}, {0: "B", 9: ["if.sec"]}]` or `9: [1]`) ends with `OC_STATUS_CHANGED`, `scope_updated` and no `other_updated` -> no re-initialization, the context of "A" survives. DELETE /auth/at/{id} does not have this gap, it calls `oc_oscore_free_contexts_at_id()` itself.
 - **Evidence:** code reading. A test: create tokens "A" and "B", POST `[{0: "A"}, {0: "B", 9: [1]}]` -> 2.04, then no OSCORE context refers to "A"'s slot (`oc_oscore_find_context_by_access_token`).
@@ -356,7 +356,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-056: a POST /auth/at that changes the profile together with the scope does not re-initialize the OSCORE contexts~~ - FIXED
 
-- **Files:** `src/api/oc_knx_sec.c`, POST /auth/at handler: profile (key 38) does not set `other_updated`.
+- **Files:** `src/resources/knx/oc_knx_sec.c`, POST /auth/at handler: profile (key 38) does not set `other_updated`.
 - **Severity:** Low - a token switched away from `coap_oscore` keeps its OSCORE context, a token switched to it gets none, until the next re-initialization (next key change, create, or reboot).
 - **Description:** the re-initialization is skipped for `OC_STATUS_CHANGED && !other_updated && scope_updated`. The profile decides in `oc_init_oscore_from_storage()` whether a context is built at all, but setting it does not mark `other_updated`, so an update of profile + scope only takes the "scope only" path.
 - **Evidence:** code reading. A test: token "tok" with profile `coap_oscore` (context exists), POST the same id with profile `coap_dtls` and scope ["if.sec"] -> 2.04, then no OSCORE context refers to the token.
@@ -365,7 +365,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-057: deleting AT table entries on a device reset keeps the recipient OSCORE contexts of the deleted tokens~~ - FIXED
 
-- **Files:** `src/api/oc_knx_sec.c`, `oc_delete_at_table_entry()`, `oc_delete_at_table_except_sec_scope_entries()`; `oc_init_oscore_from_storage()` -> `oc_oscore_free_sender_contexts()`.
+- **Files:** `src/resources/knx/oc_knx_sec.c`, `oc_delete_at_table_entry()`, `oc_delete_at_table_except_sec_scope_entries()`; `oc_init_oscore_from_storage()` -> `oc_oscore_free_sender_contexts()`.
 - **Severity:** Low - stale contexts that point to an empty AT table slot stay in the context list (the access check finds no scope for them, so no access); they occupy context buffers and a later token in the same slot would find them.
 - **Description:** `oc_delete_at_table_entry()` did not free OSCORE contexts; each caller had to do it. The device reset path (`oc_delete_at_table_except_sec_scope_entries()` in `oc_knx_device_reset()`) relied on `oc_init_oscore_from_storage(true)` afterwards, which frees sender contexts only (`recipient_id_len == 0`), so recipient contexts of the deleted non-`if.sec` tokens survived. F-055 was the same gap on the POST id-only path.
 - **Evidence:** test below, fails without the fix.
@@ -373,7 +373,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-058: a periodic observe callback whose GET handler deletes its own resource is freed twice~~ - FIXED
 
-- **Files:** `src/api/oc_ri.c`, `poll_event_callback_timers()` (observe list), `periodic_observe_handler()`, `remove_periodic_observe_callback()`; reached through `oc_ri_delete_resource()`.
+- **Files:** `src/resources/ri/oc_ri.c`, `poll_event_callback_timers()` (observe list), `periodic_observe_handler()`, `remove_periodic_observe_callback()`; reached through `oc_ri_delete_resource()`.
 - **Severity:** Low - needs an application GET handler that deletes its own resource while a periodic notification is built; no stack code does it.
 - **Description:** the same pattern as F-042 on the observe list. `periodic_observe_handler()` runs `oc_notify_observers()`, which calls the resource's GET handler; if that handler deletes the resource, `oc_ri_delete_resource()` calls `remove_periodic_observe_callback()`, which unlinks and frees the running entry. Back in the poll loop the entry is freed again (`OC_EVENT_DONE`) or its timer restarted (`OC_EVENT_CONTINUE`). The deregister path (`OC_OBSERVE_DEREGISTER`) only runs for an incoming request, never inside the poll loop. Note: in this path the resource itself is freed while the notification code still uses it, see F-059.
 - **Evidence:** test below.
@@ -382,7 +382,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-059: a resource deleted from its own handler is used after it is freed; `oc_delayed_delete_resource()` is declared but not implemented~~ - FIXED (by contract)
 
-- **Files:** `src/api/oc_ri.c`, `oc_ri_invoke_coap_entity_handler()` (after the method handler call) and `oc_ri_delete_resource()`; `src/messaging/coap/observe.c`, `coap_notify_observers()` (after the GET handler call); `include/oc_api.h`, `oc_delayed_delete_resource()`.
+- **Files:** `src/resources/ri/oc_ri.c`, `oc_ri_invoke_coap_entity_handler()` (after the method handler call) and `oc_ri_delete_resource()`; `src/messaging/coap/observe.c`, `coap_notify_observers()` (after the GET handler call); `include/oc_api.h`, `oc_delayed_delete_resource()`.
 - **Severity:** Low - needs an application handler that deletes its own resource; no stack code does it, but the API offers no safe way to do so.
 - **Description:**
   - a GET/PUT/POST/DELETE handler that calls `oc_ri_delete_resource()` on its own resource frees it (strings, runtime data, the resource); `oc_ri_invoke_coap_entity_handler()` then still reads `matching_resource` (observe handling: `properties`, `OC_PERIODIC`, observer registration).
@@ -394,7 +394,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-060: a new master secret written with POST /auth/at does not reach the cached recipient context, the old key still decrypts~~ - FIXED
 
-- **Files:** `src/api/oc_knx_sec.c`, POST /auth/at handler -> `oc_init_oscore_from_storage()`; `src/security/oc_oscore_context.c`, `oc_oscore_free_sender_contexts()`; `src/security/oc_oscore_engine.c`, `oc_oscore_receive_message()` (context lookup by `kid` + `kid_context`).
+- **Files:** `src/resources/knx/oc_knx_sec.c`, POST /auth/at handler -> `oc_init_oscore_from_storage()`; `src/security/oc_oscore_context.c`, `oc_oscore_free_sender_contexts()`; `src/security/oc_oscore_engine.c`, `oc_oscore_receive_message()` (context lookup by `kid` + `kid_context`).
 - **Severity:** Medium - a key rotation through an AT update does not take effect for inbound traffic: requests protected with the OLD key keep being accepted until the cached recipient context is evicted (LRU) or the table is deleted.
 - **Description:** an update with key material (`cnf:osc:ms`, `id`, `contextId`, `salt`, profile) sets `other_updated` and calls `oc_init_oscore_from_storage()`, which frees and rebuilds only the sender contexts (`recipient_id_len == 0`). A recipient context created for an earlier inbound request keeps its keys derived from the old master secret; the next inbound request with the same `kid` / `kid_context` finds it (`oc_oscore_find_context_by_kid_and_kid_context`) and is decrypted with the old key. Replay records and the echo ring are not touched by an update either (only DELETE /auth/at clears them).
 - **Evidence:** code reading.
@@ -403,7 +403,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-061: a block-wise separate response keeps neither the Content-Format nor the query in its response buffer~~ - FIXED
 
-- **Files:** `src/api/oc_server_api.c`, separate response with a payload above the block size (`oc_blockwise_alloc_response_buffer()` for the separate request, two call sites); served by `src/messaging/coap/engine.c` (follow-up GET with Block2, `coap_set_header_content_format(..., response_buffer->return_content_type)`); `src/api/oc_blockwise.c`, `oc_blockwise_find_buffer()` (query match).
+- **Files:** `src/resources/ri/oc_server_api.c`, separate response with a payload above the block size (`oc_blockwise_alloc_response_buffer()` for the separate request, two call sites); served by `src/messaging/coap/engine.c` (follow-up GET with Block2, `coap_set_header_content_format(..., response_buffer->return_content_type)`); `src/messaging/coap/oc_blockwise.c`, `oc_blockwise_find_buffer()` (query match).
 - **Severity:** Low - a block-wise separate response is rare; the client gets a wrong Content-Format on the follow-up blocks or a lookup miss.
 - **Description:**
   - `oc_blockwise_init_buffer()` leaves `return_content_type` and `uri_query` to the caller. The normal response path (`oc_ri.c`) and the notification path (`observe.c`, F-031) set the Content-Format; the separate response path sets neither.
@@ -416,7 +416,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-062: follow-up blocks of a block-wise GET response carry the guessed Content-Format instead of the handler's~~ - FIXED
 
-- **Files:** `src/api/oc_ri.c`, `oc_ri_invoke_coap_entity_handler()` (block-wise response buffer allocated before the handler; first block Content-Format after it); served by `src/messaging/coap/engine.c` (follow-up GET with Block2, `response_buffer->return_content_type`).
+- **Files:** `src/resources/ri/oc_ri.c`, `oc_ri_invoke_coap_entity_handler()` (block-wise response buffer allocated before the handler; first block Content-Format after it); served by `src/messaging/coap/engine.c` (follow-up GET with Block2, `response_buffer->return_content_type`).
 - **Severity:** Low - a client that checks Content-Format per block, or uses the last block's, decodes the body with the wrong format.
 - **Description:** the response buffer is allocated BEFORE the handler runs, with the Accept option or the resource default (`content_type[0]`) as its Content-Format. The first block goes out with the format the handler actually set (`response_buffer.content_format`), the follow-up blocks with the guessed one. Without Accept and without a bound content type (`content_type[0] = 0`) the follow-up blocks carry Content-Format 0 (text/plain) while the first block is application/cbor (RFC 7959 2.4: all blocks of a body carry the same Content-Format). Same class as F-031 (notifications) and F-061 (separate response).
 - **Evidence:** test below, fails without the fix (block 1 carries the resource default instead of the handler's CBOR).
@@ -425,7 +425,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-063: an application resource without a bound Content-Format defaults to 0 (text/plain), not to application/cbor~~ - FIXED
 
-- **Files:** `src/api/oc_server_api.c`, `oc_new_resource()` (resource from `calloc`, `content_type[]` not set) and `oc_resource_bind_content_type()` (optional); used by `src/api/oc_ri.c` (default format without an Accept option, response buffer guess) and the link-format `ct=` of the resource.
+- **Files:** `src/resources/ri/oc_server_api.c`, `oc_new_resource()` (resource from `calloc`, `content_type[]` not set) and `oc_resource_bind_content_type()` (optional); used by `src/resources/ri/oc_ri.c` (default format without an Accept option, response buffer guess) and the link-format `ct=` of the resource.
 - **Severity:** Low - an application that does not call `oc_resource_bind_content_type()` gets text/plain as the resource default; since F-062 the block-wise follow-up blocks no longer depend on it.
 - **Description:** `oc_new_resource()` leaves `content_type[0]` / `[1]` at 0, and `oc_add_resource()` does not check them. Content-Format 0 is text/plain, so 'not bound' and 'text/plain' cannot be told apart, and every place that takes the resource default (request without Accept, spec 2.2.4) uses text/plain. Spec 2.2.4: Points SHALL use application/cbor, and without Accept / Content-Format the device SHALL assume the default format of the resource; text/plain is not one of the formats a KNX IoT resource supports (link-format, octet-stream, CBOR, optional JSON).
 - **Evidence:** test below; spec 2.2.4 and 2.5.11.1 (Table 32: `p` cbor).
@@ -443,7 +443,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-065: the message routing process leaks a message, and an interface event is lost, when the event queue is full~~ - FIXED
 
-- **Files:** `src/api/oc_buffer.c`, `message_buffer_handler` (forwards to the OSCORE layer and the CoAP engine: inbound OSCORE / plain, outbound OSCORE multicast / unicast); `src/api/oc_network_events.c`, `oc_process_network_event()` (`INTERFACE_UP` / `INTERFACE_DOWN`).
+- **Files:** `src/core/oc_buffer.c`, `message_buffer_handler` (forwards to the OSCORE layer and the CoAP engine: inbound OSCORE / plain, outbound OSCORE multicast / unicast); `src/core/oc_network_events.c`, `oc_process_network_event()` (`INTERFACE_UP` / `INTERFACE_DOWN`).
 - **Severity:** Low - each rejected forward loses one message buffer for good (every plain and OSCORE message passes this handler); a rejected interface event is never handled (e.g. endpoints not refreshed after an address change).
 - **Description:**
   - `message_buffer_handler` takes over the reference of the message from the queue and posts it on; the return value of these 4 `oc_process_post()` calls is ignored, so on `OC_PROCESS_ERR_FULL` nobody holds the message any more. Same pattern as F-064 in the OSCORE engine; hidden until F-050.
@@ -464,7 +464,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-067: the global coap_status_code lets a notification inside coap_receive() drop the response of the request~~ - FIXED
 
-- **Files:** `src/messaging/coap/coap.c` / `coap.h` (global `coap_status_code`); `src/messaging/coap/engine.c`, `coap_receive()` (reset, parse result, read at `send_message`); `src/messaging/coap/separate.c`, `coap_separate_accept()` (sets `CLEAR_TRANSACTION`); `src/messaging/coap/observe.c`, notification path (calls `coap_separate_accept()`); `src/api/oc_ri.c`, `oc_ri_invoke_coap_entity_handler()` (`OC_IGNORE` -> `CLEAR_TRANSACTION`, `oc_notify_observers()` after a successful PUT/POST).
+- **Files:** `src/messaging/coap/coap.c` / `coap.h` (global `coap_status_code`); `src/messaging/coap/engine.c`, `coap_receive()` (reset, parse result, read at `send_message`); `src/messaging/coap/separate.c`, `coap_separate_accept()` (sets `CLEAR_TRANSACTION`); `src/messaging/coap/observe.c`, notification path (calls `coap_separate_accept()`); `src/resources/ri/oc_ri.c`, `oc_ri_invoke_coap_entity_handler()` (`OC_IGNORE` -> `CLEAR_TRANSACTION`, `oc_notify_observers()` after a successful PUT/POST).
 - **Severity:** Low - latent: the stack's own observable resources (`/p`, `/k`) do not answer GET with a separate response; an application resource that is observable and answers GET with a separate response would lose the 2.04 of a PUT/POST to it.
 - **Description:**
   - `coap_status_code` is a global that holds the parse result of the current message AND serves as a side-channel flag "clear the transaction, send nothing": callees of `coap_receive()` set it to `CLEAR_TRANSACTION`, `send_message` reads it.
@@ -477,7 +477,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-068: oc_ri_invoke_coap_entity_handler() tracks its error responses in five separate bools~~ - FIXED
 
-- **Files:** `src/api/oc_ri.c`, `oc_ri_invoke_coap_entity_handler()` (declaration of `method_impl`, `bad_request`, `forbidden`, `unauthorized`, `entity_too_large`; the guards `if (!bad_request ...)`; the `if / else if` chain that turns them into a response code).
+- **Files:** `src/resources/ri/oc_ri.c`, `oc_ri_invoke_coap_entity_handler()` (declaration of `method_impl`, `bad_request`, `forbidden`, `unauthorized`, `entity_too_large`; the guards `if (!bad_request ...)`; the `if / else if` chain that turns them into a response code).
 - **Severity:** Low - maintainability: no wrong response today, but each new error case needs one more bool, one more guard and one more branch, and a later stage that only checks `bad_request` would still run after another error (e.g. `forbidden`).
 - **Description:**
   - the request passes stages (payload parse -> resource lookup -> response state allocation -> ACL check -> method handler); an error in one stage stops the later ones, so at most one of the bools is set (`entity_too_large` always comes with `bad_request`, one case: 4.13)
@@ -485,11 +485,11 @@ removed entry. The next number is F-080.
   - the end of the function maps them in a 7-branch `if / else if` chain with the same two lines (`response_length = 0`, `code = ...`) in each branch
 - **Evidence:** code reading.
 - **Expected:** one `oc_status_t error = OC_STATUS_OK` (first error wins) set at each stage, the guards check `error == OC_STATUS_OK`, the end sets `response_length = 0` and `code = oc_status_code(error)` in one place; `success` is `error == OC_STATUS_OK`; the same codes in the same cases.
-- **Fix:** `oc_ri_invoke_coap_entity_handler()` keeps one `oc_status_t error = OC_STATUS_OK` (first error wins): parse error 4.13 / 4.00, no resource 4.04 (right after the lookup), response state allocation 4.00, access check, no handler for the method 4.05; every later stage runs only while it is `OC_STATUS_OK`, the end sets the code in one place. `oc_knx_sec_check_acl()` (`src/api/oc_knx_sec.c/.h`) returns the reason as `oc_status_t` instead of `bool`: `OC_STATUS_OK`, `OC_STATUS_UNAUTHORIZED` (secured resource, request not decrypted), `OC_STATUS_FORBIDDEN` (decrypted, scope or `<ga>` not covered), `OC_STATUS_METHOD_NOT_ALLOWED` (no handler slot, e.g. FETCH); oc_ri takes it directly, the duplicated OSCORE flag test is gone. One behaviour change: a FETCH request gets 4.05 instead of 4.01 / 4.03. The request objects of the handler (`response_buffer`, `response_obj`, `new_request`) are defined with designated initializers. Tests: `test_oc_ri`, `RiEntityHandlerPaths.UnknownPathReturnsNotFound`, `ScopedHandlerWithoutOscoreReturnsUnauthorized`, `DecryptedRequestOutsideTheTokenScopeReturnsForbidden` (all six codes pinned), `FetchReturnsMethodNotAllowed` (fails without the fix: 4.01); `test_oc_knx_sec`, the `SecAcl` tests expect the exact status.
+- **Fix:** `oc_ri_invoke_coap_entity_handler()` keeps one `oc_status_t error = OC_STATUS_OK` (first error wins): parse error 4.13 / 4.00, no resource 4.04 (right after the lookup), response state allocation 4.00, access check, no handler for the method 4.05; every later stage runs only while it is `OC_STATUS_OK`, the end sets the code in one place. `oc_knx_sec_check_acl()` (`src/resources/knx/oc_knx_sec.c/.h`) returns the reason as `oc_status_t` instead of `bool`: `OC_STATUS_OK`, `OC_STATUS_UNAUTHORIZED` (secured resource, request not decrypted), `OC_STATUS_FORBIDDEN` (decrypted, scope or `<ga>` not covered), `OC_STATUS_METHOD_NOT_ALLOWED` (no handler slot, e.g. FETCH); oc_ri takes it directly, the duplicated OSCORE flag test is gone. One behaviour change: a FETCH request gets 4.05 instead of 4.01 / 4.03. The request objects of the handler (`response_buffer`, `response_obj`, `new_request`) are defined with designated initializers. Tests: `test_oc_ri`, `RiEntityHandlerPaths.UnknownPathReturnsNotFound`, `ScopedHandlerWithoutOscoreReturnsUnauthorized`, `DecryptedRequestOutsideTheTokenScopeReturnsForbidden` (all six codes pinned), `FetchReturnsMethodNotAllowed` (fails without the fix: 4.01); `test_oc_knx_sec`, the `SecAcl` tests expect the exact status.
 
 ## ~~F-069: the core resource lookup walks the resource chain from the start for every index (quadratic)~~ - FIXED
 
-- **Files:** `src/api/oc_core_res.c`, `oc_core_get_core_resource_by_index()` (walks the `next` chain from `core_resource_dev_sn` for each call); `src/api/oc_ri.c`, `oc_ri_invoke_coap_entity_handler()` (core resource lookup loop calls it for every index); list handlers through `oc_check_request_from_index()`: `src/api/oc_discovery.c` (`/.well-known/core`), `src/api/oc_knx_dev.c`, `src/api/oc_knx_sec.c`, `src/api/oc_knx_swu.c`.
+- **Files:** `src/resources/ri/oc_core_res.c`, `oc_core_get_core_resource_by_index()` (walks the `next` chain from `core_resource_dev_sn` for each call); `src/resources/ri/oc_ri.c`, `oc_ri_invoke_coap_entity_handler()` (core resource lookup loop calls it for every index); list handlers through `oc_check_request_from_index()`: `src/resources/ri/oc_discovery.c` (`/.well-known/core`), `src/resources/knx/oc_knx_dev.c`, `src/resources/knx/oc_knx_sec.c`, `src/resources/knx/oc_knx_swu.c`.
 - **Severity:** Low - performance: no wrong result, but every request to an application resource (`/p/...`, the normal data traffic) walks about 1500 chain nodes before the app list is searched.
 - **Description:**
   - `oc_core_get_core_resource_by_index(i)` has no table, it starts at the first core resource and follows `next` i times
@@ -502,7 +502,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-070: the response to an own request is matched to the first context of its token, which can be a cached recipient context~~ - FIXED
 
-- **Files:** `src/security/oc_oscore_context.c`, `oc_oscore_find_context_by_token_mid()` case (c) (transaction without s-mode flag: echo re-request, OBSERVE request); used by `src/security/oc_oscore_engine.c`, `oc_oscore_recv_message()` for an inbound response; `src/api/oc_knx_sec.c`, `oc_init_oscore_from_storage()` (POST /auth/at).
+- **Files:** `src/security/oc_oscore_context.c`, `oc_oscore_find_context_by_token_mid()` case (c) (transaction without s-mode flag: echo re-request, OBSERVE request); used by `src/security/oc_oscore_engine.c`, `oc_oscore_recv_message()` for an inbound response; `src/resources/knx/oc_knx_sec.c`, `oc_init_oscore_from_storage()` (POST /auth/at).
 - **Severity:** Medium - the response to an own request (e.g. the echo re-request after an Echo challenge) is dropped silently: no answer for the re-request.
 - **Description:**
   - case (c) took the FIRST context of the transaction's access token (`sender_only = false`), sender or recipient
@@ -516,7 +516,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-071: a POST /auth/at collection rejected at a later entry leaves an earlier committed token without a sender context~~ - FIXED
 
-- **Files:** `src/api/oc_knx_sec.c`, `oc_core_auth_at_post_handler()` (per-entry commit inside the collection loop: `oc_oscore_free_contexts_at_id()` on a key change, `*at_entry = tmp`, `oc_store_at_table_entry()`; the early `return` of every 4.00 / 5.00 path; `oc_init_oscore_from_storage(false)` only at the end of the handler); `oc_init_oscore_from_storage()` (the only place that creates persistent sender contexts).
+- **Files:** `src/resources/knx/oc_knx_sec.c`, `oc_core_auth_at_post_handler()` (per-entry commit inside the collection loop: `oc_oscore_free_contexts_at_id()` on a key change, `*at_entry = tmp`, `oc_store_at_table_entry()`; the early `return` of every 4.00 / 5.00 path; `oc_init_oscore_from_storage(false)` only at the end of the handler); `oc_init_oscore_from_storage()` (the only place that creates persistent sender contexts).
 - **Severity:** Medium - a token updated or created in a rejected collection request can not send (uc, mc, s-mode) until the next successful POST /auth/at, reset or restart; the client is told the request failed although part of it was applied.
 - **Description:**
   - the handler commits each entry of the collection as soon as its checks pass: on a key change (cnf values or profile differ) the contexts of the token are freed, the entry is replaced and stored
@@ -549,7 +549,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-072: an inbound multicast request protected with an `if.g.s` token is dropped, although `if.g.s` authorizes all group addresses~~ - FIXED
 
-- **Files:** `src/security/oc_oscore_engine.c`, `oc_oscore_receive_message()` 8.2 (inbound request with 'kid': the multicast drop `(msg->endpoint.flags & MULTICAST) && at_entry->ga_len == 0` and its comment, case (b)); `src/api/oc_knx_sec.c`, `oc_knx_sec_check_acl()` (case O1: `if.g.s` -> all group addresses allowed on `/k`).
+- **Files:** `src/security/oc_oscore_engine.c`, `oc_oscore_receive_message()` 8.2 (inbound request with 'kid': the multicast drop `(msg->endpoint.flags & MULTICAST) && at_entry->ga_len == 0` and its comment, case (b)); `src/resources/knx/oc_knx_sec.c`, `oc_knx_sec_check_acl()` (case O1: `if.g.s` -> all group addresses allowed on `/k`).
 - **Severity:** Low - a multicast group message from a sender whose token holds `if.g.s` (no explicit GA list) is never processed; the stack itself never sends multicast with such a token (spec 6.3.2.1 picks a token with the GA in its scope list), so this hits only other senders.
 - **Description:**
   - the engine discards an inbound multicast request silently when the token of its 'kid' has no group addresses (`ga_len == 0`), before a context is created and before the replay check (no echo)
@@ -559,12 +559,12 @@ removed entry. The next number is F-080.
   - the engine comment cites 2.5.9.6 as if it required an explicit GA list
 - **Evidence:** code reading.
 - **Expected:** a multicast request is dropped early only when its token has no group rights at all (neither `if.g.s` nor `<ga>`); an `if.g.s` token is accepted and the ACL decides per group address, as on unicast.
-- **Possible fix:** test the scope mask instead of `ga_len`: `(msg->endpoint.flags & MULTICAST) && !(oc_at_get_scope_mask(at_entry) & (OC_ACL_G | OC_ACL_GA))` (`oc_at_get_scope_mask()` is static in `src/api/oc_knx_sec.c` today -> expose it in `oc_knx_sec_internal.h`); correct the comment of case (b).
+- **Possible fix:** test the scope mask instead of `ga_len`: `(msg->endpoint.flags & MULTICAST) && !(oc_at_get_scope_mask(at_entry) & (OC_ACL_G | OC_ACL_GA))` (`oc_at_get_scope_mask()` is static in `src/resources/knx/oc_knx_sec.c` today -> expose it in `oc_knx_sec_internal.h`); correct the comment of case (b).
 - **Fix:** the engine drops a multicast request only when the token's scope has neither `OC_ACL_G` (`if.g.s`) nor `OC_ACL_GA` (`<ga>`): `msg->endpoint.flags & MULTICAST && !(at_entry->scope & (OC_ACL_G | OC_ACL_GA))`. `ga_len` is no longer needed, because POST /auth/at gives a token a group address list exactly when it sets `OC_ACL_GA`. `scope` is read directly, so `oc_at_get_scope_mask()` stays static. The comments of case (b) and of the multicast echo branch say "group rights" now. `if.g.s` only takes effect at `/k`, the only resource with `OC_ACL_G` (spec 2.5.9.1), and multicast is always s-mode to `/k` (spec 2.6.9.1). Tests: `test_oc_oscore_echo_tx`, `OscoreEngine.MulticastRequestWithIfGsTokenIsDecrypted` (fails without the fix); the fixture token now has `OC_ACL_GA` as POST /auth/at sets it, and the drop test uses an `if.p` token. Runtime: `test_group_comm.py`, `TestMulticastWriteWithIfGsToken` (fails without the fix: /p/1 stays false) and the control `TestMulticastWriteWithoutGroupRights`.
 
 ## ~~F-073: a full access token re-POSTed without salt or contextId keeps the old salt and contextId~~ - FIXED
 
-- **Files:** `src/api/oc_knx_sec.c`, `oc_core_auth_at_post_handler()` (shadow copy `oc_auth_at_t tmp = *at_entry;`, cnf:osc parser for contextId (8:4:6) and salt (8:4:5), `key_changed`).
+- **Files:** `src/resources/knx/oc_knx_sec.c`, `oc_core_auth_at_post_handler()` (shadow copy `oc_auth_at_t tmp = *at_entry;`, cnf:osc parser for contextId (8:4:6) and salt (8:4:5), `key_changed`).
 - **Severity:** Medium - after a re-keying with a full token, the device derives its keys with the OLD salt and sends the OLD contextId as `kid_context`; the MaC uses none -> every request with that token fails the AEAD check (unicast 4.00, multicast dropped silently) and multicast receivers find no context, without a hint at the cause.
 - **Description:**
   - the shadow copy starts as a copy of the live entry, including `osc_salt` and `osc_contextid`
@@ -578,7 +578,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-074: POST /auth/at with a CBOR null member deletes the existing token~~ - FIXED
 
-- **Files:** `src/api/oc_knx_sec.c`, `oc_core_auth_at_post_handler()` (member loop: no branch for `OC_REP_NULL`, `id_only` stays true -> case c); `src/api/oc_rep.c` (CBOR null / undefined parsed as `OC_REP_NULL`, before as `OC_REP_NIL`).
+- **Files:** `src/resources/knx/oc_knx_sec.c`, `oc_core_auth_at_post_handler()` (member loop: no branch for `OC_REP_NULL`, `id_only` stays true -> case c); `src/resources/ri/oc_rep.c` (CBOR null / undefined parsed as `OC_REP_NULL`, before as `OC_REP_NIL`).
 - **Severity:** Medium - a malformed or tool-generated update such as `{0: "tok", 9: null}` silently deletes an existing access token (its contexts, observers and SSN record) instead of being rejected or ignored; the client gets 2.04.
 - **Description:**
   - the parser now maps CBOR null / undefined to its own type `OC_REP_NULL` (an empty array stays `OC_REP_NIL`)
@@ -594,7 +594,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-075: an empty array on a non-ga key of POST /fp/g deletes the group object entry~~ - FIXED
 
-- **Files:** `src/api/oc_knx_fp.c`, POST handlers of `/fp/g` (`case OC_REP_NIL`: `if (object->iname != 7) break;` without `id_only = false`), `/fp/p` and `/fp/r` (`case OC_REP_NIL`: other keys ignored).
+- **Files:** `src/resources/knx/oc_knx_fp.c`, POST handlers of `/fp/g` (`case OC_REP_NIL`: `if (object->iname != 7) break;` without `id_only = false`), `/fp/p` and `/fp/r` (`case OC_REP_NIL`: other keys ignored).
 - **Severity:** Medium - `{0: 1, 11: []}` on an existing group object entry silently deletes it (2.04); on `/fp/p` and `/fp/r` the same request is answered 2.04 although nothing changed.
 - **Description:**
   - an empty CBOR array is parsed as `OC_REP_NIL` (null / undefined are `OC_REP_NULL` and get 4.00 in all three tables through `default`)
@@ -609,7 +609,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-076: a POST /fp/g, /fp/p or /fp/r collection rejected at a later entry leaves the earlier entries stored~~ - FIXED
 
-- **Files:** `src/api/oc_knx_fp.c`, `oc_core_fp_g_post_handler()`, the POST handlers of `/fp/p` and `/fp/r` (each entry is checked into its shadow copy and committed (`g_got[entry] = tmp`, `oc_store_..._entry()`) before the next entry is parsed; every 4.00 / 5.00 returns at once).
+- **Files:** `src/resources/knx/oc_knx_fp.c`, `oc_core_fp_g_post_handler()`, the POST handlers of `/fp/p` and `/fp/r` (each entry is checked into its shadow copy and committed (`g_got[entry] = tmp`, `oc_store_..._entry()`) before the next entry is parsed; every 4.00 / 5.00 returns at once).
 - **Severity:** Low / Medium - a collection that fails at a later entry has already stored the earlier entries, but the MaC gets 4.00 / 5.00 and does not know that a part was applied (partial apply, not atomic); no OSCORE contexts are involved (unlike F-071).
 - **Description:**
   - the GO handler documents it: "on a 4.00 / 5.00 the previously written entries - from a collection - are not restored (currently to complicate)"; `/fp/p` and `/fp/r` work the same way
@@ -624,14 +624,14 @@ removed entry. The next number is F-080.
   - the same id twice in one request -> 4.00 (the id is unique in the table, spec 2.5.7.3.2 Table 18, 2.5.7.4.2)
   - one reject helper per entry type (GO, PUB / RCP) instead of the repeated "free tmp, respond, return" (about 5 sites per handler)
 - **Already aligned with `/auth/at` (this branch):**
-  - one `uint16_t member_flags` per entry instead of `allocator` + `..._properties_seen`, with the layout shared with `/auth/at` in `src/api/oc_knx_helpers.h` (`oc_member_flag_t`: seen bits 0 ... 8, alloc bits 9 ... 13, bits 14, 15 reserved for combined sets; `TBL_SEEN_*` / `TBL_ALLOC_*` and `AT_SEEN_*` / `AT_ALLOC_*` are names of the same bits)
+  - one `uint16_t member_flags` per entry instead of `allocator` + `..._properties_seen`, with the layout shared with `/auth/at` in `src/resources/knx/oc_knx_helpers.h` (`oc_member_flag_t`: seen bits 0 ... 8, alloc bits 9 ... 13, bits 14, 15 reserved for combined sets; `TBL_SEEN_*` / `TBL_ALLOC_*` and `AT_SEEN_*` / `AT_ALLOC_*` are names of the same bits)
   - every member sets its seen and alloc bits in one statement
   - `bool id_only` replaced by `MF_SEEN_OTHER` and `mf_is_id_only()` (case c: only the id alone deletes)
   - `oc_free_allocated_group_object_table_elements()` / `oc_free_allocated_group_table_elements()` are `static` and read only the alloc bits (removed from `oc_knx_fp.h`)
   - an empty array on a key other than ga -> 4.00 (F-075), any other unexpected type -> 4.00 (`default`)
 - **Not part of this finding:** a re-POST of an existing entry keeps the members it does not carry (partial update instead of a replace) -> F-077.
-- **Fix:** the three POST handlers in `src/api/oc_knx_fp.c` work as `/auth/at` (stack array, option A of the plan):
-  - `KNX_POST_MAX_ENTRIES` 10 in `src/api/oc_knx_helpers.h`, the ONE limit of `/auth/at` and the three tables (first `TBL_POST_MAX_ENTRIES` 5; the Point API template sends at most 5 entries per request); its comment names the stack risk path (POST `/auth/at`: array + OSCORE re-initialization, about 6.2 KB on Cortex-M33 in the 12 KiB Zephyr stack thread; the tables about 4.5 KB): `tbl_post_entry_count()` counts the entries (top-level objects) before any is processed, more -> 4.13
+- **Fix:** the three POST handlers in `src/resources/knx/oc_knx_fp.c` work as `/auth/at` (stack array, option A of the plan):
+  - `KNX_POST_MAX_ENTRIES` 10 in `src/resources/knx/oc_knx_helpers.h`, the ONE limit of `/auth/at` and the three tables (first `TBL_POST_MAX_ENTRIES` 5; the Point API template sends at most 5 entries per request); its comment names the stack risk path (POST `/auth/at`: array + OSCORE re-initialization, about 6.2 KB on Cortex-M33 in the 12 KiB Zephyr stack thread; the tables about 4.5 KB): `tbl_post_entry_count()` counts the entries (top-level objects) before any is processed, more -> 4.13
   - check pass into `tbl_post_entry_t entries[KNX_POST_MAX_ENTRIES]` on the stack: one entry type for all three tables, the shadow copy is a union (`tmp.go` on `/fp/g`, `tmp.gt` on `/fp/p`, `/fp/r`); both table structs start with `int32_t id` (common initial sequence, C11 6.5.2.3), so `tbl_post_has_id()` reads the id of both -> `id` must stay the first member; about 100 bytes per entry on 32 bit
   - every error (also before a copy exists: id missing, no free slot) goes through `go_post_reject()` / `gt_post_reject()`: frees the current and all earlier copies, answers the error, nothing stored
   - the same id twice in one request -> 4.00 (`tbl_post_has_id()`)
@@ -643,7 +643,7 @@ removed entry. The next number is F-080.
 
 ## ~~F-077: a POST /fp/r or /fp/p to an existing entry keeps the members it does not carry, a switch between unicast and multicast does not take effect~~ - FIXED
 
-- **Files:** `src/api/oc_knx_fp.c`, POST handlers of `/fp/r` and `/fp/p` (shadow copy from the live entry `tmp = g_grt[index]` / `g_gpt[index]`, case d "changed + 1...n elements = update", mandatory check only on create (a0), check a1 "ia and grpid cannot be in the same table entry" on the members of the request only); `src/api/oc_knx_client.c` (send path decides by `grpid > 0`); the same structure on `/fp/g`.
+- **Files:** `src/resources/knx/oc_knx_fp.c`, POST handlers of `/fp/r` and `/fp/p` (shadow copy from the live entry `tmp = g_grt[index]` / `g_gpt[index]`, case d "changed + 1...n elements = update", mandatory check only on create (a0), check a1 "ia and grpid cannot be in the same table entry" on the members of the request only); `src/resources/knx/oc_knx_client.c` (send path decides by `grpid > 0`); the same structure on `/fp/g`.
 - **Severity:** Medium - a MaC that switches a recipient from multicast to unicast gets 2.04, but the entry keeps its `grpid` and the device keeps sending multicast; a switch from unicast to multicast leaves a stale `ia` / `at` in the entry.
 - **Description:**
   - spec 2.5.7.4.2 Table 21: a recipient entry is EITHER a direct unicast (`ia`, `at`, `fid`: "C u") OR a multicast exchange (`grpid`, `scop`, `iid`: "C m"); `id` and `ga` are mandatory
@@ -669,18 +669,25 @@ removed entry. The next number is F-080.
   - the same decision for `/fp/g` (all four members are mandatory there, a replace then needs all of them)
 - **Tests:** `ia` and `grpid` in one request -> 4.00 (pins a1, passes today); mc entry re-POSTed as uc -> `grpid` cleared, unicast send; uc entry re-POSTed as mc -> `ia` / `at` cleared; with the minimum fix: a mc entry updated with only `ia` -> 4.00 (fails today: 2.04, entry with both).
 - **Why not a full replace:** the conformance template (5.5 "Function point tables") sends partial updates and expects 2.04: `/fp/g` `{id, ga}`, `{id, cflag}`, `{id, href}` ("'ga' / 'cflags' / 'href' change"), `/fp/r` `[{id 2, grpid}, {id 3, ga, grpid}, {id 4, ia}]` on existing entries -> a POST to an existing id stays a partial update, a0 stays create only.
-- **Fix:** the partial update stays; a mode switch by an update is resolved, the mode member of the request wins and the other mode is cleared: `tbl_switch_mode()` in `src/api/oc_knx_fp.c`, called by the `/fp/p` and `/fp/r` POST handlers after a1:
+- **Fix:** the partial update stays; a mode switch by an update is resolved, the mode member of the request wins and the other mode is cleared: `tbl_switch_mode()` in `src/resources/knx/oc_knx_fp.c`, called by the `/fp/p` and `/fp/r` POST handlers after a1:
   - mc -> uc (`ia` in the request, `grpid` stored): `grpid` = 0 -> the send path (`grpid > 0` first) sends uc
   - uc -> mc (`grpid` in the request, `ia` stored): `ia` = -1, the ia resolver reset, a stale `at` cleared unless the request carries one (`TBL_ALLOC_AT` -> the commit releases the old string) -> no stale unicast `at` usable for mc (spec 6.3.2.1)
   - a1 stays on the request: `ia` and `grpid` in one request -> 4.00; an entry never holds both
   - `fid` / `iid` are not touched (not used for the mode decision)
-  - the comment of the send path (`src/api/oc_knx_client.c`) states it: an entry never holds both, `grpid > 0` is a safe first test
+  - the comment of the send path (`src/resources/knx/oc_knx_client.c`) states it: an entry never holds both, `grpid > 0` is a safe first test
   - conformance 5.5 passes (Docker)
   - Tests: `test_oc_knx_fp`, `FpHandlers.RcpPostIaAndGrpidInOneRequestIsRejected`, `PubPostIaAndGrpidInOneRequestIsRejected` (pin a1, pass also without the fix), `RcpPostIaOnAMulticastEntrySwitchesToUnicast`, `RcpPostGrpidOnAUnicastEntrySwitchesToMulticast` (`at` cleared), `PubPostIaOnAMulticastEntrySwitchesToUnicast` (all three fail without the switch: the old mode stays).
 
 ## ~~F-078: the default page of /p and /f/{fb} does not fit long datapoint links~~ - FIXED
 
-- **Files:** `src/api/oc_knx_p.c` (GET `/p`), `src/api/oc_knx_fb.c` (GET `/f/{fb}`), `src/api/oc_knx_helpers.c`.
+- **Files:** `src/resources/knx/oc_knx_p.c` (GET `/p`), `src/resources/knx/oc_knx_fb.c` (GET `/f/{fb}`), `src/resources/knx/oc_knx_helpers.c`.
 - **Severity:** Low - a client that lists the datapoints without `ps` gets a cut page or 5.00 once the links are long.
 - **Description:** without `ps` a page holds `KNX_PAGE_SIZE` links. Realistic links (about 69 bytes, e.g. `/p/uhrs/tempsetpuseroffset` with `if.o`, `if.d` and `ct=60`) of a full page do not fit the `KNX_PAYLOAD_SIZE` response buffer, the encoder runs out and the page is cut or answered 5.00.
 - **Fix:** without `ps` the default page holds as many links as fit the response buffer (`knx_link_list_page_size()`, measured with `oc_resource_link_length()`); `l=ps` reports that page size and the next page continues where the first one ended (`pn * ps`). Tests: `test_oc_knx_p`, `KnxPAppResources.GetDefaultPageOfLongDatapointsFitsTheResponseBuffer`; `test_oc_knx_fb`, `CountFunctionalBlocks.DatapointHandlerDefaultPageOfLongDatapointsFitsTheResponseBuffer`.
+
+## ~~F-080: without the publisher table GET /fp/g/* needs the scope if.p instead of if.d~~ - FIXED
+
+- **Files:** `src/resources/knx/oc_knx_fp.c`, `core_resource_knx_fp_g_x` (one definition per `OC_PUBLISHER_TABLE`).
+- **Severity:** Low - a plain sender (`OC_PUBLISHER_TABLE` off) answers a device-scope token's GET `/fp/g/{id}` with 4.03, a device with the table allows it.
+- **Description:** commit `16188b0f` ("correct acl scope for spec 1.1.0") changed the GET scope of `/fp/g/*` from `OC_ACL_P`/`OC_IF_P` to `OC_ACL_D`/`OC_IF_D` in the definition used with the publisher table only; the copy for builds without it kept the old value and its "TODO wrong" history. The publisher table does not change the scope of the group object table.
+- **Fix:** one definition with `OC_ACL_D`/`OC_IF_D` for both builds. Test: `test_oc_knx_fp`, `FpHandlers.GoEntryGetIsAllowedForADeviceScopeToken`, run with and without the publisher table (`PublisherOff.UnitTests`, which fails without the fix: 4.03).

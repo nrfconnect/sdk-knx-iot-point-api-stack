@@ -18,7 +18,7 @@
 #define __STDC_FORMAT_MACROS // defined to use format specifiers also in C++
 #include "oc_knx_client.h"
 
-#include "api/oc_core_resources.h"
+#include "resources/ri/oc_core_resources.h"
 
 // PUB/RCV/GOT storage data: see the KNX_STORAGE_KEY_*_ENTRY keys in oc_knx_fp.h
 
@@ -947,8 +947,6 @@ static void oc_core_fp_g_x_del_handler(oc_request_t* request, oc_interface_mask_
   OC_INF("oc_core_fp_g_x_del_handler - end");
 }
 
-#ifdef OC_PUBLISHER_TABLE
-
 // resource definition, details/comments see on 'core_resource_well_known_core'
 static oc_resource_data_t core_resource_knx_fp_g_x_data;
 const oc_resource_t core_resource_knx_fp_g_x = {NULL,
@@ -965,25 +963,6 @@ const oc_resource_t core_resource_knx_fp_g_x = {NULL,
                                                 0,
                                                 1,
                                                 &core_resource_knx_fp_g_x_data};
-#else
-
-// resource definition, details/comments see on 'core_resource_well_known_core'
-static oc_resource_data_t core_resource_knx_fp_g_x_data;
-const oc_resource_t core_resource_knx_fp_g_x = {NULL,
-                                                {NULL, sizeof("/fp/g/*"), "/fp/g/*"},
-                                                {NULL, 0, NULL},
-                                                {NULL, 0, NULL},
-                                                {APPLICATION_CBOR, CONTENT_NONE},
-                                                OC_DISCOVERABLE,
-                                                {oc_core_fp_g_x_get_handler, NULL, OC_ACL_P, OC_IF_P},
-                                                {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                                {NULL, NULL, OC_ACL_NONE, OC_IF_NONE},
-                                                {oc_core_fp_g_x_del_handler, NULL, OC_ACL_C, OC_IF_C},
-                                                0,
-                                                0,
-                                                1,
-                                                &core_resource_knx_fp_g_x_data};
-#endif
 
 // -RECIPIENT-
 
@@ -1655,6 +1634,19 @@ const oc_resource_t core_resource_knx_fp_p_x = {NULL,
                                                 0,
                                                 1,
                                                 &core_resource_knx_fp_p_x_data};
+#else
+// plain sender: the publisher table is empty, as oc_core_get_publisher_table_size() reports
+int oc_core_find_index_in_publisher_table_from_id(int id)
+{
+  (void)id;
+  return -1;
+}
+
+oc_group_table_t* oc_find_entry_in_publisher_table(uint32_t group_address)
+{
+  (void)group_address;
+  return NULL;
+}
 #endif
 
 // -RECIPIENT-
@@ -3366,7 +3358,7 @@ static oc_event_callback_retval_t oc_init_read_next(void* data)
         - while not up, reschedule the read on init callback
 
         Note, the regular application will be executed in the meantime. Any s-mode message may not be sent out
-        until the network is up with a correct scope. oc_ipv6_address_scope() (api/oc_endpoint.c) returns,
+        until the network is up with a correct scope. oc_ipv6_address_scope() (core/oc_endpoint.c) returns,
         per the RFC 6724 policy table:
 
         - loopback / link local (fe80::/10) = 2

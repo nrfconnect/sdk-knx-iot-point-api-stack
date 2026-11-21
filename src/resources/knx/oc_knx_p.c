@@ -5,16 +5,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "api/oc_knx_p.h"
+#include "resources/knx/oc_knx_p.h"
 #include <stdio.h>
-#include "api/oc_knx_helpers.h"
 #include "oc_api.h"
 #include "oc_core_res.h"
 #include "oc_discovery.h"
 #include "oc_knx_fp.h"
 #include "oc_ri_internal.h"
+#include "resources/knx/oc_knx_helpers.h"
 
-#include "api/oc_core_resources.h"
+#include "resources/ri/oc_core_resources.h"
 
 // add application datapoint's to the response
 static bool oc_was_adding_data_points_to_response(const oc_resource_t* resource, size_t* response_length,

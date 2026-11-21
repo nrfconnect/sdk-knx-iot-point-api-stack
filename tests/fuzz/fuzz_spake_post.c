@@ -1,6 +1,6 @@
 /*
  * libFuzzer harness for the SPAKE2+ handshake at POST /.well-known/knx/spake
- * (core_resource_knx_spake, api/oc_knx.c), driven through the full inbound
+ * (core_resource_knx_spake, resources/knx/oc_knx.c), driven through the full inbound
  * path of an initialised stack.
  *
  * /.well-known/knx/spake has ACL scope NONE: it is the one write resource an

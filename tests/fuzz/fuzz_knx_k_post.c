@@ -1,6 +1,6 @@
 /*
  * libFuzzer harness for the s-mode receive path POST /k
- * (core_resource_knx_k, api/oc_knx.c) on a loaded, running device.
+ * (core_resource_knx_k, resources/knx/oc_knx.c) on a loaded, running device.
  *
  * /k is where every group communication datagram lands once OSCORE has
  * decrypted it: the handler walks the received {sia, s:{st, ga, value}} map,

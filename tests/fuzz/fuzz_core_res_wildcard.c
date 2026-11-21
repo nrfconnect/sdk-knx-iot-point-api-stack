@@ -1,6 +1,6 @@
 /*
  * libFuzzer harness for oc_check_resource_by_rt() / oc_check_resource_by_if()
- * (api/oc_core_res.c).
+ * (resources/ri/oc_core_res.c).
  *
  * The generic CoRE link-format 'rt=' / 'if=' query-filter matching used by
  * every resource lookup (not just discovery), including its wildcard-cut

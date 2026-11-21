@@ -22,7 +22,6 @@
 #include "util/oc_list.h"
 #include "util/oc_process.h"
 
-#include "api/oc_knx_observe.h"
 #include "oc_api.h"
 #include "oc_buffer.h"
 #include "oc_core_res.h"
@@ -32,6 +31,7 @@
 #include "oc_network_events.h"
 #include "oc_ri_internal.h"
 #include "port/oc_random.h"
+#include "resources/knx/oc_knx_observe.h"
 
 #include "oc_blockwise.h"
 

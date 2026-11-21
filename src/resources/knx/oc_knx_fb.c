@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "api/oc_knx_fb.h"
+#include "resources/knx/oc_knx_fb.h"
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,7 +16,7 @@
 #include "oc_knx_fp.h"
 #include "oc_knx_helpers.h"
 
-#include "api/oc_core_resources.h"
+#include "resources/ri/oc_core_resources.h"
 
 /**
  * Bounded substring search (like memmem but for C strings).

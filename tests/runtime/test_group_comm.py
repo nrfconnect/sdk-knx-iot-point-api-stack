@@ -884,7 +884,7 @@ def _decrypt_smode(msg, rx_ctx):
 #
 # The stack withholds read-on-init s-mode reads until the DUT has a usable
 # IPv6 scope (oc_init_read_next gates on oc_connectivity_get_network_scope()
-# >= 5; see src/api/oc_knx_fp.c and src/api/oc_endpoint.c).  In the veth harness the
+# >= 5; see src/resources/knx/oc_knx_fp.c and src/core/oc_endpoint.c).  In the veth harness the
 # DUT only has a link-local address (scope 2 -> withheld).  Adding a ULA
 # (fd00::/8 -> scope 5, RFC 6724 policy table / RFC 4193) opens the gate; the
 # Linux port re-enumerates endpoints live via a netlink RTM_NEWADDR event
@@ -1161,7 +1161,7 @@ class TestSiaOnlySyncMessage:
     nothing to look up in the GO table. It is nevertheless a legal s-mode
     message and must NOT be answered with 4.04 Not Found, which is what a
     plain 'group address not in the GO table' path would produce
-    (src/api/oc_knx.c, oc_core_knx_k_post_handler).
+    (src/resources/knx/oc_knx.c, oc_core_knx_k_post_handler).
 
     This stack no longer EMITS the 'sia' only form itself - the echo
     re-request either regenerates a full value payload or is abandoned - so
@@ -1682,7 +1682,7 @@ class TestInitFlagStartup:
 # Read-on-Init Network-Up Gate + Max-Retry Cap (ADDITIONAL, non-EITT)
 # ===========================================================================
 #
-# Probes the network-up gate added to oc_init_read_next (src/api/oc_knx_fp.c):
+# Probes the network-up gate added to oc_init_read_next (src/resources/knx/oc_knx_fp.c):
 #   * scope < 5 (loopback/link-local=2)                     -> read withheld,
 #     callback reschedules every KNX_READ_ON_INIT_DELAY_MILLISECONDS (100 ms);
 #   * scope >= 5 (site-local=5, ULA=5, global=14)            -> read released;
@@ -1938,7 +1938,7 @@ class TestReadOnInitNetworkGate:
 # updates the Group Object value "if flag w=true". The Update (u) flag alone
 # is NOT sufficient - the Write (w) flag must ALSO be set (w AND a together).
 #
-# Code (src/api/oc_knx.c, oc_core_knx_k_post_handler): the st="a" branch
+# Code (src/resources/knx/oc_knx.c, oc_core_knx_k_post_handler): the st="a" branch
 # (service_a) requires BOTH OC_CFLAG_UPDATE AND OC_CFLAG_WRITE. So with
 # cflag=0x80 (u only, w=0) the stack does NOT apply the response.
 #
@@ -2898,7 +2898,7 @@ class TestUnicastDiscoveryMalformedLengths:
     The DUT resolves a unicast recipient IA -> IPv6 by issuing a multicast
     discovery GET /.well-known/core?ep=knx://ia.<iid>.<ia> and parsing the
     ``ep`` attribute of the link-format response in
-    knx_coap_discovery_response_handler (src/api/oc_knx_client.c).
+    knx_coap_discovery_response_handler (src/resources/knx/oc_knx_client.c).
 
     Per spec clause 2.6.1.4 / 2.5.5.5 the ``ep`` fields have fixed widths:
       - KNX Serial Number: 6 octets = exactly 12 hex chars, leading zeros

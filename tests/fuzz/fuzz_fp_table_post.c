@@ -1,6 +1,6 @@
 /*
  * libFuzzer harness for the function-point configuration tables
- * (api/oc_knx_fp.c): group object table /fp/g, recipient table /fp/r and
+ * (resources/knx/oc_knx_fp.c): group object table /fp/g, recipient table /fp/r and
  * publisher table /fp/p, with their list and /x entry resources.
  *
  * These are the tables a management client loads during commissioning; their

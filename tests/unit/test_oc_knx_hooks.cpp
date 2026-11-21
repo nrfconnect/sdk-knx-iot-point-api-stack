@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * api/oc_knx_hooks.c: the KNX side of what the lower layers need (messaging/coap/coap_knx_hooks.h). Covers the
+ * resources/knx/oc_knx_hooks.c: the KNX side of what the lower layers need (messaging/coap/coap_knx_hooks.h). Covers the
  * s-mode unicast response accounting the CoAP layer reports for a recipient (2.04 received / request timed out).
  */
 

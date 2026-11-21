@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_knx_dev.c
+ * Unit tests for resources/knx/oc_knx_dev.c
  *
  * Two groups of tests live here:
  *
@@ -35,7 +35,7 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include "api/oc_knx_observe.h"
+#include "resources/knx/oc_knx_observe.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/observe.h"
 #include "oc_core_res.h" /* oc_core_get_device_info, oc_device_info_t */

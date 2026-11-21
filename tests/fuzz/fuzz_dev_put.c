@@ -2,7 +2,7 @@
  * libFuzzer harness for the device management write handlers:
  * PUT /dev/pm and /ap/pv, PUT on the other /dev/x resources that accept one,
  * POST /.well-known/knx (restart / master reset) and POST /.well-known/knx/ia
- * (api/oc_knx_dev.c, api/oc_knx.c), followed by GETs of the device resources.
+ * (resources/knx/oc_knx_dev.c, resources/knx/oc_knx.c), followed by GETs of the device resources.
  *
  * These change the device identity and its state: programming mode, the
  * application version, the individual address / installation id / fabric id

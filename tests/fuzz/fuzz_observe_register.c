@@ -1,6 +1,6 @@
 /*
  * libFuzzer harness for CoAP Observe (messaging/coap/observe.c, with the KNX
- * rules of api/oc_knx_observe.c): the
+ * rules of resources/knx/oc_knx_observe.c): the
  * registration handler and the observer list it maintains, driven with
  * parsed attacker datagrams and interleaved with deregistration, removal by
  * client/token/MID and notification.
@@ -41,7 +41,7 @@
  * observers in the list for it.
  */
 
-#include "api/oc_knx_observe.h"
+#include "resources/knx/oc_knx_observe.h"
 #include "fuzz_stack.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/conf.h"

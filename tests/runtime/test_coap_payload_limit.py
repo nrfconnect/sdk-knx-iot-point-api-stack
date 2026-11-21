@@ -41,7 +41,7 @@ SIZE1_OPTION = 60
 # CoAP Block1 option (RFC 7959 2.1)
 BLOCK1_OPTION = 27
 
-# Must mirror COAP_MAX_MESSAGE_SIZE (include/messaging/coap/constants.h): src/api/oc_main.c static_asserts
+# Must mirror COAP_MAX_MESSAGE_SIZE (include/messaging/coap/constants.h): src/core/oc_main.c static_asserts
 # OC_PDU_SIZE = KNX_PAYLOAD_SIZE + OC_COAP_HEADER_BUDGET <= COAP_MAX_MESSAGE_SIZE
 COAP_MAX_MESSAGE_SIZE = 1152
 

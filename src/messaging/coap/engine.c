@@ -16,10 +16,8 @@
 #include "engine.h"
 #include <stdlib.h>
 #include <string.h>
-#include "api/c-timestamp/timestamp.h"
-#include "api/oc_events.h"
-#include "api/oc_replay.h"
 #include "conf.h"
+#include "core/oc_events.h"
 #include "messaging/coap/coap_knx_hooks.h"
 #include "messaging/coap/oscore.h"
 #include "observe.h"
@@ -27,6 +25,8 @@
 #include "oc_main.h"
 #include "oc_ri_internal.h"
 #include "port/oc_random.h"
+#include "security/oc_replay.h"
+#include "util/c-timestamp/timestamp.h"
 
 #include "oc_blockwise.h"
 

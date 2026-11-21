@@ -5,7 +5,7 @@
  */
 
 /*
- * Unit tests for api/oc_blockwise.c (CoAP block-wise transfer buffers).
+ * Unit tests for messaging/coap/oc_blockwise.c (CoAP block-wise transfer buffers).
  *
  * The whole module is compiled with OC_CLIENT + OC_SERVER, so every public
  * function is available. The file-static lists oc_blockwise_requests /

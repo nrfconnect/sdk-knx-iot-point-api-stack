@@ -7,8 +7,8 @@
 /**
   @brief what the CoAP layer needs from the KNX layer
 
-  messaging/ does not include the KNX headers (api/oc_knx_*.h) and does not call into them, it declares here what it
-  needs. The KNX layer implements these functions (api/oc_knx_hooks.c), the linker connects them. Same pattern as
+  messaging/ does not include the KNX headers (resources/knx/oc_knx_*.h) or call into them. It declares what it needs here.
+  The KNX layer implements these functions (resources/knx/oc_knx_hooks.c); the linker connects them. Same pattern as
   security/oscore_knx_hooks.h and port/port_knx_hooks.h.
   @file
 */

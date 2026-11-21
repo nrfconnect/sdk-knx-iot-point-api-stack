@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_knx_sec.c — pure functions only
+ * Unit tests for resources/knx/oc_knx_sec.c — pure functions only
  *
  * Covers: oc_at_profile_to_string
  *
@@ -22,7 +22,7 @@
 
 extern "C" {
 #include <string.h>
-#include "api/oc_knx_observe.h"
+#include "resources/knx/oc_knx_observe.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/constants.h"
 #include "messaging/coap/observe.h"
@@ -38,7 +38,7 @@ extern "C" {
 #include "security/oc_oscore_context.h"
 #include "util/oc_mmem.h"
 
-  /* the /k resource descriptor (api/oc_knx.c) */
+  /* the /k resource descriptor (resources/knx/oc_knx.c) */
   extern const oc_resource_t core_resource_knx_k;
 }
 

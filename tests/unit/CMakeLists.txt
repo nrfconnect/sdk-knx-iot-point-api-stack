@@ -65,7 +65,7 @@ function(kis_add_test TEST_NAME TEST_SOURCE)
         ${PROJECT_SOURCE_DIR}/src
         ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_SOURCE_DIR}/src/port
-        ${PROJECT_SOURCE_DIR}/src/api
+        ${PROJECT_SOURCE_DIR}/src/resources
         ${KNX_PRIVATE_INCLUDE_DIRS}
     )
 
@@ -89,6 +89,73 @@ function(kis_add_test TEST_NAME TEST_SOURCE)
 
     # Record this target so the run_unit_tests aggregate target can depend on it
     set_property(GLOBAL APPEND PROPERTY KIS_UNIT_TEST_TARGETS ${TEST_NAME})
+endfunction()
+
+# ── Helper: the stack in another configuration, with its unit-test executables ──
+# Usage, in the directory of the configuration:
+#   kis_add_stack_variant(<lib> <suite> <build test> [SUFFIX <suffix>] SOURCES <test.cpp> ...)
+#
+# The library <lib> and one executable <test><suffix> per source are left out of the default build
+# (EXCLUDE_FROM_ALL). The CTest <suite>.<build test> builds them all, <suite>.<test> runs one and needs
+# the first. KIS_VARIANT_TESTS (parent scope) lists the executables, for properties of the caller.
+function(kis_add_stack_variant LIB SUITE BUILD_TEST)
+    cmake_parse_arguments(ARG "" "SUFFIX" "SOURCES" ${ARGN})
+    add_library(${LIB} STATIC EXCLUDE_FROM_ALL
+        ${RUNTIME_SOURCES}
+        ${UTIL_SOURCES}
+        ${SECURITY_SOURCES}
+        ${COAP_SOURCES}
+        ${RI_SOURCES}
+        ${KNX_API_SOURCES}
+    )
+    target_include_directories(${LIB} PUBLIC ${KNX_INCLUDE_DIRS} PRIVATE ${KNX_PRIVATE_INCLUDE_DIRS})
+    target_link_libraries(${LIB} PUBLIC kis-common kis-port)
+    if(CONFIG_KNXIOT_MBEDTLS_BUILTIN)
+        target_link_libraries(${LIB} PUBLIC mbedtls)
+        target_include_directories(${LIB} PRIVATE "${mbedtls_SOURCE_DIR}/tf-psa-crypto/drivers/builtin/include")
+    endif()
+    if(CONFIG_KNXIOT_TINYCBOR_BUILTIN)
+        target_link_libraries(${LIB} PUBLIC tinycbor)
+    endif()
+    target_compile_options(${LIB} PRIVATE ${KNX_STACK_C_FLAGS})
+    target_compile_definitions(${LIB} PRIVATE ${KNX_STACK_C_DEFINITIONS})
+
+    set(executables "")
+    foreach(source ${ARG_SOURCES})
+        get_filename_component(test ${source} NAME_WE)
+        set(exe ${test}${ARG_SUFFIX})
+        add_executable(${exe} EXCLUDE_FROM_ALL ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/${source})
+        target_include_directories(${exe} PRIVATE
+            ${PROJECT_SOURCE_DIR}/src
+            ${PROJECT_SOURCE_DIR}/include
+            ${PROJECT_SOURCE_DIR}/src/port
+            ${PROJECT_SOURCE_DIR}/src/resources
+            ${KNX_PRIVATE_INCLUDE_DIRS}
+        )
+        # ${LIB} again at the end: the circular ${LIB} <-> kis-port link, see kisClientServer_tail
+        target_link_libraries(${exe} PRIVATE
+            ${LIB}
+            GTest::gtest_main
+            $<TARGET_FILE:${LIB}>
+            $<TARGET_FILE:tinycbor>
+            $<TARGET_FILE:kis-port>
+            $<TARGET_FILE:tfpsacrypto>
+            kis-app-stubs
+        )
+        if(WIN32)
+            target_link_libraries(${exe} PRIVATE ws2_32 bcrypt iphlpapi)
+        endif()
+        target_compile_options(${exe} PRIVATE $<$<CXX_COMPILER_ID:Clang>:-Werror>)
+
+        add_test(NAME ${SUITE}.${test} COMMAND ${exe})
+        set_tests_properties(${SUITE}.${test} PROPERTIES FIXTURES_REQUIRED ${LIB})
+        list(APPEND executables ${exe})
+    endforeach()
+
+    add_test(NAME ${SUITE}.${BUILD_TEST}
+             COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target ${executables} --config $<CONFIG>)
+    set_tests_properties(${SUITE}.${BUILD_TEST} PROPERTIES FIXTURES_SETUP ${LIB})
+    set(KIS_VARIANT_TESTS ${executables} PARENT_SCOPE)
 endfunction()
 
 # ── Test targets ───────────────────────────────────────────────────────────────
@@ -120,6 +187,11 @@ target_compile_definitions(kis-public-headers PRIVATE
 )
 add_test(NAME PublicHeaders.CompileWithOnlyTheIncludeDirectory
          COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target kis-public-headers --config $<CONFIG>)
+
+# The stack without OC_CLIENT builds, links and leaves unicast recipients unresolved
+add_subdirectory(client_off)
+# The stack without OC_PUBLISHER_TABLE (plain sender) builds, links and passes the table tests
+add_subdirectory(publisher_off)
 
 # Pure-function tests (no platform/network dependencies)
 kis_add_test(test_oc_knx_hooks test_oc_knx_hooks.cpp)
@@ -158,6 +230,8 @@ target_link_options(test_oc_oscore_echo_tx PRIVATE
 )
 kis_add_test(test_oc_endpoint       test_oc_endpoint.cpp)
 kis_add_test(test_oc_knx_fp        test_oc_knx_fp.cpp)
+# counts the group multicast joins of oc_register_group_multicasts(), no socket is touched
+target_link_options(test_oc_knx_fp PRIVATE -Wl,--wrap=oc_connectivity_subscribe_mcast_ipv6)
 kis_add_test(test_oc_ri            test_oc_ri.cpp)
 target_link_options(test_oc_ri PRIVATE
     -Wl,--wrap=coap_remove_observer_by_resource

@@ -31,7 +31,7 @@ flash/RAM rank first.
 
 ## Ground rules
 
-- Read-only for stack C code (`src/api/`, `src/messaging/`, `src/security/`, `src/port/`, `src/util/`,
+- Read-only for stack C code (`src/resources/`, `src/core/`, `src/messaging/`, `src/security/`, `src/port/`, `src/util/`,
   `include/`) and for the `tests/iot-test-tool/` submodule. Temporary instrumentation
   (extra compile flags, a malloc wrapper, gcov) goes only into a scratch build directory or
   the Docker container, never into committed files.
@@ -50,8 +50,8 @@ flash/RAM rank first.
 
 1. Unit tier with coverage: `cmake --preset=windows-coverage-gcc` (or `linux-coverage-gcc`),
    `cmake --build --preset=<same>`, `ctest --preset=<same>`, then
-   `gcovr -r . --filter src/api/ --filter src/messaging/ --filter src/security/ --filter src/util/
-   --exclude "src/api/c-timestamp/.*" --exclude "src/api/oc_test_control[.]c" <builddir>` (quote per shell). Record test count,
+   `gcovr -r . --filter src/resources/ --filter src/core/ --filter src/messaging/ --filter src/security/ --filter src/util/
+   --exclude "src/util/c-timestamp/.*" --exclude "src/resources/ri/oc_test_control[.]c" <builddir>` (quote per shell). Record test count,
    failures, line and branch coverage **per module**, and the least-covered modules with
    the reason (dead code, untested path, platform-only code).
 2. `linux-test-asan` (or why it could not run): sanitizer findings.
@@ -77,7 +77,7 @@ to it as the environment allows, in this order of preference:
 
 Report:
 
-- **Flash** per module (`src/api/oc_knx_*`, `oc_ri`, `oc_rep`/CBOR, `src/messaging/coap/*`,
+- **Flash** per module (`src/resources/knx/oc_knx_*`, `oc_ri`, `oc_rep`/CBOR, `src/messaging/coap/*`,
   OSCORE, SPAKE2+, `src/util/`, port), the top 20 functions and the top 10 const data objects
   by size. Flag duplicated code (similar functions across modules), large lookup tables,
   string literals and logging that remain in a production build, and inlining that grows code.

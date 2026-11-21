@@ -1,6 +1,6 @@
 /*
  * libFuzzer harness for the publish decision oc_knx_publisher_check()
- * (api/oc_knx_publisher.c) with property checks.
+ * (resources/knx/oc_knx_publisher.c) with property checks.
  *
  * The decision decides when a device puts a datapoint on the bus: an error
  * either floods the group (missing minimum repetition time, a heartbeat

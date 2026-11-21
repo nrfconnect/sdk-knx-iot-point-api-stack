@@ -60,7 +60,9 @@ The scope names the part of the stack that is changed. Use lower case and prefer
 
 | Scope | Area |
 |-------|------|
-| `api` | `src/api/` (resources, discovery, core API) |
+| `api` | `src/resources/knx/`, `src/resources/ri/` (KNX resources, Resource Interface) |
+| `core` | `src/core/` (runtime coordination) |
+| `util` | `src/util/` (shared primitives) |
 | `messaging` | `src/messaging/` (CoAP) |
 | `oscore` | OSCORE |
 | `security` | `src/security/` (SPAKE2+, access tokens, auth) |

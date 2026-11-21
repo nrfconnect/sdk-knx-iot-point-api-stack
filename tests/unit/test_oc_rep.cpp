@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_rep.c
+ * Unit tests for resources/ri/oc_rep.c
  *
  * Covers: oc_rep_new, encode+parse round-trips for int/bool/float/double/
  *         string/byte_string, int-keyed variants, arrays, nested objects,
@@ -375,7 +375,7 @@ TEST_F(OcRepTest, DoubleArray)
  *
  * The fix went through a truncating-copy intermediate step before settling
  * here on all-or-nothing: silently keeping a truncated prefix is only as
- * safe as its one real consumer (ACL scope names, api/oc_knx_sec.c), which
+ * safe as its one real consumer (ACL scope names, resources/knx/oc_knx_sec.c), which
  * happens to fail closed on any string that doesn't exactly match a known
  * short name. A future consumer without that property could turn a quietly
  * truncated value into a logic or security bug - e.g. two different

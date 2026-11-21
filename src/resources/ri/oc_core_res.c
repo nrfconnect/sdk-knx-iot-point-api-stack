@@ -13,7 +13,6 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdlib.h>
-#include "api/oc_core_resources.h"
 #include "oc_api.h"
 #include "oc_discovery.h"
 #include "oc_knx.h"
@@ -31,6 +30,7 @@
 #include "port/dns-sd.h"
 #include "port/oc_assert.h"
 #include "port/oc_storage.h"
+#include "resources/ri/oc_core_resources.h"
 
 // common device 0 data pointer - cannot be NULL
 static oc_device_info_t oc_device_info = 

@@ -119,16 +119,16 @@ The `*-coverage-gcc` presets build the same unit suite with gcov instrumentation
 (`--coverage -O0`, CMake option `ENABLE_COVERAGE`). Run it, then let
 [gcovr](https://gcovr.com) (`pip install gcovr`) turn the `.gcda` files into a
 report; the filters restrict it to the stack's own code, leaving out tests,
-fetched dependencies, the vendored `src/api/c-timestamp` parser and
-`src/api/oc_test_control.c` (test endpoints of the device used by the runtime and
+fetched dependencies, the vendored `src/util/c-timestamp` parser and
+`src/resources/ri/oc_test_control.c` (test endpoints of the device used by the runtime and
 conformance tiers, not part of the product):
 
 ```bash
 cmake --preset linux-coverage-gcc          # windows-coverage-gcc on MSYS2/MinGW
 cmake --build --preset linux-coverage-gcc
 ctest --preset linux-coverage-gcc
-gcovr --root . --filter 'src/api/' --filter 'src/messaging/' --filter 'src/security/' --filter 'src/util/' \
-      --exclude 'src/api/c-timestamp/.*' --exclude 'src/api/oc_test_control[.]c' --print-summary \
+gcovr --root . --filter 'src/resources/' --filter 'src/core/' --filter 'src/messaging/' --filter 'src/security/' --filter 'src/util/' \
+      --exclude 'src/util/c-timestamp/.*' --exclude 'src/resources/ri/oc_test_control[.]c' --print-summary \
   --html-medium-threshold 65 --html-high-threshold 85 \
       --html-details build/linux-coverage-gcc/coverage-html/index.html build/linux-coverage-gcc
 ```
@@ -190,7 +190,7 @@ therefore runs the rename-aware form, which also works locally:
 
 ```bash
 git diff -M -U0 --no-color $(git merge-base origin/main HEAD) | clang-format-diff.py -p1 \
-  -regex '(?!src/api/c-timestamp/|include/util/pt/|src/port/mdns/mdns\.h$)(src|include)/.*\.[ch]'
+  -regex '(?!src/util/c-timestamp/|include/util/pt/|src/port/mdns/mdns\.h$)(src|include)/.*\.[ch]'
 ```
 
 ### Runtime Conformance Tests
@@ -245,8 +245,10 @@ include/                 public headers, the only include root an application ne
   security/              access token types
   util/                  lists, memory pools, timers, processes, protothreads
 src/                     the stack's production code (private)
-  api/                   client/server APIs, resource handlers, KNX helpers, CBOR utilities
-  messaging/coap/        tailored CoAP implementation and OSCORE message handling
+  resources/knx/         KNX Point API resources, s-mode and KNX security tables
+  resources/ri/          resource registry, dispatch, client/server API, discovery, CBOR
+  core/                  stack lifecycle, message routing, network events, timers
+  messaging/coap/        tailored CoAP implementation, blockwise and OSCORE message handling
   security/              OSCORE and SPAKE2+ security implementation
   util/                  low-level internal primitives used by the core framework
   port/                  shared platform abstractions and OS-specific adaptations
@@ -269,7 +271,8 @@ cmake/                   helper CMake modules and toolchain files
 
 Key areas:
 
-- **`src/api/`** implements client/server APIs, resources, endpoint handling, discovery, and CBOR encode/decode helpers for data points and function blocks.
+- **`src/resources/`** implements the CoAP resources: `knx/` the KNX Point API resources, `ri/` the resource registry and dispatch, client/server APIs, discovery, and CBOR encode/decode helpers.
+- **`src/core/`** runs the stack: lifecycle, message routing, endpoints and network events.
 - **`src/messaging/coap/`** contains the CoAP engine tailored for the stack.
 - **`src/security/`** contains the security model implementation, including OSCORE.
 - **`include/oc_api.h`** exposes the main client/server APIs.

@@ -157,16 +157,19 @@ bool oc_send_s_mode_unicast_message(uint32_t group_address, char service_type, c
 
 /** @} */ // end of doc_module_tag_s_mode_client
 
+#ifdef OC_CLIENT
 /**
  * @brief Resolve IPv6 address via CoAP discovery
  *
  * Sends CoAP GET to /.well-known/core?ep=knx://ia.<iid>.<ia> via multicast
  * and extracts the IPv6 address from the source address of the response.
+ * Only with OC_CLIENT: without it a unicast recipient is never resolved.
  *
- * @param data callback data 
+ * @param data callback data
  * @return callback status
  */
 oc_event_callback_retval_t knx_add_ipv6_address_coap_discovery_handler(void* data);
+#endif
 
 /**
  * @brief Reset the IPv6 resolver of every recipient table entry

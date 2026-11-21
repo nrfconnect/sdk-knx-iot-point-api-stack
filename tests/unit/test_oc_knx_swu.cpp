@@ -5,7 +5,7 @@
  */
 
 /*
- * Unit tests for api/oc_knx_swu.c (software update protocol).
+ * Unit tests for resources/knx/oc_knx_swu.c (software update protocol).
  *
  * Coverage strategy
  * -----------------
@@ -1052,7 +1052,7 @@ TEST_F(KnxSwuABlock, CallbackFastPathReturnsChanged)
 
 // ===========================================================================
 // /a/swu PUT handler: download state machine, see the (A)/(B) blocks in the
-// header of api/oc_knx_swu.c
+// header of resources/knx/oc_knx_swu.c
 // ===========================================================================
 class KnxSwuABlockStateMachine : public KnxSwuBase {
 protected:

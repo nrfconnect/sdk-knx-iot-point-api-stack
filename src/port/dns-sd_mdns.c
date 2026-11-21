@@ -44,7 +44,7 @@
 #include "ipadapter.h" // get_ip_context_for_device(): Linux/Windows only
 #endif
 
-#include "api/oc_main.h" // oc_main_initialized(): no announcement before the device data is loaded
+#include "core/oc_main.h" // oc_main_initialized(): no announcement before the device data is loaded
 #include "oc_api.h"
 #include "port/dns-sd.h"
 #include "port/oc_log.h"

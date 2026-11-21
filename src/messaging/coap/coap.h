@@ -11,7 +11,7 @@
 
 #include <stddef.h> // for size_t
 #include <stdint.h>
-#include "api/oc_buffer.h"
+#include "core/oc_buffer.h"
 #include "messaging/coap/constants.h"
 #include "oc_ri.h"
 #include "oscore.h"

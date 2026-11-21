@@ -13,56 +13,65 @@
 
 get_filename_component(STACK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 
-set(API_SOURCES
-    ${STACK_ROOT}/src/api/oc_base64.c
-    ${STACK_ROOT}/src/api/oc_blockwise.c
-    ${STACK_ROOT}/src/api/oc_buffer.c
-    ${STACK_ROOT}/src/api/oc_client_api.c
-    ${STACK_ROOT}/src/api/oc_clock.c
-    ${STACK_ROOT}/src/api/oc_core_res.c
-    ${STACK_ROOT}/src/api/oc_discovery.c
-    ${STACK_ROOT}/src/api/oc_endpoint.c
-    ${STACK_ROOT}/src/api/oc_helpers.c
-    ${STACK_ROOT}/src/api/oc_main.c
-    ${STACK_ROOT}/src/api/oc_network_events.c
-    ${STACK_ROOT}/src/api/oc_rep.c
-    ${STACK_ROOT}/src/api/oc_replay.c
-    ${STACK_ROOT}/src/api/oc_ri.c
-    ${STACK_ROOT}/src/api/oc_server_api.c
-    ${STACK_ROOT}/src/api/oc_uuid.c
-    ${STACK_ROOT}/src/api/oc_knx.c
-    ${STACK_ROOT}/src/api/oc_knx_client.c
-    ${STACK_ROOT}/src/api/oc_knx_dev.c
-    ${STACK_ROOT}/src/api/oc_knx_fb.c
-    ${STACK_ROOT}/src/api/oc_knx_fp.c
-    ${STACK_ROOT}/src/api/oc_knx_helpers.c
-    ${STACK_ROOT}/src/api/oc_knx_hooks.c
-    ${STACK_ROOT}/src/api/oc_knx_observe.c
-    ${STACK_ROOT}/src/api/oc_knx_p.c
-    ${STACK_ROOT}/src/api/oc_knx_publisher.c
-    ${STACK_ROOT}/src/api/oc_knx_sec.c
-    ${STACK_ROOT}/src/api/oc_knx_swu.c
-    ${STACK_ROOT}/src/api/oc_knx_sub.c
-    ${STACK_ROOT}/src/api/c-timestamp/timestamp_compare.c
-    ${STACK_ROOT}/src/api/c-timestamp/timestamp_format.c
-    ${STACK_ROOT}/src/api/c-timestamp/timestamp_parse.c
-    ${STACK_ROOT}/src/api/c-timestamp/timestamp_tm.c
-    ${STACK_ROOT}/src/api/c-timestamp/timestamp_valid.c
+set(RI_SOURCES
+    ${STACK_ROOT}/src/resources/ri/oc_client_api.c
+    ${STACK_ROOT}/src/resources/ri/oc_core_res.c
+    ${STACK_ROOT}/src/resources/ri/oc_discovery.c
+    ${STACK_ROOT}/src/resources/ri/oc_rep.c
+    ${STACK_ROOT}/src/resources/ri/oc_ri.c
+    ${STACK_ROOT}/src/resources/ri/oc_server_api.c
 )
 
-set(CORE_SOURCES
+set(KNX_API_SOURCES
+    ${STACK_ROOT}/src/resources/knx/oc_knx.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_client.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_dev.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_fb.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_fp.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_helpers.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_hooks.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_observe.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_p.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_publisher.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_sec.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_swu.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_sub.c
+)
+
+set(RUNTIME_SOURCES
+    ${STACK_ROOT}/src/core/oc_buffer.c
+    ${STACK_ROOT}/src/core/oc_endpoint.c
+    ${STACK_ROOT}/src/core/oc_main.c
+    ${STACK_ROOT}/src/core/oc_network_events.c
+)
+
+set(UTIL_SOURCES
+    ${STACK_ROOT}/src/util/oc_base64.c
+    ${STACK_ROOT}/src/util/oc_clock.c
     ${STACK_ROOT}/src/util/oc_etimer.c
+    ${STACK_ROOT}/src/util/oc_helpers.c
     ${STACK_ROOT}/src/util/oc_list.c
     ${STACK_ROOT}/src/util/oc_mmem.c
     ${STACK_ROOT}/src/util/oc_process.c
     ${STACK_ROOT}/src/util/oc_timer.c
+    ${STACK_ROOT}/src/util/oc_uuid.c
+    ${STACK_ROOT}/src/util/c-timestamp/timestamp_compare.c
+    ${STACK_ROOT}/src/util/c-timestamp/timestamp_format.c
+    ${STACK_ROOT}/src/util/c-timestamp/timestamp_parse.c
+    ${STACK_ROOT}/src/util/c-timestamp/timestamp_tm.c
+    ${STACK_ROOT}/src/util/c-timestamp/timestamp_valid.c
+)
+
+set(SECURITY_SOURCES
     ${STACK_ROOT}/src/security/oc_oscore_context.c
     ${STACK_ROOT}/src/security/oc_oscore_crypto.c
     ${STACK_ROOT}/src/security/oc_oscore_engine.c
+    ${STACK_ROOT}/src/security/oc_replay.c
     ${STACK_ROOT}/src/security/spake2plus.c
 )
 
 set(COAP_SOURCES
+    ${STACK_ROOT}/src/messaging/coap/oc_blockwise.c
     ${STACK_ROOT}/src/messaging/coap/coap.c
     ${STACK_ROOT}/src/messaging/coap/engine.c
     ${STACK_ROOT}/src/messaging/coap/observe.c
@@ -121,8 +130,8 @@ endif()
 # Test-control endpoints (/test/*) for the Python runtime conformance suite.
 set(KNX_TEST_CONTROL_INCLUDE_DIRS "")
 if(CONFIG_KNXIOT_TEST_CONTROL)
-    list(APPEND API_SOURCES ${STACK_ROOT}/src/api/oc_test_control.c)
-    set(KNX_TEST_CONTROL_INCLUDE_DIRS "${STACK_ROOT}/src/api")   # oc_test_control.h
+    list(APPEND RI_SOURCES ${STACK_ROOT}/src/resources/ri/oc_test_control.c)
+    set(KNX_TEST_CONTROL_INCLUDE_DIRS "${STACK_ROOT}/src/resources/ri")   # oc_test_control.h
 endif()
 
 # KNX IoT console command: The shared command handlers (src/port/knx_shell_commands.c) plus
@@ -138,9 +147,12 @@ endif()
 
 idf_component_register(
     SRCS
-        ${API_SOURCES}
-        ${CORE_SOURCES}
+        ${RUNTIME_SOURCES}
+        ${UTIL_SOURCES}
+        ${SECURITY_SOURCES}
         ${COAP_SOURCES}
+        ${RI_SOURCES}
+        ${KNX_API_SOURCES}
         ${PORT_SOURCES}
     INCLUDE_DIRS
         "${STACK_ROOT}/include"
@@ -148,10 +160,13 @@ idf_component_register(
         ${KNX_TEST_CONTROL_INCLUDE_DIRS}
     PRIV_INCLUDE_DIRS
         "${STACK_ROOT}/src"
-        "${STACK_ROOT}/src/api"
+        "${STACK_ROOT}/src/resources/knx"
+        "${STACK_ROOT}/src/resources/ri"
+        "${STACK_ROOT}/src/core"
         "${STACK_ROOT}/src/security"
         "${STACK_ROOT}/src/messaging/coap"
-        "${STACK_ROOT}/src/api/c-timestamp"
+        "${STACK_ROOT}/src/util"
+        "${STACK_ROOT}/src/util/c-timestamp"
     REQUIRES
         mbedtls
     PRIV_REQUIRES
@@ -257,7 +272,7 @@ target_include_directories(${COMPONENT_LIB} PRIVATE "${STACK_ROOT}/src/port/mdns
 # KNX_PAYLOAD_SIZE is hardcoded here to mirror the FORCE behaviour in the root
 # CMakeLists.txt, as in the Zephyr module. It is intentionally not exposed via Kconfig.
 # 768 keeps the total CoAP PDU (payload + outer header + inner header = 1040) below
-# COAP_MAX_MESSAGE_SIZE (1152), which src/api/oc_main.c asserts at compile time.
+# COAP_MAX_MESSAGE_SIZE (1152), which src/core/oc_main.c asserts at compile time.
 target_compile_definitions(${COMPONENT_LIB} PUBLIC
     $<$<BOOL:${CONFIG_KNXIOT_CLIENT}>:OC_CLIENT>
     $<$<BOOL:${CONFIG_KNXIOT_SERVER}>:OC_SERVER>
