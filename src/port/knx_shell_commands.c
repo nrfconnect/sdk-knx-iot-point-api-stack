@@ -18,12 +18,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "api/oc_main.h"
 #include "oc_core_res.h"
 #include "oc_knx.h" // RESET_TO_DEFAULT_STATE
 #include "oc_knx_dev.h"
 #include "oc_knx_fp.h"
 #include "oc_knx_sec.h"
-#include "oc_main.h"
 #include "port/dns-sd.h"
 #include "port/knx_shell_commands.h"
 #include "port/oc_storage.h"

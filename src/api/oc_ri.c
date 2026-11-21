@@ -28,9 +28,9 @@
 #include "oc_core_res.h"
 #include "oc_events.h"
 #include "oc_knx_sec_internal.h"
+#include "oc_main.h"
 #include "oc_network_events.h"
 #include "oc_ri_internal.h"
-#include "oc_signal_event_loop.h"
 #include "port/oc_random.h"
 
 #include "oc_blockwise.h"

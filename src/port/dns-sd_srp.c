@@ -68,7 +68,7 @@
 #include <openthread/srp_client_buffers.h>
 #include <openthread/thread.h>
 
-#include "oc_main.h"
+#include "api/oc_main.h"
 
 #if defined(__ZEPHYR__)
 /* Zephyr: The OpenThread module of Zephyr owns the instance and the API mutex, the bound

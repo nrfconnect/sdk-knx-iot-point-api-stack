@@ -1,6 +1,6 @@
 /*
  * Unit tests for the CoAP/KNX discovery helpers (api/oc_discovery.c,
- * declared in include/oc_discovery.h + oc_client_state.h).
+ * declared in src/api/oc_discovery.h + oc_client_state.h).
  *
  * Covers the unit-testable public helpers:
  *   oc_add_resource_to_response_payload — frame one resource as an RFC-6690

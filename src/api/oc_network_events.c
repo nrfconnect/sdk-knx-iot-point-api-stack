@@ -9,7 +9,7 @@
 #include "oc_buffer.h"
 #include "oc_endpoint.h"
 #include "oc_events.h"
-#include "oc_signal_event_loop.h"
+#include "oc_main.h"
 #include "port/oc_connectivity.h"
 #include "util/oc_list.h"
 
