@@ -40,7 +40,7 @@ default:
 #                      timing-sensitive steps; the first local run matched gcc)
 #   *-massif           the DUT under Valgrind Massif: heap peak and its sites
 #                      (nightly; the pytest tally is informational)
-#   quality-*          code metrics without a build (complexity)
+#   quality-*          code checks (complexity, format, include cycles)
 # ==========================================================
 
 # ----------------------------------------------------------
@@ -348,6 +348,23 @@ quality-code:
     paths:
       - build/lizard/
     expire_in: 4 weeks
+  dependencies: []
+  needs: []
+
+# ----------------------------------------------------------
+# test: header include cycles (clang-tidy misc-header-include-cycle)
+# A header that includes itself through other headers compiles only in one
+# include order. The preset linux-include-cycle runs clang-tidy with only that
+# check on every C file of the build; a cycle among the headers in src/ or
+# include/ fails the build.
+# ----------------------------------------------------------
+quality-include-cycle:
+  stage: test
+  script:
+    - apt-get update -qq && apt-get install -y -qq clang-tidy > /dev/null 2>&1
+    - clang-tidy --version
+    - cmake --preset=linux-include-cycle
+    - cmake --build --preset=linux-include-cycle
   dependencies: []
   needs: []
 

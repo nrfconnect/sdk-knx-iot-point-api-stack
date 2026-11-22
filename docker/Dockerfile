@@ -11,11 +11,12 @@ FROM ${BASE_IMAGE}
 
 # clang + libclang-rt-19-dev: unit-asan-clang and the fuzz presets
 # llvm-19:                    llvm-cov-19 for gcovr on clang's coverage output
+# clang-tidy:                 quality-include-cycle (preset linux-include-cycle)
 # iproute2:                   DUT network namespace of the device tiers
 # valgrind:                   the *-massif jobs
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        clang libclang-rt-19-dev llvm-19 iproute2 valgrind \
+        clang libclang-rt-19-dev llvm-19 clang-tidy iproute2 valgrind \
     && rm -rf /var/lib/apt/lists/*
 
 # pip the way the CI jobs get it (get-pip.py, not Debian's python3-pip, which
@@ -45,6 +46,7 @@ RUN sed -i 's/\r$//' tests/common/tools/*.sh \
 # to keep them between runs.
 ENV KNX_TOOL_CACHE=/knx-cache
 
-# Default: the CI jobs build-gcc, build-plain-sender, unit-gcc, unit-asan and
-# unit-asan-clang, stopping at the first failure.
-CMD ["bash", "-c", "set -e; for p in linux-debug-gcc linux-plain-sender-gcc linux-test-gcc linux-test-asan linux-test-asan-clang; do echo \"=== $p ===\"; cmake --preset=$p; cmake --build --preset=$p; case $p in *-test-*) ctest --preset=$p ;; esac; done"]
+# Default: the CI jobs build-gcc, build-plain-sender, build-server-only,
+# quality-include-cycle, unit-gcc, unit-asan and unit-asan-clang, stopping at
+# the first failure.
+CMD ["bash", "-c", "set -e; for p in linux-debug-gcc linux-plain-sender-gcc linux-server-only-gcc linux-include-cycle linux-test-gcc linux-test-asan linux-test-asan-clang; do echo \"=== $p ===\"; cmake --preset=$p; cmake --build --preset=$p; case $p in *-test-*) ctest --preset=$p ;; esac; done"]

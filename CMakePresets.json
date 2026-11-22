@@ -122,6 +122,15 @@
       }
     },
     {
+      "name": "linux-include-cycle",
+      "inherits": "linux-debug-gcc",
+      "displayName": "Linux Include Cycle Check (GCC + clang-tidy)",
+      "description": "Build with clang-tidy 18+ misc-header-include-cycle on every C file; a header include cycle in src/ or include/ fails the build.",
+      "cacheVariables": {
+        "CMAKE_C_CLANG_TIDY": "clang-tidy;--quiet;--extra-arg=-Wno-unknown-warning-option;--checks=-*,misc-header-include-cycle;--warnings-as-errors=misc-header-include-cycle;--header-filter=^${sourceDir}/(src|include)/"
+      }
+    },
+    {
       "name": "windows-cross-debug",
       "inherits": ["common-config", "mingw64-common-config", "debug-common-config"],
       "displayName": "Windows Debug (Cross-compile MinGW)",
@@ -293,6 +302,12 @@
       "inherits": "linux-common-config",
       "displayName": "Linux Server Only (GCC)",
       "configurePreset": "linux-server-only-gcc"
+    },
+    {
+      "name": "linux-include-cycle",
+      "inherits": "linux-common-config",
+      "displayName": "Linux Include Cycle Check (GCC + clang-tidy)",
+      "configurePreset": "linux-include-cycle"
     },
     {
       "name": "windows-cross-debug",

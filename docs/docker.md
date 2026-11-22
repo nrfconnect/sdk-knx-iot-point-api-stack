@@ -33,8 +33,8 @@ docker run --rm knx-iot-stack
 ```
 
 The default command runs the CI jobs `build-gcc`, `build-plain-sender`,
-`unit-gcc`, `unit-asan` and `unit-asan-clang` in this order. It stops at the
-first failure.
+`build-server-only`, `quality-include-cycle`, `unit-gcc`, `unit-asan` and
+`unit-asan-clang` in this order. It stops at the first failure.
 
 To run a single job, pass its commands from `.gitlab-ci.yml`:
 
@@ -46,6 +46,8 @@ docker run --rm knx-iot-stack bash -c "cmake --preset=linux-test-asan && cmake -
 | --- | --- |
 | `build-gcc` | `linux-debug-gcc` (no ctest) |
 | `build-plain-sender` | `linux-plain-sender-gcc` (no ctest) |
+| `build-server-only` | `linux-server-only-gcc` (no ctest) |
+| `quality-include-cycle` | `linux-include-cycle` (no ctest; clang-tidy fails the build on a header include cycle) |
 | `unit-gcc` | `linux-test-gcc` |
 | `unit-asan` | `linux-test-asan` |
 | `unit-asan-clang` | `linux-test-asan-clang` |
