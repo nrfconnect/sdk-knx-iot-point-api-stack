@@ -418,6 +418,15 @@ therefore ~10 KiB on a 64-bit host, typical ~7 KiB, below the ~24 KiB
 certification peak of § 7.4: the conformance tier does not overlap three
 requests with a pending ACK.
 
+Without Zephyr, the `quality-size` job (preset `arm-size`, see
+[docker.md](docker.md)) gives the static figures of the stack objects for every
+commit: `arm-none-eabi-gcc -mcpu=cortex-m33 -Os`, logs off, default table
+sizes, nothing linked. Its `size.txt` lists text, data and bss per object of
+`kisClientServer` and their TOTALS. As in § 5, object text includes the string
+literals, and the totals exclude Mbed TLS, TinyCBOR and the port. Compare the
+figures between two commits, not with the image totals of this report: the
+compiler and C library differ from the Zephyr SDK's.
+
 ---
 
 ## 9. Example: EITT on FRDM-RW612, three network backends

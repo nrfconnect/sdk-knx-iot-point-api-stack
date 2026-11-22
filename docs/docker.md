@@ -33,8 +33,16 @@ docker run --rm knx-iot-stack
 ```
 
 The default command runs the CI jobs `build-gcc`, `build-plain-sender`,
-`build-server-only`, `quality-include-cycle`, `unit-gcc`, `unit-asan` and
-`unit-asan-clang` in this order. It stops at the first failure.
+`build-server-only`, `quality-include-cycle`, `quality-size`, `unit-gcc`,
+`unit-asan` and `unit-asan-clang` in this order. It stops at the first failure.
+
+Nothing of the run is kept: the container builds in its own `/w/build` and
+`--rm` removes it. To keep the size report of `quality-size` in
+`build/arm-size/size/size.txt` of the checkout, mount that folder:
+
+```bash
+docker run --rm -v "${PWD}/build/arm-size/size:/w/build/arm-size/size" knx-iot-stack
+```
 
 To run a single job, pass its commands from `.gitlab-ci.yml`:
 
@@ -48,9 +56,34 @@ docker run --rm knx-iot-stack bash -c "cmake --preset=linux-test-asan && cmake -
 | `build-plain-sender` | `linux-plain-sender-gcc` (no ctest) |
 | `build-server-only` | `linux-server-only-gcc` (no ctest) |
 | `quality-include-cycle` | `linux-include-cycle` (no ctest; clang-tidy fails the build on a header include cycle) |
+| `quality-size` | `arm-size` (no ctest; prints text/data/bss of the stack objects for Cortex-M33, see below) |
 | `unit-gcc` | `linux-test-gcc` |
 | `unit-asan` | `linux-test-asan` |
 | `unit-asan-clang` | `linux-test-asan-clang` |
+
+### Stack Object Sizes (`quality-size`)
+
+Of the working tree, without an image rebuild:
+
+```bash
+docker run --rm -v "${PWD}:/src:ro" -v "${PWD}/build/arm-size/size:/x/build/arm-size/size" -w /x knx-iot-stack bash -c "tar -C /src --exclude=./build --exclude=./.git --exclude=./tests/iot-test-tool -cf - . | tar -xf - && cmake --preset=arm-size && cmake --build --preset=arm-size"
+```
+
+The report lands in `build/arm-size/size/size.txt` of the checkout, as the CI
+job's artifact. The sources are copied into the container rather than built
+on the mount: on a Windows mount the dependency download fails to rename its
+folder. For the delta of a change, run the same command on the base revision
+(`git worktree add --detach ../stack-base <base>`, `../stack-base` as `/src`,
+`build/arm-size-base` as output) and compare the two files (`diff`,
+`Compare-Object`): the object paths are the same, so only changed objects
+differ.
+
+The preset compiles the stack objects (`kisClientServer`) for Cortex-M33 with
+`arm-none-eabi-gcc -Os`, logs off and the default table sizes, without linking.
+`size.txt` lists text, data and bss per object and their TOTALS. The sizes
+include the string literals and exclude Mbed TLS, TinyCBOR, the port, the heap
+and the stacks. Image totals per platform are in
+[memory_breakdown.md](memory_breakdown.md).
 
 ### Coverage (`unit-coverage-gcc`)
 

@@ -29,7 +29,9 @@ shown; Linux `linux-test-gcc`.
      untested, many parameters): give the reason at hand-over.
 4. **Refactoring task** (behaviour unchanged): pin the function's branches
    with passing tests (`windows-coverage-gcc`, `gcovr --filter <file>
-   --txt-metric branch`), note `size` of the `.c.obj`, one move at a time
-   with the preset after each; done when `--diff` shows no `FAIL` and the
-   object is not larger. Stop and ask if a move changes behaviour.
+   --txt-metric branch`), note the object's line in `arm-size`'s `size.txt`
+   (Docker, `docs/docker.md` "Stack Object Sizes"; else `size` of the
+   `.c.obj`), one move at a time with the preset after each; done when
+   `--diff` shows no `FAIL` and the object is not larger in the same
+   measurement. Stop and ask if a move changes behaviour.
 5. **Hand over:** `code-review` skill, own change. No commit unless asked.

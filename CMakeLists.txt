@@ -387,7 +387,27 @@ endif()
 target_link_libraries(kisClientServer PUBLIC kis-port)
 target_compile_options(kisClientServer PRIVATE ${KNX_STACK_C_FLAGS})
 target_compile_definitions(kisClientServer PRIVATE ${KNX_STACK_C_DEFINITIONS})
-set_target_properties(kisClientServer PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# PIC for the hosted hardening (PIE); bare metal (preset arm-size) has no loader,
+# and PIC would move const pointer tables into writable .data
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Generic")
+    set_target_properties(kisClientServer PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+
+## Object sizes of the stack (preset arm-size, CI job quality-size) ##
+# text/data/bss per stack object and TOTALS, written to <build>/size/size.txt.
+# Compiles only the stack objects, nothing is linked.
+set(KNX_SIZE_TOOL "" CACHE STRING "GNU size of the target toolchain; set it to get the target stack-size")
+if(KNX_SIZE_TOOL)
+    add_custom_target(stack-size
+        COMMAND ${CMAKE_COMMAND} -E make_directory size
+        COMMAND ${KNX_SIZE_TOOL} -t $<TARGET_OBJECTS:kisClientServer> > size/size.txt
+        COMMAND ${CMAKE_COMMAND} -E cat size/size.txt
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        DEPENDS $<TARGET_OBJECTS:kisClientServer>
+        COMMAND_EXPAND_LISTS
+        COMMENT "Stack object sizes -> size/size.txt"
+    )
+endif()
 
 ## Process individual stack/application behavior ##
 target_compile_definitions(kis-common INTERFACE

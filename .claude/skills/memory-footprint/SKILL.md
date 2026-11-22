@@ -1,6 +1,6 @@
 ---
 name: memory-footprint
-description: "Use to update docs/memory_breakdown.md or to estimate the flash/RAM cost of a change from the report's formulas, without a build."
+description: "Use to update docs/memory_breakdown.md or to estimate the flash/RAM cost of a change from the report's formulas and the arm-size object delta, without a Zephyr build."
 ---
 
 # Memory footprint report update (estimate)
@@ -35,7 +35,14 @@ Discard everything under `tests/`, `docs/`, `.gitlab-ci.yml`, `src/port/linux/`,
 
 ## 2. Turn each change into a delta
 
-Use the report's numbers, not general rules of thumb. Show the arithmetic.
+With Docker, measure first: preset `arm-size` on the base revision and on the
+working tree (commands in `docs/docker.md` "Stack Object Sizes", ~30 s each)
+and compare the two `size.txt`. The text delta of the changed objects replaces
+the B/line density below, the bss delta checks the table arithmetic. Mark these
+rows measured-by-delta (`~`, the image was not rebuilt) and name the objects.
+Without Docker, or for what `arm-size` does not see (Mbed TLS, TinyCBOR, port,
+heap), use the report's numbers, not general rules of thumb. Show the
+arithmetic.
 
 | Change | Rule (from the report) | Rows it moves |
 | --- | --- | --- |

@@ -69,11 +69,11 @@ to it as the environment allows, in this order of preference:
 
 1. **Target build** (Zephyr / ESP-IDF with `-Os`) if a toolchain is available: totals from
    `size`/`readelf` on the ELF, attribution from the linker map.
-2. **Fallback - host build with `-Os`** (e.g. `linux-release-gcc` or a scratch preset with
-   `-Os -ffunction-sections -fdata-sections -Wl,--gc-sections`): per-object and
-   per-symbol sizes of the stack objects only, via `size` on the object files and
-   `nm --size-sort -S`. Say clearly that x86-64 sizes are a proxy (larger pointers,
-   different code density) and use them for **relative** ranking only.
+2. **Fallback - preset `arm-size`** (Docker, command in `docs/docker.md` "Stack Object
+   Sizes"): Cortex-M33 `-Os` text/data/bss per stack object in `size.txt`, per symbol
+   with `arm-none-eabi-nm --size-sort -S` on the objects in the container. Unlinked:
+   unused functions still count, Mbed TLS, TinyCBOR and the port are missing. Use it
+   for ranking and deltas, not as image totals.
 
 Report:
 

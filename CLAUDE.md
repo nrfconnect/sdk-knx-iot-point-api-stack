@@ -33,6 +33,8 @@ Linux, Windows, Zephyr and ESP-IDF. README.md has the user view.
 - Complexity and format of a change:
   `python tests/common/tools/lizard_report.py --diff [BASE]`,
   `git clang-format --diff <merge-base>` (CI gate `quality-code`).
+- Header include cycles: preset `linux-include-cycle` (CI gate). Stack object
+  sizes on Cortex-M33: preset `arm-size`, Docker command in `docs/docker.md`.
 - Runtime and conformance tiers: only in Docker,
   `tests/common/tools/run-in-docker.ps1 -Tier runtime|conformance
   [-Section 5.6] [-IncludeUncommitted]` (or `.sh`).

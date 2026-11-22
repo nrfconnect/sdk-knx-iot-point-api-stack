@@ -131,6 +131,21 @@
       }
     },
     {
+      "name": "arm-size",
+      "inherits": "linux-common-config",
+      "displayName": "Cortex-M33 Stack Object Sizes (arm-none-eabi-gcc)",
+      "description": "Compiles the stack objects for Cortex-M33 (-Os, logs off) and writes their text/data/bss to size/size.txt; nothing is linked. -isystem: Debian's arm-none-eabi-gcc otherwise uses GCC's stdint.h, which lacks PRIu64 with newlib.",
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "Generic",
+        "CMAKE_C_COMPILER": "arm-none-eabi-gcc",
+        "CMAKE_TRY_COMPILE_TARGET_TYPE": "STATIC_LIBRARY",
+        "CMAKE_C_FLAGS": "-mcpu=cortex-m33 -mthumb -isystem /usr/include/newlib",
+        "CMAKE_BUILD_TYPE": "MinSizeRel",
+        "PORT_DIR": "${sourceDir}/src/port/linux",
+        "KNX_SIZE_TOOL": "arm-none-eabi-size"
+      }
+    },
+    {
       "name": "windows-cross-debug",
       "inherits": ["common-config", "mingw64-common-config", "debug-common-config"],
       "displayName": "Windows Debug (Cross-compile MinGW)",
@@ -308,6 +323,13 @@
       "inherits": "linux-common-config",
       "displayName": "Linux Include Cycle Check (GCC + clang-tidy)",
       "configurePreset": "linux-include-cycle"
+    },
+    {
+      "name": "arm-size",
+      "inherits": "linux-common-config",
+      "displayName": "Cortex-M33 Stack Object Sizes (arm-none-eabi-gcc)",
+      "configurePreset": "arm-size",
+      "targets": ["stack-size"]
     },
     {
       "name": "windows-cross-debug",

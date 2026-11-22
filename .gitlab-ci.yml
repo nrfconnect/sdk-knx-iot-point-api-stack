@@ -40,7 +40,7 @@ default:
 #                      timing-sensitive steps; the first local run matched gcc)
 #   *-massif           the DUT under Valgrind Massif: heap peak and its sites
 #                      (nightly; the pytest tally is informational)
-#   quality-*          code checks (complexity, format, include cycles)
+#   quality-*          code checks (complexity, format, include cycles, Cortex-M33 object sizes)
 # ==========================================================
 
 # ----------------------------------------------------------
@@ -365,6 +365,31 @@ quality-include-cycle:
     - clang-tidy --version
     - cmake --preset=linux-include-cycle
     - cmake --build --preset=linux-include-cycle
+  dependencies: []
+  needs: []
+
+# ----------------------------------------------------------
+# test: stack object sizes on Cortex-M33 (report, not gating)
+# The preset arm-size compiles the stack objects with arm-none-eabi-gcc
+# (-mcpu=cortex-m33 -Os, logs off, nothing linked) and writes text/data/bss per
+# object plus TOTALS to build/arm-size/size/size.txt. Object sizes include the
+# string literals and exclude Mbed TLS, TinyCBOR, the port, the heap and the
+# stacks; image totals are in docs/memory_breakdown.md.
+# ----------------------------------------------------------
+quality-size:
+  stage: test
+  script:
+    - apt-get update -qq && apt-get install -y -qq gcc-arm-none-eabi libnewlib-arm-none-eabi > /dev/null 2>&1
+    - arm-none-eabi-gcc --version | head -1
+    - cmake --preset=arm-size
+    - cmake --build --preset=arm-size
+  artifacts:
+    access: developer
+    when: always
+    paths:
+      - build/arm-size/size/
+    expire_in: 4 weeks
+  allow_failure: true
   dependencies: []
   needs: []
 
