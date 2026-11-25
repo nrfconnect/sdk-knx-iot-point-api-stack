@@ -6,9 +6,6 @@ Linux, Windows, Zephyr and ESP-IDF. README.md has the user view.
 ## Layout
 
 - `api/`, `messaging/coap/`, `security/`, `port/`, `util/`, `include/` the stack
-  - `messaging/`, `security/` and `port/` reach the KNX layer only through
-    their own `*_knx_hooks.h`, implemented in `api/oc_knx_hooks.c`; the CTest
-    `LayeringCheck.*` (`cmake/check_layering.cmake`) enforces it
 - `tests/` test tiers, see `tests/README.md`:
   - `tests/unit/` Google Test unit tests (CTest)
   - `tests/fuzz/` libFuzzer harnesses (clang)
