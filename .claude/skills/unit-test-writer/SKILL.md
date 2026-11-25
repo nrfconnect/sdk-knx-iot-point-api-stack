@@ -1,6 +1,6 @@
 ---
 name: unit-test-writer
-description: "Use to write or change Google Test unit tests in tests/unit/: analyse the module, write, register in CMake, run with and without ASan."
+description: "Use when writing or changing Google Test unit tests for the stack's C code (tests/unit/test_*.cpp) - analysing a module, writing the tests, registering them in CMake, building and running them with and without AddressSanitizer."
 ---
 
 # Writing unit tests

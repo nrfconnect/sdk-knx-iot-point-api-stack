@@ -1,6 +1,6 @@
 ---
 name: runtime-test-writer
-description: "Use to write or change pytest runtime tests in tests/runtime/ (full stack over CoAP/OSCORE/IPv6): when one is allowed, how to write it, running it in Docker."
+description: "Use when writing or changing a pytest runtime test in tests/runtime/ (full stack over real CoAP/OSCORE/IPv6 against runtime_test_server). Covers when such a test is allowed at all, how to write it and how to run it in Docker."
 ---
 
 # Writing a runtime test

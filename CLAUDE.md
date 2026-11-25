@@ -6,9 +6,6 @@ Linux, Windows, Zephyr and ESP-IDF. README.md has the user view.
 ## Layout
 
 - `api/`, `messaging/coap/`, `security/`, `port/`, `util/`, `include/` the stack
-  - `messaging/`, `security/` and `port/` reach the KNX layer only through
-    their own `*_knx_hooks.h`, implemented in `api/oc_knx_hooks.c`; the CTest
-    `LayeringCheck.*` (`cmake/check_layering.cmake`) enforces it
 - `tests/` test tiers, see `tests/README.md`:
   - `tests/unit/` Google Test unit tests (CTest)
   - `tests/fuzz/` libFuzzer harnesses (clang)
@@ -25,25 +22,33 @@ Linux, Windows, Zephyr and ESP-IDF. README.md has the user view.
 
 - Unit: `cmake --preset=linux-test-gcc && cmake --build --preset=linux-test-gcc
   && ctest --preset=linux-test-gcc` (`windows-test-gcc` on Windows); also
-  `linux-test-asan` and `linux-test-asan-clang` (both gate CI, a UBSan report
-  fails the test); coverage `linux-coverage-gcc` /
+  `linux-test-asan` (gates CI); coverage `linux-coverage-gcc` /
   `windows-coverage-gcc`.
 - Fuzz: `linux-fuzz-clang`.
-- Complexity and format of a change:
-  `python tests/common/tools/lizard_report.py --diff [BASE]`,
-  `git clang-format --diff <merge-base>` (CI gate `quality-code`).
 - Runtime and conformance tiers: only in Docker,
   `tests/common/tools/run-in-docker.ps1 -Tier runtime|conformance
   [-Section 5.6] [-IncludeUncommitted]` (or `.sh`).
 
 ## Rules
 
-- Changed C code leaves the touched functions no worse (`FAIL`) and better
-  where cheap (`WARN`); see the test-driven-development skill in `AGENTS.md`.
+- Don't change stack C code without the user's approval; tests and docs are
+  fine. Changes to the test tool belong in its repository, not in the
+  submodule here.
+- Public repository: no references to EITT's source code (no EITT C++ file
+  or class names, no line numbers); describe the behaviour, and use
+  `[parity:P-NNNN]` tags where the tool's register applies.
+- The device's C is the authority on its behaviour; check the code before
+  stating how the stack behaves.
+- Don't edit CHANGELOG.md (written at release time).
+- Each fix comes with a test that fails without it.
+- Don't commit or push unless asked; pushing and merging are done by the
+  user.
 
-## AI workflow
+## Skills and agents
 
-See [AGENTS.md](AGENTS.md) for workflow, skill selection, and agent routing.
+`.claude/skills/runtime-test-writer`, `.claude/skills/unit-test-writer`;
+agents in `.claude/agents/` (test writers, debug, quality-reviewer,
+security-auditor).
 
 ## Memory
 

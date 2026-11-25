@@ -1,6 +1,8 @@
 ---
 name: memory-footprint
-description: "Use to update docs/memory_breakdown.md or to estimate the flash/RAM cost of a change from the report's formulas, without a build."
+description: "Keeps docs/memory_breakdown.md (the KNX IoT stack memory footprint report) current after code changes by estimating the flash and RAM effect of the diff from the report's own formulas, no build required. Use it whenever the user asks to update, refresh or check the memory footprint, memory breakdown or flash/RAM figures, asks what a change costs in memory, or has changed table sizes, buffer constants, rings, Kconfig/CMake options, structs behind a table, or added/removed stack source."
+compatibility:
+  claude: ">=3.5"
 ---
 
 # Memory footprint report update (estimate)
