@@ -8,7 +8,7 @@
  */
 
 /*
- * Unit tests for the timed event callbacks of api/oc_ri.c
+ * Unit tests for the timed event callbacks of resources/ri/oc_ri.c
  *
  * Covers:
  *   oc_ri_add_timed_event_callback_ticks, oc_ri_remove_timed_event_callback and the event loop
@@ -31,7 +31,7 @@
 
 extern "C" {
 #include "oc_api.h"        /* oc_main_poll */
-#include "oc_ri.h"
+#include "oc_ri_internal.h"
 #include "port/oc_clock.h" /* OC_CLOCK_SECOND */
 #include "util/oc_mmem.h"
 }

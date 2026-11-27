@@ -15,8 +15,8 @@
  *         the echo response replays the request's kid + sequence (ssn), while
  *         kid_context is a server-side random that DIFFERS per responder.
  *
- *         Single unified FIFO ring (ECHO_RING_SIZE, production default 64;
- *         reads the actual compiled KNX_ECHO_RING_SIZE, e.g. 16 on Zephyr):
+ *         Single unified FIFO ring (ECHO_RING_SIZE, production default 16;
+ *         reads the actual compiled KNX_ECHO_RING_SIZE):
  *
  *         Anchor slot  (kid_ctx_len == 0)  -- former whitelist role:
  *           one slot per outbound send; carries a REFERENCE to the originating
@@ -37,34 +37,41 @@
 #include <cstdlib>
 #include <vector>
 
+#include "test_helpers_coap_frame.h"
+
 extern "C" {
-#include "messaging/coap/oscore.h"
-#include "messaging/coap/oscore_constants.h"
+#include "core/oc_events.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/engine.h"
+#include "messaging/coap/oscore.h"
+#include "messaging/coap/oscore_constants.h"
 #include "oc_buffer.h"
-#include "api/oc_knx_fp.h"
+#include "oc_helpers.h"
+#include "oc_knx_fp.h"
+#include "oc_ri_internal.h"
+#include "port/oc_connectivity.h"
+#include "port/oc_network_events_mutex.h"
+#include "psa/crypto.h"
 #include "security/oc_oscore.h"
 #include "security/oc_oscore_context.h"
 #include "security/oc_oscore_crypto.h"
-#include "api/oc_events.h"
-#include "oc_ri.h"
-#include "oc_helpers.h"
-#include "port/oc_connectivity.h"
-#include "port/oc_network_events_mutex.h"
 #include "util/oc_process.h"
-#include "psa/crypto.h"
 }
 
 static int g_oscore_send_calls;
+static uint8_t g_last_oscore_send_code;
+static std::vector<uint8_t> g_last_oscore_send_data;
 static int g_network_send_calls;
 static size_t g_last_network_length;
 static transport_flags_t g_last_network_flags;
+static std::vector<uint8_t> g_last_network_data;
 static const oc_message_t* g_last_network_message; /* identity only, freed after the send */
 
 extern "C" void __wrap_coap_send_message(oc_message_t* message)
 {
   g_oscore_send_calls++;
+  g_last_oscore_send_code = message->length > 1 ? message->data[1] : 0;
+  g_last_oscore_send_data.assign(message->data, message->data + message->length);
   oc_message_unref(message);
 }
 
@@ -120,6 +127,7 @@ extern "C" int __wrap_oc_send_buffer(oc_message_t* message)
   g_network_send_calls++;
   g_last_network_length = message->length;
   g_last_network_flags = message->endpoint.flags;
+  g_last_network_data.assign(message->data, message->data + message->length);
   g_last_network_message = message;
   return 0;
 }
@@ -316,7 +324,7 @@ TEST_F(EchoTxRingTest, SsnWrap_ZeroDoesNotMatchMaxAnchor)
   EXPECT_TRUE(consume(OSCORE_SSN_MAX));
 }
 
-/* -- Attacker scenarios
+/* -- Attacker scenarios */
 
 /*
  * One sender stores one anchor (ssn=10, kid).
@@ -815,7 +823,13 @@ protected:
                 COAP_TYPE_ACK << COAP_HEADER_TYPE_POSITION),
       CHANGED_2_04, 0, 1
     };
-    oc_message_t* message = make_owned_message(plaintext, sizeof(plaintext));
+    return make_outbound_response_from(plaintext, sizeof(plaintext));
+  }
+
+  /* an outbound response with the given unprotected CoAP frame, protected with the inbound request's context */
+  oc_message_t* make_outbound_response_from(const uint8_t* frame, size_t frame_len)
+  {
+    oc_message_t* message = make_owned_message(frame, frame_len);
     if (message != nullptr) {
       message->endpoint.flags = OSCORE;
       message->endpoint.access_token.inbound = &at_;
@@ -886,9 +900,12 @@ protected:
     oc_coap_clear_request_history();
     oc_coap_clear_response_history();
     g_oscore_send_calls = 0;
+    g_last_oscore_send_code = 0;
+    g_last_oscore_send_data.clear();
     g_network_send_calls = 0;
     g_last_network_length = 0;
     g_last_network_flags = (transport_flags_t)0;
+    g_last_network_data.clear();
     g_last_network_message = nullptr;
     g_fail_next_encrypt = false;
     g_rejected_posts.clear();
@@ -905,6 +922,7 @@ protected:
     group_address_ = 0x1234;
     at_.ga = &group_address_;
     at_.ga_len = 1;
+    at_.scope = OC_ACL_GA; // as POST /auth/at sets it for a group address scope
 
     const uint8_t recipient_id[] = { 0xBB };
     oc_oscore_context_params_t params = {};
@@ -1036,6 +1054,54 @@ TEST_F(OscoreEngine, RequestWithKidButWithoutPivReceivesBadOption)
 
   dispatch_and_expect_released(message);
   EXPECT_EQ(g_oscore_send_calls, 1);
+}
+
+/* an outer option problem (here class E Content-Format as outer option, RFC 8613 4.1.1) -> unprotected 4.02 */
+TEST_F(OscoreEngine, OuterInnerOnlyOptionRequestReceivesBadOption)
+{
+  const uint8_t outer[] = {
+    0x40, COAP_POST, 0, 1, /* version 1, CON, no token */
+    0x93, 0x09, 0x01, 0xBB, /* OSCORE option: PIV 1, kid BB */
+    0x31, 0x3C             /* Content-Format (9 + 3 = 12), length 1, value 60 (CBOR) */
+  };
+  oc_message_t* message = make_message(outer, sizeof(outer));
+  ASSERT_NE(message, nullptr);
+
+  dispatch_and_expect_released(message);
+  EXPECT_EQ(g_oscore_send_calls, 1);
+  EXPECT_EQ(g_last_oscore_send_code, BAD_OPTION_4_02);
+}
+
+/*
+  an outer payload beyond the application data buffer without Block option is not a COSE decode error (RFC 8613 8.2
+  step 2, 4.02); a CON request must not be ignored silently (RFC 7252 4.2) -> unprotected 4.13 with Size1 = block
+  size, so the client can resend it with Inner Block1 (RFC 7252 5.9.2.9, RFC 7959 2.9.3)
+*/
+TEST_F(OscoreEngine, OversizedOuterPayloadRequestReceivesEntityTooLarge)
+{
+  const uint8_t outer_header[] = {
+    0x40, COAP_POST, 0, 1,  /* version 1, CON, no token */
+    0x93, 0x09, 0x01, 0xBB, /* OSCORE option: PIV 1, kid BB */
+    0xFF
+  };
+  const size_t payload_len = OC_MAX_APP_DATA_SIZE;
+  std::vector<uint8_t> frame(sizeof(outer_header) + payload_len, 0x78);
+  ASSERT_LE(frame.size(), (size_t)OC_PDU_SIZE);
+  memcpy(frame.data(), outer_header, sizeof(outer_header));
+  oc_message_t* message = make_message(frame.data(), frame.size());
+  ASSERT_NE(message, nullptr);
+
+  dispatch_and_expect_released(message);
+  ASSERT_EQ(g_oscore_send_calls, 1);
+  EXPECT_EQ(g_last_oscore_send_code, REQUEST_ENTITY_TOO_LARGE_4_13);
+
+  coap_packet_t response[1];
+  ASSERT_EQ(coap_parse_udp_message(response, g_last_oscore_send_data.data(), (uint16_t)g_last_oscore_send_data.size()),
+            COAP_NO_ERROR);
+  uint32_t size1 = 0;
+  ASSERT_EQ(coap_get_header_size1(response, &size1), 1);
+  EXPECT_EQ(size1, (uint32_t)OC_BLOCK_SIZE);
+  EXPECT_FALSE(IS_OPTION(response, COAP_OPTION_OSCORE));
 }
 
 TEST_F(OscoreEngine, ResponseWithoutMatchingContextIsIgnored)
@@ -1197,6 +1263,7 @@ static int count_contexts(const oc_oscore_context_t* first)
 TEST_F(OscoreEngine, MulticastRequestWithTokenWithoutGroupAddressIsSilentlyDropped)
 {
   at_.ga_len = 0;
+  at_.scope = OC_ACL_P;
 
   const uint8_t plaintext[] = { COAP_POST };
   oc_message_t* message = make_encrypted_request(plaintext, sizeof(plaintext));
@@ -1211,6 +1278,32 @@ TEST_F(OscoreEngine, MulticastRequestWithTokenWithoutGroupAddressIsSilentlyDropp
   EXPECT_EQ(oc_process_nevents(), 0);
   EXPECT_EQ(g_oscore_send_calls, 0);
   EXPECT_EQ(message->ref_count, 1U);
+  oc_message_unref(message);
+}
+
+/*
+  an 'if.g.s' token has no group address list but covers ALL group addresses (spec 3.5.3, 2.5.9.6)
+  -> a multicast request with it is decrypted and queued, the ACL of /k decides as on unicast
+*/
+TEST_F(OscoreEngine, MulticastRequestWithIfGsTokenIsDecrypted)
+{
+  at_.ga_len = 0;
+  at_.scope = OC_ACL_G;
+
+  const uint8_t plaintext[] = { COAP_POST };
+  oc_message_t* message = make_encrypted_request(plaintext, sizeof(plaintext));
+  ASSERT_NE(message, nullptr);
+  message->data[0] = 0x50; /* NON, as a multicast request */
+  message->endpoint.flags = MULTICAST;
+
+  ASSERT_EQ(oc_process_post(&oc_oscore_handler, oc_events[INBOUND_OSCORE_EVENT], message), OC_PROCESS_ERR_OK);
+  oc_process_run();
+
+  EXPECT_NE(message->endpoint.flags & OSCORE_DECRYPTED, 0);
+  EXPECT_EQ(oc_process_nevents(), 1);
+  EXPECT_EQ(g_oscore_send_calls, 0);
+
+  oc_message_unref(message);
   oc_message_unref(message);
 }
 
@@ -1318,6 +1411,47 @@ TEST_F(OscoreEngine, OutboundMulticastRequestIsEncryptedAndSent)
   EXPECT_EQ(sender_context_->ssn, 1U);
 }
 
+/* Never started, so the events that fill the queue are discarded on delivery. */
+OC_PROCESS(queue_filler, "fills the event queue");
+OC_PROCESS_THREAD(queue_filler, ev, data)
+{
+  (void)ev;
+  (void)data;
+  OC_PROCESS_BEGIN();
+  OC_PROCESS_END();
+}
+
+static void fill_event_queue()
+{
+  while (oc_process_nevents() < OC_PROCESS_MAX_EVENTS)
+  {
+    ASSERT_EQ(oc_process_post(&queue_filler, OC_PROCESS_EVENT_MSG, nullptr), OC_PROCESS_ERR_OK);
+  }
+}
+
+static void drain_event_queue()
+{
+  for (int i = 0; i < OC_PROCESS_MAX_EVENTS + 8 && oc_process_nevents() > 0; i++)
+  {
+    oc_process_run();
+  }
+}
+
+/* A CON request is encrypted into a copy (the transaction keeps the plain one); the copy that
+   finds the event queue full is released, a leak here is reported by the AddressSanitizer build. */
+TEST_F(OscoreEngine, OutboundUnicastToFullQueueReleasesEncryptedCopy)
+{
+  oc_message_t* message = make_outbound_request(COAP_TYPE_CON, OSCORE);
+  ASSERT_NE(message, nullptr);
+
+  fill_event_queue();
+  oc_process_post_synch(&oc_oscore_handler, oc_events[OUTBOUND_UC_OSCORE_EVENT], message);
+  drain_event_queue();
+
+  EXPECT_EQ(g_network_send_calls, 0);
+  EXPECT_EQ(oc_process_nevents(), 0);
+}
+
 TEST_F(OscoreEngine, OutboundResponseIsEncryptedAndSent)
 {
   oc_message_t* message = make_outbound_response();
@@ -1335,6 +1469,88 @@ TEST_F(OscoreEngine, OutboundResponseIsEncryptedAndSent)
   /* 8.3: the response reuses the request PIV, so no sender sequence number is spent */
   EXPECT_EQ(recipient_context_->ssn, 0U);
   EXPECT_EQ(sender_context_->ssn, 0U);
+}
+
+/*
+  Max-Age is a Class E option only: the protected message carries it encrypted, the outer message
+  carries none (not even the outer Max-Age 0 RFC 8613 clause 4.1.3.1 allows), to keep it short.
+  The serializer decides this for every message (test_coap.cpp MaxAge_*); here the engine path.
+*/
+
+/* true if the outer CoAP frame (header, token, options) carries option 'number' before the payload marker */
+static bool outer_frame_has_option(const std::vector<uint8_t>& frame, uint16_t number)
+{
+  return test_helpers::outer_frame_has_option(frame.data(), frame.size(), number);
+}
+
+static const uint8_t ACK_HEADER = (uint8_t)(COAP_VERSION << COAP_HEADER_VERSION_POSITION | COAP_TYPE_ACK << COAP_HEADER_TYPE_POSITION);
+
+TEST_F(OscoreEngine, OutboundObserveResponseCarriesMaxAgeEncrypted)
+{
+  /*
+    the Max-Age 30 option (2 bytes: header + value) must travel inside the ciphertext: the protected
+    notification with it is exactly 2 bytes longer than the same notification without it, while the
+    outer options are identical; without Max-Age the engine adds no outer Max-Age (0) of its own
+  */
+  const uint8_t without_frame[] = {
+    ACK_HEADER, CONTENT_2_05, 0, 4, 0x61, 0x05 /* Observe (6), value 5 */
+  };
+  const uint8_t with_frame[] = {
+    ACK_HEADER, CONTENT_2_05, 0, 5, 0x61, 0x05, /* Observe (6), value 5 */
+    0x81,       0x1E                            /* Max-Age (14, delta 8), value 30 */
+  };
+
+  oc_message_t* message = make_outbound_response_from(without_frame, sizeof(without_frame));
+  ASSERT_NE(message, nullptr);
+  ASSERT_EQ(oc_process_post(&oc_oscore_handler, oc_events[OUTBOUND_UC_OSCORE_EVENT], message), OC_PROCESS_ERR_OK);
+  oc_process_run();
+  oc_process_run();
+  ASSERT_EQ(g_network_send_calls, 1);
+  const size_t without_len = g_last_network_length;
+  EXPECT_FALSE(outer_frame_has_option(g_last_network_data, COAP_OPTION_MAX_AGE)) << "the engine added an outer Max-Age to the notification";
+
+  message = make_outbound_response_from(with_frame, sizeof(with_frame));
+  ASSERT_NE(message, nullptr);
+  ASSERT_EQ(oc_process_post(&oc_oscore_handler, oc_events[OUTBOUND_UC_OSCORE_EVENT], message), OC_PROCESS_ERR_OK);
+  oc_process_run();
+  oc_process_run();
+  ASSERT_EQ(g_network_send_calls, 2);
+
+  EXPECT_TRUE(outer_frame_has_option(g_last_network_data, COAP_OPTION_OBSERVE))
+    << "precondition: Observe is replicated outer (RFC 8613 clause 4.1.3.5)";
+  EXPECT_TRUE(outer_frame_has_option(g_last_network_data, COAP_OPTION_OSCORE));
+  EXPECT_FALSE(outer_frame_has_option(g_last_network_data, COAP_OPTION_MAX_AGE)) << "the outer OSCORE notification carries a Max-Age option";
+  EXPECT_EQ(g_last_network_length, without_len + 2) << "Max-Age did not move into the encrypted plaintext";
+}
+
+/*
+  a POST /auth/at that changes the key of the token protecting the request itself is applied, but gets no 2.04
+  - the commit frees ALL contexts of the token (key changed), the re-initialization rebuilds only its sender context
+  - the response must be protected with the request's context (RFC 8613 8.3): looked up as recipient context by the token's
+    osc id -> gone, the response is dropped (the client sees a timeout)
+  - intended: key rotation per spec 3.5.4.1 uses a NEW token, switches to it and deletes the old one later
+  - the handler side (commit frees the recipient context) is SecAtPost.FullOverwriteWithNewKeyFreesTheCachedRecipientContext
+*/
+TEST_F(OscoreEngine, ResponseToARequestThatReKeyedItsOwnTokenIsDropped)
+{
+  oc_message_t* message = make_outbound_response();
+  ASSERT_NE(message, nullptr);
+
+  // commit (key changed) + re-initialization
+  oc_oscore_free_contexts_at_id(&at_);
+  const uint8_t sender_id[] = { 0xCC };
+  oc_oscore_context_params_t params = {};
+  params.sender_id = sender_id;
+  params.sender_id_size = sizeof(sender_id);
+  params.auth_at = &at_;
+  params.read_ssn_from_storage = false;
+  ASSERT_NE(oc_oscore_add_context(&params), nullptr);
+
+  ASSERT_EQ(oc_process_post(&oc_oscore_handler, oc_events[OUTBOUND_UC_OSCORE_EVENT], message), OC_PROCESS_ERR_OK);
+  oc_process_run();
+  oc_process_run();
+
+  EXPECT_EQ(g_network_send_calls, 0);
 }
 
 /*

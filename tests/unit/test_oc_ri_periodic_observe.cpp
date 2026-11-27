@@ -1,5 +1,5 @@
 /*
- * Unit tests for the periodic observe list (api/oc_ri.c: add/remove_periodic_observe_callback, periodic_observe_handler,
+ * Unit tests for the periodic observe list (resources/ri/oc_ri.c: add/remove_periodic_observe_callback, periodic_observe_handler,
  * poll_event_callback_timers on the observe list).
  *
  * A periodic observable resource gets an observer through coap_receive() (GET + Observe 0 + lt), which adds its periodic
@@ -23,11 +23,11 @@
 #include <vector>
 
 extern "C" {
-#include "oc_api.h"
-#include "oc_buffer.h"
-#include "oc_ri.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/engine.h"
+#include "oc_api.h"
+#include "oc_buffer.h"
+#include "oc_ri_internal.h"
 #include "port/oc_clock.h"
 #include "port/oc_network_events_mutex.h"
 #include "port/oc_random.h"

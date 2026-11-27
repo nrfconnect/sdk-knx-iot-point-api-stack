@@ -5,7 +5,7 @@
  */
 
 /*
- * Unit tests for api/oc_blockwise.c (CoAP block-wise transfer buffers).
+ * Unit tests for messaging/coap/oc_blockwise.c (CoAP block-wise transfer buffers).
  *
  * The whole module is compiled with OC_CLIENT + OC_SERVER, so every public
  * function is available. The file-static lists oc_blockwise_requests /
@@ -46,6 +46,10 @@ oc_endpoint_t make_endpoint(uint16_t port)
 }
 
 } // namespace
+
+/* Under linux-test-asan a NULL pointer passed to memcpy/strncmp is only a UBSan
+   report; halting makes the empty-block and no-Uri-Path tests fail on it. */
+extern "C" const char* __ubsan_default_options() { return "halt_on_error=1:print_stacktrace=1"; }
 
 class BlockwiseBase : public ::testing::Test {
 protected:
@@ -184,6 +188,13 @@ TEST_F(BlockwiseHandle, DuplicateBlockAcceptedNoAdvance)
   EXPECT_EQ(st.next_block_offset, 16u);
 }
 
+TEST_F(BlockwiseHandle, EmptyBlockWithoutPayloadAcceptedNoAdvance)
+{
+  // a block without payload has no payload pointer (found by fuzz_coap_inbound)
+  EXPECT_TRUE(oc_blockwise_handle_block(&st, 0, nullptr, 0));
+  EXPECT_EQ(st.next_block_offset, 0u);
+}
+
 // ===========================================================================
 // Alloc + find lifecycle
 // ===========================================================================
@@ -208,6 +219,20 @@ TEST_F(BlockwiseAlloc, EmptyQueryMatchesWithoutNullPointerUse)
               "/empty", strlen("/empty"), &ep, COAP_GET, nullptr, 0,
               OC_BLOCKWISE_SERVER),
             state);
+}
+
+TEST_F(BlockwiseAlloc, FindWithoutUriPathDoesNotUseNullHref)
+{
+  // a request without Uri-Path has href NULL (found by fuzz_coap_inbound)
+  oc_endpoint_t ep = make_endpoint(5683);
+  oc_endpoint_t other_ep = make_endpoint(5684);
+  oc_blockwise_state_t* b = oc_blockwise_alloc_request_buffer("/a", strlen("/a"), &ep, COAP_GET, OC_BLOCKWISE_SERVER);
+  ASSERT_NE(b, nullptr);
+
+  // the href must match in length and content: no href matches no stored "/a", and the NULL href is never read
+  EXPECT_EQ(oc_blockwise_find_request_buffer(nullptr, 0, &ep, COAP_GET, nullptr, 0, OC_BLOCKWISE_SERVER), nullptr);
+  EXPECT_EQ(oc_blockwise_find_request_buffer(nullptr, 0, &other_ep, COAP_POST, nullptr, 0, OC_BLOCKWISE_SERVER), nullptr);
+  EXPECT_EQ(oc_blockwise_find_request_buffer("/a", strlen("/a"), &ep, COAP_GET, nullptr, 0, OC_BLOCKWISE_SERVER), b);
 }
 
 TEST_F(BlockwiseAlloc, AllocRequestThenFindByHref)

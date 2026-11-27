@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/c-timestamp/ library
+ * Unit tests for util/c-timestamp/ library
  *
  * Covers: timestamp_parse, timestamp_format, timestamp_compare,
  *         timestamp_valid, timestamp_to_tm_utc, timestamp_to_tm_local

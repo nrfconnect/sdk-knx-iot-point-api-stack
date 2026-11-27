@@ -12,12 +12,11 @@
 */
 #pragma once
 
+#include <stdbool.h>
 #include "messaging/coap/constants.h"
 #include "messaging/coap/oscore_constants.h"
 #include "oc_endpoint.h"
 #include "oc_ri.h"
-#include <stdbool.h>
-#include "oc_blockwise.h"
 
 #ifdef __cplusplus
 extern "C" {

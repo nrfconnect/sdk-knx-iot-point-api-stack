@@ -18,12 +18,13 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include "messaging/coap/transactions.h"
-#include "messaging/coap/engine.h"
-#include "messaging/coap/coap.h"
-#include "port/oc_network_events_mutex.h"
-#include "oc_buffer.h"
 #include <string.h>
+#include "messaging/coap/coap.h"
+#include "messaging/coap/conf.h"
+#include "messaging/coap/engine.h"
+#include "messaging/coap/transactions.h"
+#include "oc_buffer.h"
+#include "port/oc_network_events_mutex.h"
 }
 
 /* ---------------- helpers ------------------------------------------------ */
@@ -351,4 +352,29 @@ TEST_F(CoapTransactions, InitEngineRegistersHandler)
   uint8_t token[] = {0x0A};
   coap_transaction_t *t = coap_new_transaction(1401, token, 1, &ep);
   ASSERT_NE(t, nullptr);
+}
+
+/* ---------------- COAP_MAX_OPEN_TRANSACTIONS ----------------------------- */
+
+TEST_F(CoapTransactions, NewTransactionBeyondLimitReturnsNullUntilOneIsCleared)
+{
+  oc_endpoint_t ep = make_endpoint(5683);
+  coap_transaction_t* first = nullptr;
+  for (int i = 0; i < COAP_MAX_OPEN_TRANSACTIONS; i++)
+  {
+    uint8_t token[] = {(uint8_t)i};
+    coap_transaction_t* t = coap_new_transaction((uint16_t)(2000 + i), token, 1, &ep);
+    ASSERT_NE(t, nullptr) << "transaction " << i;
+    if (i == 0)
+    {
+      first = t;
+    }
+  }
+
+  uint8_t token[] = {0xEE};
+  EXPECT_EQ(coap_new_transaction(2999, token, 1, &ep), nullptr);
+  EXPECT_EQ(coap_get_transaction_by_mid(2999), nullptr);
+
+  coap_clear_transaction(first);
+  EXPECT_NE(coap_new_transaction(2999, token, 1, &ep), nullptr);
 }

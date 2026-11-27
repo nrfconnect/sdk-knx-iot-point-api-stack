@@ -1,11 +1,11 @@
 /*
  * libFuzzer harness for oc_check_resource_by_rt() / oc_check_resource_by_if()
- * (api/oc_core_res.c).
+ * (resources/ri/oc_core_res.c).
  *
  * The generic CoRE link-format 'rt=' / 'if=' query-filter matching used by
  * every resource lookup (not just discovery), including its wildcard-cut
- * logic. A distinct code path from fuzz_discovery_filter.c, which covers the
- * device-specific serial-number filter instead.
+ * logic. The device-specific serial-number filter (ep=) is reached through
+ * fuzz_coap_inbound instead.
  */
 
 #include <stdint.h>

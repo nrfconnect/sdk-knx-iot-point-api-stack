@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 One-off tool: normalize copyright/license headers across the repo to the
-condensed SPDX style used in api/oc_discovery.c, while:
+condensed SPDX style used in src/resources/ri/oc_discovery.c, while:
   - preserving all existing "Copyright (c) YEAR Author" lines verbatim (year/author),
   - preserving any extra non-boilerplate disclaimer text found in the header,
   - adding/bumping a "Copyright (c) YEAR KNX Association" line based on git history

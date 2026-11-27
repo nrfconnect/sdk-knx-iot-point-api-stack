@@ -12,9 +12,9 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "coap.h"
-#include "oscore.h"
-#include "oscore_constants.h"
+#include "messaging/coap/coap.h"
+#include "messaging/coap/oscore.h"
+#include "messaging/coap/oscore_constants.h"
 #include "security/oc_oscore.h"
 #include "security/oc_oscore_context.h"
 #include "oc_endpoint.h"

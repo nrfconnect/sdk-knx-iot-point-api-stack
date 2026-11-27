@@ -84,11 +84,20 @@ cmake --preset linux-debug-gcc
 cmake --build --preset linux-debug-gcc
 ```
 
-Test-enabled presets are also available, including `windows-test-gcc`, `linux-test-gcc`, and `linux-test-asan`.
+Test-enabled presets are also available, including `windows-test-gcc`, `linux-test-gcc`, `linux-test-asan` and `linux-test-asan-clang`. Both sanitizer test presets run with `UBSAN_OPTIONS=halt_on_error=1`, so any UndefinedBehaviorSanitizer report fails the test that triggered it; `linux-test-asan-clang` builds the same suite with clang, whose UBSan also catches what GCC's misses (such as arithmetic on a NULL pointer).
+
+#### In Docker
+
+To build and test on Linux without installing a toolchain, use the CI image in [`docker/Dockerfile`](docker/Dockerfile). [docs/docker.md](docs/docker.md) describes all jobs:
+
+```bash
+docker build -t knx-iot-stack -f docker/Dockerfile .
+docker run --rm knx-iot-stack     # build + unit tiers (gcc, ASan, clang ASan), as in CI
+```
 
 ### Usage
 
-This repository primarily builds the reusable stack library and supporting test binaries. Device applications typically include it as a dependency rather than running it directly. For application-level workflows, ETS6 commissioning, and example devices, see the [KNX IoT Point API documentation pages](https://buildwithknxiot.knx.org/public-projects/knx-iot-docs/pointapi/introduction/) and the demos repository.
+This repository primarily builds the reusable stack library and supporting test binaries. Device applications typically include it as a dependency rather than running it directly. [docs/application-integration.md](docs/application-integration.md) describes how an application integrates the stack. For application-level workflows, ETS6 commissioning, and example devices, see the [KNX IoT Point API documentation pages](https://buildwithknxiot.knx.org/public-projects/knx-iot-docs/pointapi/introduction/) and the demos repository.
 
 ## Running Tests
 
@@ -104,26 +113,85 @@ ctest --preset linux-test-gcc
 
 Replace the preset name with the matching GCC or Linux test preset as needed.
 
-#### Line coverage
+#### Coverage
 
 The `*-coverage-gcc` presets build the same unit suite with gcov instrumentation
 (`--coverage -O0`, CMake option `ENABLE_COVERAGE`). Run it, then let
 [gcovr](https://gcovr.com) (`pip install gcovr`) turn the `.gcda` files into a
 report; the filters restrict it to the stack's own code, leaving out tests,
-fetched dependencies and the vendored `api/c-timestamp` parser:
+fetched dependencies, the vendored `src/util/c-timestamp` parser and
+`src/resources/ri/oc_test_control.c` (test endpoints of the device used by the runtime and
+conformance tiers, not part of the product):
 
 ```bash
 cmake --preset linux-coverage-gcc          # windows-coverage-gcc on MSYS2/MinGW
 cmake --build --preset linux-coverage-gcc
 ctest --preset linux-coverage-gcc
-gcovr --root . --filter 'api/' --filter 'messaging/' --filter 'security/' --filter 'util/' \
-      --exclude 'api/c-timestamp/.*' --print-summary \
+gcovr --root . --filter 'src/resources/' --filter 'src/core/' --filter 'src/messaging/' --filter 'src/security/' --filter 'src/util/' \
+      --exclude 'src/util/c-timestamp/.*' --exclude 'src/resources/ri/oc_test_control[.]c' --print-summary \
   --html-medium-threshold 65 --html-high-threshold 85 \
       --html-details build/linux-coverage-gcc/coverage-html/index.html build/linux-coverage-gcc
 ```
 
 In CI the `unit-coverage-gcc` job does this on every push; GitLab shows the function
 percentage on the job and the merge request, and the HTML report is an artifact.
+The summary also prints line and branch coverage. Branches are the figure to
+watch for error paths: an untested `if (len > max) return error;` is a covered
+line but an untaken branch. The job fails below 62 % branch coverage
+(`--fail-under-branch`, just under the current value), so a change that drops
+tested error paths shows up there.
+
+#### Function complexity
+
+`tests/common/tools/lizard_report.py` runs [lizard](https://github.com/terryyin/lizard)
+(`pip install lizard==1.26.0 jinja2`) over the stack's own C code as a statistic: it
+writes an HTML and a CSV report (one row per function), lists the functions over
+a cyclomatic complexity of 15, 150 lines or 7 parameters and prints the summary.
+Fun Rt (share of functions over a threshold) and nloc Rt (share of the code in
+them) are the figures to follow from release to release. It fails nothing; the
+CI job `quality-code` runs it and keeps the reports as artifacts.
+
+```bash
+python3 tests/common/tools/lizard_report.py --out build/lizard
+```
+
+With `--diff [BASE]` (default `origin/main`) it checks only the functions whose
+lines changed since the merge base, uncommitted work included: a new function
+must stay within the thresholds, a changed one already over a threshold must
+not get worse on it. It exits 1 otherwise. A touched function over a
+threshold that got no better is listed as `WARN` with the changed lines, the
+block to extract first; it does not fail. The CI job `quality-code` runs
+the check on every branch against the default branch.
+
+```bash
+python3 tests/common/tools/lizard_report.py --diff origin/main
+```
+
+For deciding where a refactoring pays off first, set the complexity per file
+(the CSV's `ccn` summed per file) against how often the file changes
+(`git log --no-merges --since="2 years ago" --name-only`, without mechanical
+commits such as formatting or license headers): a file that is both complex
+and often changed is a hotspot, a complex file nobody touches is not.
+
+#### Code format
+
+The changed lines must match `.clang-format`; untouched code is not checked.
+The CI job `quality-code` runs this on every branch against the merge base
+with the default branch, with clang-format 22 (`pip install clang-format==22.1.8`);
+a failure prints the diff that fixes it. Locally, before pushing:
+
+```bash
+git clang-format --diff $(git merge-base origin/main HEAD)   # check
+git clang-format $(git merge-base origin/main HEAD)          # fix the working tree
+```
+
+`git clang-format` does not detect renames, so it checks a moved file as a whole. CI
+therefore runs the rename-aware form, which also works locally:
+
+```bash
+git diff -M -U0 --no-color $(git merge-base origin/main HEAD) | clang-format-diff.py -p1 \
+  -regex '(?!src/util/c-timestamp/|include/util/pt/|src/port/mdns/mdns\.h$)(src|include)/.*\.[ch]'
+```
 
 ### Runtime Conformance Tests
 
@@ -151,7 +219,7 @@ tests/common/tools/run-in-docker.sh --tier runtime -- tests/runtime/test_observe
 
 ### Fuzz Tests
 
-The fuzz tier runs libFuzzer harnesses (`tests/fuzz/`) against the parsers that process attacker-controlled bytes before any credential check: CoAP and OSCORE option parsing, the CBOR `oc_rep` tree, mDNS, blockwise reassembly, the hex/base64/UUID/timestamp decoders and several resource handlers. It needs clang; the seed corpus is generated into the build tree by `make_corpus.py`, so no binary blobs are committed.
+The fuzz tier runs libFuzzer harnesses (`tests/fuzz/`) against the code that processes attacker-controlled bytes: before any credential check the CoAP and OSCORE option parsing, the CBOR `oc_rep` tree, the query and number parsers, mDNS, blockwise reassembly and the SPAKE2+ handshake; on a fully initialised stack the complete inbound datagram path, decrypted OSCORE requests from a peer holding a credential, and the resource handlers (device, tables, access tokens, load state machine, software update, observe, `/k`). It needs clang; the seed corpus is generated into the build tree by `make_corpus.py`, so no binary blobs are committed.
 
 ```bash
 cmake --preset linux-fuzz-clang
@@ -166,20 +234,30 @@ cd build/linux-fuzz-clang/tests/fuzz
 ./fuzz_coap_parse corpus/coap_parse -max_total_time=300
 ```
 
-New crashes land in `artifacts/`. In CI, `fuzz-seed-replay` gates on the seed replay and reports source coverage; `fuzz-explore` is a manual longer mutation run.
+New crashes land in `artifacts/`. In CI, `fuzz-seed-replay` gates on the seed replay and reports source coverage; `fuzz-explore` is a manual longer mutation run. Both run every harness CTest registers, so a new harness only needs its entry in `tests/fuzz/CMakeLists.txt` and its seeds in `make_corpus.py`.
 
 ## Project Structure
 
 ```text
-api/                     client/server APIs, resource handlers, KNX helpers, CBOR utilities
-include/                 public headers for the stack APIs and helpers
-messaging/coap/          tailored CoAP implementation and OSCORE message handling
-security/                OSCORE and SPAKE2+ security implementation
-util/                    low-level internal primitives used by the core framework
-port/                    shared platform abstractions and OS-specific adaptations
-  linux/                 Linux port
-  windows/               Windows port
-  zephyr/                Zephyr port
+include/                 public headers, the only include root an application needs
+  messaging/coap/        CoAP/OSCORE types and constants the public API exposes
+  port/                  platform abstraction interface (clock, log, storage, network, DNS-SD)
+  security/              access token types
+  util/                  lists, memory pools, timers, processes, protothreads
+src/                     the stack's production code (private)
+  resources/knx/         KNX Point API resources, s-mode and KNX security tables
+  resources/ri/          resource registry, dispatch, client/server API, discovery, CBOR
+  core/                  stack lifecycle, message routing, network events, timers
+  messaging/coap/        tailored CoAP implementation, blockwise and OSCORE message handling
+  security/              OSCORE and SPAKE2+ security implementation
+  util/                  low-level internal primitives used by the core framework
+  port/                  shared platform abstractions and OS-specific adaptations
+    linux/               Linux port
+    windows/             Windows port
+    zephyr/              Zephyr port
+    freertos_esp32/      FreeRTOS/ESP-IDF port
+zephyr/                  Zephyr module glue (module.yml, CMakeLists.txt, Kconfig)
+esp-idf/knx_iot/         ESP-IDF component glue
 tests/unit/              Google Test unit tests
 tests/common/            shared Python test infrastructure + the DUT's C source
 tests/conformance/       this stack's override files for the conformance-test tool
@@ -193,19 +271,26 @@ cmake/                   helper CMake modules and toolchain files
 
 Key areas:
 
-- **`api/`** implements client/server APIs, resources, endpoint handling, discovery, and CBOR encode/decode helpers for data points and function blocks.
-- **`messaging/coap/`** contains the CoAP engine tailored for the stack.
-- **`security/`** contains the security model implementation, including OSCORE.
+- **`src/resources/`** implements the CoAP resources: `knx/` the KNX Point API resources, `ri/` the resource registry and dispatch, client/server APIs, discovery, and CBOR encode/decode helpers.
+- **`src/core/`** runs the stack: lifecycle, message routing, endpoints and network events.
+- **`src/messaging/coap/`** contains the CoAP engine tailored for the stack.
+- **`src/security/`** contains the security model implementation, including OSCORE.
 - **`include/oc_api.h`** exposes the main client/server APIs.
 - **`include/oc_rep.h`** provides CBOR encode/decode helpers.
 - **`include/oc_helpers.h`** contains utilities for strings and arrays backed by heap or memory pools.
-- **`port/*.h`** defines shared abstractions for DNS-SD, clocks, logging, randomness, storage, and networking.
+- **`include/port/*.h`** defines shared abstractions for DNS-SD, clocks, logging, storage, and networking; the platform's `oc_config.h` stays in its port directory (`src/port/<platform>/`).
+
+An application puts `include/` and its platform's port directory on the include path; linking `kisClientServer` does both. The CTest `PublicHeaders.*` checks that every public header compiles with only these.
+
+How these parts work together — the layers and their boundaries, the single-threaded runtime model, the send and receive flows, OSCORE replay protection, SPAKE2+ etc. is described in [docs/software-design.md](docs/software-design.md).
 
 ## Further Documentation
 
 | Document | Description |
 | -------- | ----------- |
 | [KNX IoT documentation pages](https://buildwithknxiot.knx.org/public-projects/knx-iot-docs/) | Stack introduction, ETS6 workflows, and broader Point API documentation |
+| [docs/application-integration.md](docs/application-integration.md) | Step-by-step guide to building a device application on the stack: identity, start-up, event loop and threading, datapoints, group messages, software update |
+| [docs/software-design.md](docs/software-design.md) | Software architecture and design: layers, runtime model, message flows, OSCORE and SPAKE2+ |
 | [tests/README.md](tests/README.md) | Map of the five test tiers and how to run each |
 | [KNX IoT Point API Test Tool](https://gitlab.knx.org/public-projects/knx-iot-point-api/knx-iot-point-api-test-tool) | The conformance-test tool (submodule `tests/iot-test-tool`): runner, browser GUI, run records |
 | [tests/runtime/README.md](tests/runtime/README.md) | Runtime conformance test setup and execution |

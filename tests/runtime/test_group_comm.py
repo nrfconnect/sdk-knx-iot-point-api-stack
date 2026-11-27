@@ -20,6 +20,9 @@ Multicast skips the unicast recipient's token (ADDITIONAL, non-EITT) - spec
 5.4.1.9   Set Init Flag Causes S-Mode Group Message on Startup
 Multicast Response on UPDATE-only GO (ADDITIONAL, non-EITT) - probes
           spec(Table 19 "if w=true") vs code(oc_knx.c checks u-flag only)
+Multicast write with an 'if.g.s' token (ADDITIONAL, non-EITT) - spec 3.5.3
+          Table 47 / 2.5.9.6: if.g.s covers all ga, applied; an 'if.p' only
+          token (no group rights) is discarded
 5.4.1.12  Updating Own Group Objects for Outgoing Group Messages
 5.4.1.14  Sending Support for Long Group Addresses
 5.4.1.15  Trigger Sending (Non) Confirmable Messages
@@ -881,11 +884,11 @@ def _decrypt_smode(msg, rx_ctx):
 #
 # The stack withholds read-on-init s-mode reads until the DUT has a usable
 # IPv6 scope (oc_init_read_next gates on oc_connectivity_get_network_scope()
-# >= 5; see api/oc_knx_fp.c and api/oc_endpoint.c).  In the veth harness the
+# >= 5; see src/resources/knx/oc_knx_fp.c and src/core/oc_endpoint.c).  In the veth harness the
 # DUT only has a link-local address (scope 2 -> withheld).  Adding a ULA
 # (fd00::/8 -> scope 5, RFC 6724 policy table / RFC 4193) opens the gate; the
 # Linux port re-enumerates endpoints live via a netlink RTM_NEWADDR event
-# (port/linux/ipadapter.c).
+# (src/port/linux/ipadapter.c).
 
 # Interface the DUT binds to (veth-dut in the Docker/veth CI harness).  This
 # is distinct from DEVICE_IFACE (the test-side veth-test interface).
@@ -924,7 +927,9 @@ def _roi_network_control_available():
     # Probe: add then remove a throwaway ULA to confirm we are privileged.
     rc, _, err = _ip6_addr("add", DUT_IFACE, "fd00:5704:0:dead::1", 64)
     if rc != 0:
-        return f"cannot add IPv6 addr on {DUT_IFACE} (need --privileged): {err.strip()}"
+        # the Docker runner moves the DUT interface into its own netns and gives it a ULA; covered by test_read_on_init
+        return (f"cannot change IPv6 addresses on {DUT_IFACE} (needs a DUT without ULA in this netns, "
+                f"not the Docker runner; unit tests cover the gate): {err.strip()}")
     _ip6_addr("del", DUT_IFACE, "fd00:5704:0:dead::1", 64)
     return None
 
@@ -1156,7 +1161,7 @@ class TestSiaOnlySyncMessage:
     nothing to look up in the GO table. It is nevertheless a legal s-mode
     message and must NOT be answered with 4.04 Not Found, which is what a
     plain 'group address not in the GO table' path would produce
-    (api/oc_knx.c, oc_core_knx_k_post_handler).
+    (src/resources/knx/oc_knx.c, oc_core_knx_k_post_handler).
 
     This stack no longer EMITS the 'sia' only form itself - the echo
     re-request either regenerates a full value payload or is abandoned - so
@@ -1677,7 +1682,7 @@ class TestInitFlagStartup:
 # Read-on-Init Network-Up Gate + Max-Retry Cap (ADDITIONAL, non-EITT)
 # ===========================================================================
 #
-# Probes the network-up gate added to oc_init_read_next (api/oc_knx_fp.c):
+# Probes the network-up gate added to oc_init_read_next (src/resources/knx/oc_knx_fp.c):
 #   * scope < 5 (loopback/link-local=2)                     -> read withheld,
 #     callback reschedules every KNX_READ_ON_INIT_DELAY_MILLISECONDS (100 ms);
 #   * scope >= 5 (site-local=5, ULA=5, global=14)            -> read released;
@@ -1933,7 +1938,7 @@ class TestReadOnInitNetworkGate:
 # updates the Group Object value "if flag w=true". The Update (u) flag alone
 # is NOT sufficient - the Write (w) flag must ALSO be set (w AND a together).
 #
-# Code (api/oc_knx.c, oc_core_knx_k_post_handler): the st="a" branch
+# Code (src/resources/knx/oc_knx.c, oc_core_knx_k_post_handler): the st="a" branch
 # (service_a) requires BOTH OC_CFLAG_UPDATE AND OC_CFLAG_WRITE. So with
 # cflag=0x80 (u only, w=0) the stack does NOT apply the response.
 #
@@ -2013,6 +2018,87 @@ class TestMulticastResponseUpdateOnly:
             "response must be ignored (oc_knx.c service_a requires "
             "OC_CFLAG_UPDATE AND OC_CFLAG_WRITE). Spec 2.5.7.3.3 Table 19 "
             f"requires w=true, so /p/1 must stay True. Got {data}.")
+
+
+# ===========================================================================
+# Multicast write with an interface scope token (ADDITIONAL, non-EITT)
+# ===========================================================================
+
+def _multicast_write_reaches_p1(coap, oscore_ctx, device_iface):
+    """Sync the SSN, seed /p/1=false via /p, multicast write true to ga 65535, return /p/1 afterwards."""
+    tx_ctx = _sync_multicast_ssn(coap, device_iface, _make_mc_tx_ctx())
+
+    # seeded AFTER the sync: its own write (false) must not decide the result
+    _set_datapoint(coap, oscore_ctx, "/p/1", False)
+    data = _get_datapoint(coap, oscore_ctx, "/p/1")
+    assert data.get(1) is False, f"Expected /p/1=false before the write, got {data}"
+
+    tx_ctx.ssn += 1
+    coap.oscore_multicast_post(tx_ctx, "/k", payload=_build_smode_write(65535, True, sia=PEER_IA), target_addr=_mcast_addr(),
+                               interface=device_iface, collect_timeout=1.0)
+    time.sleep(0.5)
+    return _get_datapoint(coap, oscore_ctx, "/p/1").get(1)
+
+
+class TestMulticastWriteWithIfGsToken:
+    """ADDITIONAL, non-EITT: NON POST /k multicast write protected with an 'if.g.s' token.
+
+    The template sends multicast /k only with tokens holding a group address list. An 'if.g.s' token has no
+    group address list but covers ALL group addresses (spec 3.5.3 Table 47, 2.5.9.6), so the write is
+    processed as with a <ga> token; the ACL of /k decides as on unicast.
+
+    GO table: ga=[65535], cflag=0x10 (write), href=/p/1
+    PUB table: ga=[65535], grpid=0x80000001
+    AT: multicast credentials with scope=["if.g.s"]
+    """
+
+    @pytest.fixture(autouse=True, scope="class")
+    @staticmethod
+    def setup(coap, oscore_ctx, device_iface):
+        if device_iface is None:
+            pytest.skip("Multicast tests require DEVICE_IFACE env var")
+        auth_prepare(coap, oscore_ctx)
+        ia_prepare(coap, oscore_ctx)
+        go = [{0: 13, 7: [65535], 8: 0x10, 11: "/p/1"}]  # cflag=16=w
+        pub = [{0: 7, 7: [65535], 13: GROUP_GRPID}]
+        _provision_multicast(coap, oscore_ctx, go, scope=["if.g.s"], pub_entries=pub)
+        yield
+        set_lsm(coap, oscore_ctx, 4)
+
+    def test_multicast_write_with_if_g_s_token_is_applied(self, coap, oscore_ctx, device_iface):
+        value = _multicast_write_reaches_p1(coap, oscore_ctx, device_iface)
+        assert value is True, (
+            "a multicast write protected with an 'if.g.s' token must be applied (spec 3.5.3: if.g.s covers all "
+            f"group addresses), /p/1 should be True, got {value}")
+
+
+class TestMulticastWriteWithoutGroupRights:
+    """ADDITIONAL, non-EITT: control for the class above, the same multicast write with an 'if.p' only token.
+
+    A token with neither 'if.g.s' nor a group address list has no group rights (spec 2.5.9.6): the device
+    discards the multicast request silently, the value stays unchanged.
+
+    GO / PUB tables as above; AT: multicast credentials with scope=["if.p"]
+    """
+
+    @pytest.fixture(autouse=True, scope="class")
+    @staticmethod
+    def setup(coap, oscore_ctx, device_iface):
+        if device_iface is None:
+            pytest.skip("Multicast tests require DEVICE_IFACE env var")
+        auth_prepare(coap, oscore_ctx)
+        ia_prepare(coap, oscore_ctx)
+        go = [{0: 13, 7: [65535], 8: 0x10, 11: "/p/1"}]  # cflag=16=w
+        pub = [{0: 7, 7: [65535], 13: GROUP_GRPID}]
+        _provision_multicast(coap, oscore_ctx, go, scope=["if.p"], pub_entries=pub)
+        yield
+        set_lsm(coap, oscore_ctx, 4)
+
+    def test_multicast_write_without_group_rights_is_dropped(self, coap, oscore_ctx, device_iface):
+        value = _multicast_write_reaches_p1(coap, oscore_ctx, device_iface)
+        assert value is False, (
+            "a multicast write protected with an 'if.p' only token (no group rights) must be discarded, "
+            f"/p/1 should stay False, got {value}")
 
 
 # ===========================================================================
@@ -2280,7 +2366,7 @@ class TestUnicastNonReResolution:
 
     When the DUT routes a group message to a unicast recipient as a NON
     s-mode POST and receives no 2.04 response, the stack increments a
-    per-recipient ``missing_response_count`` (messaging/coap/transactions.c).
+    per-recipient ``missing_response_count`` (src/messaging/coap/transactions.c).
     After 4 consecutive failures the recipient is marked UNRESOLVED, which
     forces a fresh multicast discovery GET on the next send.
 
@@ -2640,6 +2726,9 @@ class TestUnicastNonEchoReRequest:
         assert code == 0x02, f"Expected inner POST, got {code:#04x}"
         assert inner_opts.get(252) == echo, (
             f"Echo option not mirrored: {inner_opts.get(252)!r}")
+        assert inner_opts.get(12) == bytes([60]), (
+            f"Content-Format not CBOR: {inner_opts.get(12)!r}")
+        assert 17 not in inner_opts, "re-request carries an Accept option"
         data = cbor2.loads(payload)
         assert data[4] == DUT_IA, f"SIA should be {DUT_IA:#x}"
         assert data[5][7] == 65535 and data[5][6] == "w", (
@@ -2809,7 +2898,7 @@ class TestUnicastDiscoveryMalformedLengths:
     The DUT resolves a unicast recipient IA -> IPv6 by issuing a multicast
     discovery GET /.well-known/core?ep=knx://ia.<iid>.<ia> and parsing the
     ``ep`` attribute of the link-format response in
-    knx_coap_discovery_response_handler (api/oc_knx_client.c).
+    knx_coap_discovery_response_handler (src/resources/knx/oc_knx_client.c).
 
     Per spec clause 2.6.1.4 / 2.5.5.5 the ``ep`` fields have fixed widths:
       - KNX Serial Number: 6 octets = exactly 12 hex chars, leading zeros

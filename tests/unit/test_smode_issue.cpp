@@ -1,5 +1,5 @@
 /*
-  Unit tests: s-mode send path (oc_issue_s_mode_message in api/oc_knx_client.c), driven through the
+  Unit tests: s-mode send path (oc_issue_s_mode_message in resources/knx/oc_knx_client.c), driven through the
   public oc_send_s_mode_multicast_message()
 
   The s-mode message is built and sent in ONE function: one message buffer (handed over to its
@@ -12,7 +12,7 @@
     --wrap=oc_etimer_restart                 -> no-op (no transaction process in a unit test)
     --wrap=oc_allocate_message               -> counts message allocations
     --wrap=coap_new_transaction_with_message -> pass-through, or NULL to simulate "no transaction free"
-    --wrap=coap_notify_k_observers           -> records the /k Group Message event (order and payload)
+    --wrap=oc_knx_notify_k_observers           -> records the /k Group Message event (order and payload)
 */
 
 #include <gtest/gtest.h>
@@ -24,8 +24,8 @@
 extern "C" {
 #include "oc_api.h"
 #include "oc_buffer.h"
-#include "api/oc_knx_client.h"
-#include "api/oc_knx_sec.h"
+#include "oc_knx_client.h"
+#include "oc_knx_sec.h"
 #include "oc_helpers.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/transactions.h"
@@ -60,7 +60,7 @@ extern "C" void __wrap_coap_send_message(oc_message_t *msg)
 
 extern "C" void __wrap_oc_etimer_restart(struct oc_etimer *) {}
 
-extern "C" void __wrap_coap_notify_k_observers(const uint8_t *payload, size_t payload_len, uint32_t group_address)
+extern "C" void __wrap_oc_knx_notify_k_observers(const uint8_t* payload, size_t payload_len, uint32_t group_address)
 {
   (void)group_address;
   g_events.push_back("notify");

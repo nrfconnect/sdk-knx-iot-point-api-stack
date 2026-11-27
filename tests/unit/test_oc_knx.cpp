@@ -10,29 +10,32 @@
  * Copyright 2026 KNXA (to the extent protectable under applicable law)
  */
 
-#include <gtest/gtest.h>
 #include <cstring>
+#include <gtest/gtest.h>
+#include <vector>
 
-extern "C" {
-#include "oc_ri.h"
-#include "include/oc_knx.h"
-#include "api/oc_knx_client.h"
+extern "C"
+{
+#include "resources/knx/oc_knx_observe.h"
+#include "messaging/coap/coap.h"
+#include "messaging/coap/observe.h"
 #include "oc_core_res.h"
 #include "oc_helpers.h"
+#include "oc_knx.h"
+#include "oc_knx_client.h"
+#include "oc_knx_dev.h" /* KNX_STORAGE_KEY_FINGERPRINT */
 #include "oc_rep.h"
-#include "messaging/coap/oc_coap.h"
-#include "util/oc_mmem.h"
-#include "api/oc_knx_dev.h" /* KNX_STORAGE_KEY_FINGERPRINT */
-#include "port/oc_storage.h"
-#include "messaging/coap/observe.h"
-#include "messaging/coap/coap.h"
+#include "oc_ri.h"
 #include "port/oc_network_events_mutex.h"
+#include "port/oc_storage.h"
+#include "util/oc_mmem.h"
 
-/* static handlers are reachable via these non-static const resource literals */
-extern const oc_resource_t core_resource_knx;
-extern const oc_resource_t core_resource_a_lsm;
-extern const oc_resource_t core_resource_knx_k;
-extern const oc_resource_t core_resource_knx_fingerprint;
+  /* static handlers are reachable via these non-static const resource literals */
+  extern const oc_resource_t core_resource_knx;
+  extern const oc_resource_t core_resource_a_lsm;
+  extern const oc_resource_t core_resource_knx_k;
+  extern const oc_resource_t core_resource_knx_fingerprint;
+  extern const oc_resource_t core_resource_knx_spake;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -304,7 +307,7 @@ static int add_k_observer(uint16_t port)
   memset(&res, 0, sizeof(res));
   res.code = CONTENT_2_05;
 
-  return coap_observe_handler(&req, &res, &core_resource_knx_k, 0, &ep);
+  return oc_knx_observe_handler(&req, &res, &core_resource_knx_k, 0, &ep);
 }
 
 static int k_observers(void)
@@ -499,4 +502,83 @@ TEST_F(KnxHandlers, ALsmStartLoadingResetsPendingUnicastResolvers)
   EXPECT_EQ(recipient->ipv6_res.callback, nullptr);
   EXPECT_EQ(recipient->ipv6_res.attempts, 0);
   EXPECT_EQ(recipient->ipv6_res.resolve_status, OC_IP_STATUS_UNRESOLVED);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * /.well-known/knx/spake POST — handshake state checks before the crypto
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/*
+  The POST handler is called directly: the separate response that runs the crypto of a step is never sent, so
+  step 2 is accepted but never computed. Step 3 must not reach the key confirmation in that case: it would check
+  confirmP against a K_main that was never derived (all zero), which the peer can compute without the password.
+*/
+class KnxSpakePost : public KnxHandlers
+{
+protected:
+  /* an accepted step leaves the separate response pending; the handler's response code stays at 2.05 */
+  const int kAccepted = oc_status_code(OC_STATUS_OK);
+
+  void SetUp() override
+  {
+    KnxHandlers::SetUp();
+    oc_spake_reset_pase_session();
+  }
+
+  void TearDown() override
+  {
+    oc_spake_reset_pase_session();
+    KnxHandlers::TearDown();
+  }
+
+  /* CBOR map with one byte string of `len` bytes 0x04, 0x01, 0x01, ... under key `key` */
+  static std::vector<uint8_t> bytes_item(uint8_t key, size_t len)
+  {
+    std::vector<uint8_t> cbor = {key, 0x58, (uint8_t)len, 0x04};
+    cbor.resize(3 + len, 0x01);
+    return cbor;
+  }
+
+  int post(std::vector<uint8_t> items, uint8_t count)
+  {
+    items.insert(items.begin(), (uint8_t)(0xA0 + count));
+    oc_rep_t* rep = nullptr;
+    EXPECT_EQ(oc_parse_rep(items.data(), (int)items.size(), &rep), 0);
+    memset(&response_buffer, 0, sizeof(response_buffer));
+    response_buffer.buffer = buf;
+    response_buffer.buffer_size = sizeof(buf);
+    oc_rep_new(buf, sizeof(buf));
+    request.request_payload = rep;
+    request.accept = APPLICATION_CBOR;
+    core_resource_knx_spake.post_handler.cb(&request, OC_IF_NONE, nullptr);
+    oc_free_rep(rep);
+    return response_buffer.code;
+  }
+
+  int step1()
+  {
+    std::vector<uint8_t> items = {0x00, 0x62, 'i', 'd'};
+    std::vector<uint8_t> rnd = bytes_item(15, sizeof(((oc_pase_t*)nullptr)->rnd));
+    items.insert(items.end(), rnd.begin(), rnd.end());
+    return post(items, 2);
+  }
+
+  int step2(size_t share_len) { return post(bytes_item(10, share_len), 1); }
+  int step3() { return post(bytes_item(14, 32), 1); }
+};
+
+TEST_F(KnxSpakePost, StepThreeAfterShareOfWrongLengthIsRejected)
+{
+  ASSERT_EQ(step1(), kAccepted);
+  ASSERT_EQ(step2(64), oc_status_code(OC_STATUS_BAD_REQUEST));
+
+  EXPECT_EQ(step3(), oc_status_code(OC_STATUS_BAD_REQUEST));
+}
+
+TEST_F(KnxSpakePost, StepThreeBeforeStepTwoWasComputedIsRejected)
+{
+  ASSERT_EQ(step1(), kAccepted);
+  ASSERT_EQ(step2(65), kAccepted);
+
+  EXPECT_EQ(step3(), oc_status_code(OC_STATUS_BAD_REQUEST));
 }

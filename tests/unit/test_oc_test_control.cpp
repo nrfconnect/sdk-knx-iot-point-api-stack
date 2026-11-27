@@ -1,11 +1,11 @@
 /*
- * Unit tests for api/oc_test_control.c — reusable test-control endpoints.
+ * Unit tests for resources/ri/oc_test_control.c — reusable test-control endpoints.
  *
  * Every function in this file is static except oc_test_control_register(), and
  * the handlers are wired to resources created dynamically at registration time
  * (there is no public const oc_resource_t to call through). To reach the
  * statics we compile the translation unit into this test
- * (#include "api/oc_test_control.c"). The file contains no aggregate
+ * (#include "resources/ri/oc_test_control.c"). The file contains no aggregate
  * const-resource initializer, so it compiles cleanly under g++, and because the
  * test object then defines oc_test_control_register the archive copy in
  * libkisClientServer is never pulled in (no duplicate symbols).
@@ -25,11 +25,10 @@ extern "C" {
 #include "oc_ri.h"
 #include "oc_rep.h"
 #include "oc_helpers.h"
-#include "messaging/coap/oc_coap.h" /* full def of oc_response_buffer_s */
 #include <string.h>
 
 /* Brings the static handlers + file-scope globals into this TU. */
-#include "api/oc_test_control.c"
+#include "resources/ri/oc_test_control.c"
 }
 
 /* ───────────────────────────── helpers ──────────────────────────────────── */

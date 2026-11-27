@@ -1,18 +1,20 @@
 /*
- * Unit tests for api/oc_knx_fb.c
+ * Unit tests for resources/knx/oc_knx_fb.c
  */
 
+#include <cstdlib>
 #include <gtest/gtest.h>
 #include <string>
 #include <vector>
 
-extern "C" {
-#include "oc_ri.h"
-#include "messaging/coap/oc_coap.h"
-#include "api/oc_knx_fb.h"
-#include "util/oc_mmem.h"
-#include <string.h>
+#include "test_helpers_guarded_get.h"
 
+extern "C" {
+#include <string.h>
+#include "resources/knx/oc_knx_fb.h"
+#include "oc_ri.h"
+#include "oc_ri_internal.h"
+#include "util/oc_mmem.h"
 }
 
 extern "C" const oc_resource_t core_resource_knx_f;
@@ -109,12 +111,11 @@ protected:
     added.clear();
   }
 
-  void add_fb(uint16_t number, uint8_t instance, bool discoverable,
-              uint8_t datapoint_count = 1)
+  void add_fb(uint16_t number, uint8_t instance, bool discoverable, uint8_t datapoint_count = 1, const char* uri_override = nullptr)
   {
     oc_resource_t *r = oc_ri_alloc_resource();
     ASSERT_NE(r, nullptr);
-    const std::string uri = "/p/" + std::to_string(added.size() + 1);
+    const std::string uri = uri_override ? std::string(uri_override) : "/p/" + std::to_string(added.size() + 1);
     oc_new_string(&r->uri, uri.c_str(), uri.size());
     r->get_handler.cb = fb_dummy_handler;
     r->fb_data = ((uint32_t)number << 16) | ((uint32_t)instance << 8) |
@@ -126,28 +127,16 @@ protected:
     added.push_back(r);
   }
 
-  std::string invoke_get(const oc_resource_t &resource, const char *uri_path,
-                         const char *query, int *response_code)
-  {
-    uint8_t buffer[512] = {};
-    oc_response_buffer_t response_buffer{};
-    response_buffer.buffer = buffer;
-    response_buffer.buffer_size = sizeof(buffer);
-    oc_response_t response{};
-    response.response_buffer = &response_buffer;
-    oc_request_t request{};
-    request.response = &response;
-    request.resource = (oc_resource_t *)&resource;
-    request.accept = APPLICATION_LINK_FORMAT;
-    request.uri_path = uri_path;
-    request.uri_path_len = strlen(uri_path);
-    request.query = (char *)query;
-    request.query_len = query ? strlen(query) : 0;
-    oc_rep_new(buffer, sizeof(buffer));
+  /* the largest capacity the guarded buffer allows: the buffer minus its overflow guard
+     (= KNX_PAYLOAD_SIZE, the response buffer of a real request) */
+  static constexpr size_t kDefaultCapacity = test_helpers::kGuardedGetBufferSize - test_helpers::kOverflowGuardBytes;
 
-    resource.get_handler.cb(&request, OC_IF_LI, nullptr);
-    *response_code = response_buffer.code;
-    return std::string((char *)buffer, response_buffer.response_length);
+  std::string invoke_get(const oc_resource_t& resource, const char* uri_path, const char* query, int* response_code,
+                         size_t capacity = kDefaultCapacity)
+  {
+    const test_helpers::GuardedResponse response = test_helpers::guarded_get(resource, uri_path, query, capacity);
+    *response_code = response.code;
+    return response.payload;
   }
 };
 
@@ -309,4 +298,79 @@ TEST_F(CountFunctionalBlocks, DatapointHandlerRejectsUnknownFunctionalBlock)
   invoke_get(core_resource_knx_f_x, "f/999_1", nullptr, &response_code);
 
   EXPECT_EQ(response_code, oc_status_code(OC_STATUS_BAD_REQUEST));
+}
+
+/* ---------------- GET /f and /f/{fb} bounded by the response buffer ---------------- */
+
+TEST_F(CountFunctionalBlocks, ListHandlerHonoursTheRequestedPageSize)
+{
+  add_fb(417, 1, true);
+  add_fb(418, 1, true);
+  add_fb(419, 1, true);
+  int response_code = 0;
+
+  const std::string payload = invoke_get(core_resource_knx_f, "f", "pn=0&ps=1", &response_code);
+
+  EXPECT_EQ(response_code, oc_status_code(OC_STATUS_OK));
+  EXPECT_NE(payload.find("</f/417_1>"), std::string::npos);
+  EXPECT_EQ(payload.find("</f/418_1>"), std::string::npos);
+  EXPECT_NE(payload.find("rt=\"p.next\""), std::string::npos);
+}
+
+/* F-078: without ps a page of long datapoint links holds as many as fit the buffer, and l=ps reports that size */
+TEST_F(CountFunctionalBlocks, DatapointHandlerDefaultPageOfLongDatapointsFitsTheResponseBuffer)
+{
+  const int count = KNX_PAGE_SIZE + 1;
+  for (int i = 0; i < count; i++)
+  {
+    char uri[64];
+    snprintf(uri, sizeof(uri), "/p/a_long_datapoint_path_of_a_functional_block_%02d", i);
+    add_fb(417, 1, true, (uint8_t)count, uri);
+  }
+  int response_code = 0;
+
+  const std::string ps_reply = invoke_get(core_resource_knx_f_x, "f/417_1", "l=ps", &response_code);
+  ASSERT_EQ(response_code, oc_status_code(OC_STATUS_OK));
+  const size_t ps_pos = ps_reply.find(";ps=");
+  ASSERT_NE(ps_pos, std::string::npos);
+  const int page_size = atoi(ps_reply.c_str() + ps_pos + 4);
+  ASSERT_GT(page_size, 0);
+  ASSERT_LT(page_size, KNX_PAGE_SIZE) << "the test needs links that do not all fit one page";
+
+  const std::string page = invoke_get(core_resource_knx_f_x, "f/417_1", nullptr, &response_code);
+
+  EXPECT_EQ(response_code, oc_status_code(OC_STATUS_OK));
+  int links = 0;
+  for (size_t pos = page.find("</p/"); pos != std::string::npos; pos = page.find("</p/", pos + 1))
+  {
+    links++;
+  }
+  EXPECT_EQ(links, page_size);
+  EXPECT_NE(page.find("rt=\"p.next\""), std::string::npos);
+}
+
+TEST_F(CountFunctionalBlocks, DatapointHandlerDatapointLongerThanBufferReturnsInternalServerError)
+{
+  add_fb(417, 1, true, 1, "/p/a_datapoint_path_that_is_longer_than_the_whole_response_buffer_of_this_request");
+  int response_code = 0;
+
+  const std::string payload = invoke_get(core_resource_knx_f_x, "f/417_1", nullptr, &response_code, 64);
+
+  EXPECT_EQ(response_code, oc_status_code(OC_STATUS_INTERNAL_SERVER_ERROR));
+  EXPECT_TRUE(payload.empty());
+}
+
+TEST_F(CountFunctionalBlocks, GetWithObserveIsAnsweredWithoutObserveOption)
+{
+  /* RFC 7641 4.1: /f and /f/{fb} are not observable, a GET with Observe 0 is a plain GET */
+  add_fb(417, 1, true);
+
+  for (const char* uri_path : {"f", "f/417_1"})
+  {
+    const test_helpers::ObserveGetResult result = test_helpers::get_with_observe_register(uri_path, OC_ACL_P);
+
+    ASSERT_EQ(result.code, CONTENT_2_05) << uri_path << ": the observe branch only runs for a successful GET";
+    EXPECT_FALSE(result.has_observe_option) << uri_path;
+    EXPECT_EQ(result.observers_added, 0) << uri_path;
+  }
 }

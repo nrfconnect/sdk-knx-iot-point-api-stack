@@ -8,7 +8,7 @@ config KNXIOT_LIB
     select PSA_CRYPTO
     select MBEDTLS
     # PSA crypto requirements for KNX-IoT security (SPAKE2+ and OSCORE).
-    # These selects mirror security/knx_psa_crypto_config.h (the Linux/Windows PSA
+    # These selects mirror src/security/knx_psa_crypto_config.h (the Linux/Windows PSA
     # configuration) and bypass MBEDTLS_PROMPTLESS (set by OPENTHREAD_SECURITY_DEFAULT_CONFIG
     # when OpenThread is in the build), ensuring all required algorithms are always
     # available regardless of the active network backend.
@@ -83,7 +83,10 @@ config KNXIOT_CLIENT
     bool "KNX-IoT client mode support"
     default y
     help
-      Corresponds to CMake: OC_CLIENT.
+      Corresponds to CMake: OC_CLIENT (host CMake: OC_CLIENT_ENABLED).
+      Without it the IPv6 address of a unicast s-mode recipient is never
+      resolved (no CoAP discovery): such recipients are marked failed and
+      get nothing. Multicast s-mode is not affected.
 
 config KNXIOT_SERVER
     bool "KNX-IoT server mode support"
@@ -145,6 +148,48 @@ config KNXIOT_ATT_MAX_ENTRIES
       of management clients (e.g., ETS, MaC tools) that may be
       simultaneously authorised.
 
+config KNXIOT_COAP_MAX_OBSERVERS
+    int "Maximum number of observe relationships"
+    default 8
+    range 1 255
+    help
+      Corresponds to CMake: KNX_COAP_MAX_OBSERVERS.
+      Maximum number of CoAP observe relationships over all resources.
+      A registration beyond it is answered without the Observe option.
+
+config KNXIOT_NET_MAX_RX_PENDING
+    int "Received messages waiting for the event loop"
+    default 8
+    range 1 255
+    help
+      Corresponds to CMake: KNX_NET_MAX_RX_PENDING.
+      Received datagrams that may wait for the event loop. A datagram
+      beyond it is dropped; the sender retransmits.
+
+config KNXIOT_COAP_MAX_OPEN_TRANSACTIONS
+    int "Maximum number of open CoAP transactions"
+    default 32
+    range 1 255
+    help
+      Corresponds to CMake: KNX_COAP_MAX_OPEN_TRANSACTIONS.
+      Requests and responses awaiting send or acknowledgement. A request
+      or response beyond it is not sent. Every s-mode unicast recipient
+      (KNXIOT_GRT_MAX_ENTRIES) and every confirmable notification
+      (KNXIOT_COAP_MAX_OBSERVERS) holds one until it is acknowledged, size it
+      for those plus a few responses.
+
+config KNXIOT_CBOR_MAX_DEPTH
+    int "Maximum nesting depth of a received CBOR payload"
+    default 8
+    range 4 32
+    help
+      Corresponds to CMake: KNX_CBOR_MAX_DEPTH.
+      A payload with more nested arrays/maps is rejected with 4.00 before
+      it is parsed. Bounds the stack the parser can use (KNX payloads nest
+      at most 4 deep). Passed to the built-in TinyCBOR as
+      CBOR_PARSER_MAX_RECURSIONS; with an external TinyCBOR
+      (KNXIOT_TINYCBOR_BUILTIN=n) define CBOR_PARSER_MAX_RECURSIONS there.
+
 config KNXIOT_PAGE_SIZE
     int "Server default page size"
     default 20
@@ -168,14 +213,14 @@ config KNXIOT_NETWORK_BACKEND_ETHERNET
     bool "Ethernet"
     help
       Use Ethernet as the network backend.
-      Compiles port/zephyr/connectivity_posix.c with the shared DNS-SD
+      Compiles src/port/zephyr/connectivity_posix.c with the shared DNS-SD
       responder. Needs CONFIG_NET_L2_ETHERNET.
 
 config KNXIOT_NETWORK_BACKEND_THREAD
     bool "OpenThread"
     help
       Use OpenThread (IEEE 802.15.4 Thread mesh) as the network backend.
-      Compiles port/zephyr/connectivity_thread.c with the OpenThread SRP
+      Compiles src/port/zephyr/connectivity_thread.c with the OpenThread SRP
       client. Needs CONFIG_OPENTHREAD, with or without the Zephyr
       OpenThread L2.
 
@@ -184,7 +229,7 @@ config KNXIOT_NETWORK_BACKEND_WIFI
     select WIFI
     help
       Use Wi-Fi as the network backend.
-      Compiles port/zephyr/connectivity_posix.c with the shared DNS-SD
+      Compiles src/port/zephyr/connectivity_posix.c with the shared DNS-SD
       responder.
 
 endchoice
@@ -239,6 +284,15 @@ config KNX_RESET_PROCESS_TIME_S
       (e.g., EITT, MaC) so they know how long to wait before issuing
       follow-up requests while the device is resetting locally.
 
+config KNX_RESET_DELAY_MS
+    int "KNX reset delay (milliseconds)"
+    default 1000
+    help
+      Corresponds to CMake: KNX_RESET_DELAY_MILLISECONDS.
+      Delay between the reset request and executing the reset, so the
+      (OSCORE protected) response is sent before the security contexts are
+      wiped. Must be less than KNX_RESET_PROCESS_TIME_S * 1000.
+
 # ── Security ───────────────────────────────────────────────────────────────────
 
 config KNXIOT_ECHO_RING_SIZE
@@ -255,8 +309,8 @@ config KNXIOT_SHELL
     default y
     depends on SHELL
     help
-      Compiles the shared KNX IoT shell commands (port/knx_shell_commands.c) and their
-      Zephyr shell binding (port/zephyr/knx_shell.c), which registers the "knx_iot"
+      Compiles the shared KNX IoT shell commands (src/port/knx_shell_commands.c) and their
+      Zephyr shell binding (src/port/zephyr/knx_shell.c), which registers the "knx_iot"
       command with its subcommands (device parameters, tables, factory reset, heap
       statistics). Needs the Zephyr shell (CONFIG_SHELL).
 
@@ -266,7 +320,7 @@ config KNXIOT_TEST_CONTROL
     bool "Test-control endpoints (/test/restart, /test/factory-reset, /test/trigger)"
     default n
     help
-      Compiles api/oc_test_control.c and defines KNX_TEST_CONTROL for all targets.
+      Compiles src/resources/ri/oc_test_control.c and defines KNX_TEST_CONTROL for all targets.
       Registers the non-standard /test/* CoAP endpoints used by the Python runtime
       conformance suite (tests/runtime) to automate operator actions normally done
       by hand in the EITT GUI: soft restart, factory reset, and sensor trigger.
@@ -276,7 +330,7 @@ config KNXIOT_TEST_CONTROL
       Leave off for lssb/lsab and any production build.
 
 # ── Timing ─────────────────────────────────────────────────────────────────────
-# OC_CLOCK_CONF_TICKS_PER_SECOND (port/zephyr/oc_config.h) is set to
+# OC_CLOCK_CONF_TICKS_PER_SECOND (src/port/zephyr/oc_config.h) is set to
 # CONFIG_SYS_CLOCK_TICKS_PER_SEC so the KNX-IoT timer arithmetic matches
 # oc_clock_time() which returns k_uptime_get() (milliseconds).
 # No separate KNX-IoT symbol is needed; configure the tick rate via
@@ -291,7 +345,7 @@ config KNXIOT_LOG_LEVEL
     range 0 4 if KNXIOT_DEBUG
     help
       Follows the Zephyr log level convention (CONFIG_<MODULE>_LOG_LEVEL).
-      Corresponds to CMake: OC_PRINT_ENABLED (level > 0) / OC_DEBUG_ENABLED (level 4).
+      Corresponds to CMake: OC_PRINT_ENABLED (level > 0 and LOG=y) / OC_DEBUG_ENABLED (level 4).
       0 = OFF   - no logging
       1 = ERR   - errors only
       2 = WRN   - warnings and errors

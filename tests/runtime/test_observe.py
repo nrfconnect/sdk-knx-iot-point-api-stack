@@ -20,6 +20,8 @@ Runtime conformance tests — CoAP Observe / Notifications (RFC 7641 over KNX-Io
   OBS-E2   Notification AAD binds the request PIV (regression)(RFC 8613 §8.3)
   OBS-F1   Independent sequence counters per observer         (2.6.10.1)
   OBS-F2   Stale observer pruned, others still notified       (RFC 7641)
+  OBS-F3   Full observer list: new registration gets no Observe (RFC 7641 4.1)
+  OBS-F4   Full observer list: same client on a new port takes over its oldest registration
 
 ==============================================================================
 OBSERVE BEHAVIOUR: /k (S-Mode group, if.g.s) vs /p/xxx (Point, if.o)
@@ -144,8 +146,8 @@ def make_observer(device_host, coap_port):
 def _trigger_p(coap, oscore_ctx, href=OBS_DP, value=None):
     """POST /test/trigger to set a /p output value and notify observers.
 
-    test_set_dp() in the server stores the value and calls
-    oc_notify_observers(href), so /p subscribers receive a notification.
+    test_set_dp() in the server stores the value; the s-mode send that the
+    trigger schedules notifies the /p subscribers (loaded device only).
     """
     payload = {11: href}
     if value is not None:
@@ -442,7 +444,7 @@ def test_observe_non_true_non_confirmable(
 
 
 # ===========================================================================
-# Group D — /k S-Mode notifications (drives coap_notify_k_observers)
+# Group D — /k S-Mode notifications (drives oc_knx_notify_k_observers)
 # ===========================================================================
 
 def _provision_k_sender(coap, oscore_ctx, href=OBS_DP_ALT):
@@ -451,7 +453,7 @@ def _provision_k_sender(coap, oscore_ctx, href=OBS_DP_ALT):
     Mirrors test_group_comm.py's multicast trigger setup: GO cflag=0x40 (transmit) with
     a recipient table mapping the GA to a multicast grpid. The physical
     multicast send may go nowhere on a single host, but oc_issue_s_mode_message
-    still runs coap_notify_k_observers, which is the behaviour under test.
+    still runs oc_knx_notify_k_observers, which is the behaviour under test.
     """
     set_lsm(coap, oscore_ctx, 4)
     set_lsm(coap, oscore_ctx, 1)
@@ -487,8 +489,8 @@ def test_observe_subsequent_k_notification_has_s_object(
 
     Spec 2.5.9.1/2.5.9.2 - every /k notification after the first carries the
     full Group Notification object { 4: sia, 5: { 6: "w", 7: ga, 1: value } }.
-    coap_notify_k_observers() (messaging/coap/observe.c) now forwards the full
-    envelope captured by oc_issue_s_mode_message() (api/oc_knx_client.c).
+    oc_knx_notify_k_observers() (src/resources/knx/oc_knx_observe.c) now forwards the full
+    envelope captured by oc_issue_s_mode_message() (src/resources/knx/oc_knx_client.c).
     """
     _provision_k_sender(coap, oscore_ctx, OBS_DP_ALT)
 
@@ -823,3 +825,87 @@ def test_observe_stale_observer_pruned(
         "live observer should keep receiving after stale observer pruning")
 
     live.observe_deregister(sub_live)
+
+
+# Default of KNX_COAP_MAX_OBSERVERS (CMake), the build the runtime server uses.
+MAX_OBSERVERS = 8
+
+
+def _delete_all_subscriptions(coap, oscore_ctx):
+    resp = coap.oscore_delete(oscore_ctx, "/sub")
+    assert resp is not None, "DELETE /sub timed out"
+    assert resp.code_class == 2, f"DELETE /sub failed: {resp.code}"
+
+
+def _fill_observer_list(oscore_ctx, make_observer, href=OBS_DP):
+    """Register MAX_OBSERVERS NON observers of `href`, oldest first."""
+    filled = []
+    for i in range(MAX_OBSERVERS):
+        obs = make_observer()
+        resp, sub = obs.observe_register_oscore(
+            oscore_ctx, href, lt=86400, non=True, accept=APPLICATION_CBOR)
+        assert resp is not None, f"observe register {i} timed out"
+        assert resp.is_successful, f"observe register {i} failed: {resp.code}"
+        assert sub.last_seq is not None, (
+            f"observe register {i} below the limit got no Observe option")
+        filled.append((obs, sub))
+    return filled
+
+
+def test_observe_limit_rejects_registration_when_full(
+        coap, oscore_ctx, make_observer):
+    """OBS-F3: with the observer list full, a registration for a resource
+    the client does not observe yet is answered as a plain GET.
+
+    RFC 7641 4.1: a server unable to add an observer responds without the
+    Observe option; the request itself still succeeds.
+    """
+    _delete_all_subscriptions(coap, oscore_ctx)
+    try:
+        _fill_observer_list(oscore_ctx, make_observer, OBS_DP)
+
+        probe = make_observer()
+        resp, sub = probe.observe_register_oscore(
+            oscore_ctx, OBS_DP_ALT, lt=86400, non=True,
+            accept=APPLICATION_CBOR)
+        assert resp is not None, "observe register beyond the limit timed out"
+        assert resp.is_successful, (
+            f"observe register beyond the limit expected 2.05, got {resp.code}")
+        assert sub.last_seq is None, (
+            f"registration beyond the limit carries Observe={sub.last_seq}")
+    finally:
+        _delete_all_subscriptions(coap, oscore_ctx)
+
+
+def test_observe_limit_same_client_new_port_takes_over_oldest(
+        coap, oscore_ctx, make_observer):
+    """OBS-F4: with the list full, the same client (same address and OSCORE
+    identity) registering the same resource from a new port takes over its
+    oldest registration, as after a client restart on a new ephemeral port.
+    """
+    _trigger_p(coap, oscore_ctx, OBS_DP, value=False)
+    _delete_all_subscriptions(coap, oscore_ctx)
+    try:
+        filled = _fill_observer_list(oscore_ctx, make_observer, OBS_DP)
+
+        restarted = make_observer()
+        resp, sub = restarted.observe_register_oscore(
+            oscore_ctx, OBS_DP, lt=86400, non=True, accept=APPLICATION_CBOR)
+        assert resp is not None, "re-registration from a new port timed out"
+        assert resp.is_successful, (
+            f"re-registration from a new port failed: {resp.code}")
+        assert sub.last_seq is not None, (
+            "re-registration from a new port got no Observe option")
+
+        _trigger_p(coap, oscore_ctx, OBS_DP, value=True)
+
+        notes = restarted.collect_notifications(sub, count=1, timeout=5.0)
+        assert len(notes) == 1, "new registration got no notification"
+        oldest, _ = filled[0]
+        assert oldest.count_incoming_messages(timeout=1.0) == 0, (
+            "oldest registration still notified after the takeover")
+        second, second_sub = filled[1]
+        assert len(second.collect_notifications(second_sub, count=1, timeout=5.0)) == 1, (
+            "second registration lost its notification")
+    finally:
+        _delete_all_subscriptions(coap, oscore_ctx)

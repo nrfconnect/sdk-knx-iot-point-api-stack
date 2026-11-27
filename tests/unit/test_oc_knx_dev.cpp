@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_knx_dev.c
+ * Unit tests for resources/knx/oc_knx_dev.c
  *
  * Two groups of tests live here:
  *
@@ -35,18 +35,18 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include "oc_core_res.h"  /* oc_core_get_device_info, oc_device_info_t */
-#include "oc_knx_dev.h"   /* function under test */
-#include "oc_ri.h"        /* oc_request_t / oc_resource_t / oc_status_code */
-#include "messaging/coap/observe.h"
+#include "resources/knx/oc_knx_observe.h"
 #include "messaging/coap/coap.h"
+#include "messaging/coap/observe.h"
+#include "oc_core_res.h" /* oc_core_get_device_info, oc_device_info_t */
+#include "oc_knx_dev.h"  /* function under test */
+#include "oc_ri.h"       /* oc_request_t / oc_resource_t / oc_status_code */
 #include "port/oc_network_events_mutex.h"
 #include "util/oc_mmem.h"
 
-extern const oc_resource_t core_resource_knx_k;
+  extern const oc_resource_t core_resource_knx_k;
 #include "oc_rep.h"       /* oc_rep_new */
 #include "oc_helpers.h"   /* oc_new_string / oc_free_string */
-#include "messaging/coap/oc_coap.h" /* full def of oc_response_buffer_s */
 #include "util/oc_mmem.h"
 #include "port/oc_storage.h" /* oc_storage_config for the '/ap/pv' PUT */
 #include <string.h>
@@ -71,7 +71,7 @@ extern const oc_resource_t core_resource_app_pv;
 extern const oc_resource_t core_resource_app;
 extern const oc_resource_t core_resource_dev_mid;
 
-/* pass-through counter: each lookup by index walks the core resource chain from the start */
+/* pass-through counter of the core resource lookups by index */
 const oc_resource_t* __real_oc_core_get_core_resource_by_index(int index);
 static int g_core_by_index_calls;
 const oc_resource_t* __wrap_oc_core_get_core_resource_by_index(int index)
@@ -594,7 +594,7 @@ static int add_k_observer(uint16_t port)
   memset(&res, 0, sizeof(res));
   res.code = CONTENT_2_05;
 
-  return coap_observe_handler(&req, &res, &core_resource_knx_k, 0, &ep);
+  return oc_knx_observe_handler(&req, &res, &core_resource_knx_k, 0, &ep);
 }
 
 static int k_observers(void)
@@ -655,12 +655,16 @@ static bool list_contains(const uint8_t* buf, size_t size, const char* text)
 }
 
 /*
-  a list GET walks the core resource chain once: one lookup by index (the first entry), then 'next'
-  - the list holds its first entry and the one after it (the walk follows the chain), 2.05 link format
+  a list GET looks up each entry once by index (core resources are not chained, 'next' is NULL)
+  - the list holds its first entry and the one at the next index, 2.05 link format, one lookup per listed entry
 */
-static void expect_list_walks_the_chain_once(oc_request_t& request, oc_response_buffer_t& response_buffer, uint8_t* buf, size_t size,
-                                              const oc_resource_t& list, const oc_resource_t& first)
+static void expect_list_looks_up_each_entry_by_index(oc_request_t& request, oc_response_buffer_t& response_buffer, uint8_t* buf, size_t size,
+                                                     const oc_resource_t& list, int first_index)
 {
+  const oc_resource_t* first = oc_core_get_core_resource_by_index(first_index);
+  const oc_resource_t* second = oc_core_get_core_resource_by_index(first_index + 1);
+  ASSERT_NE(first, nullptr);
+  ASSERT_NE(second, nullptr);
   memset(buf, 0, size);
   oc_rep_new(buf, (int)size);
   response_buffer.code = 0;
@@ -669,17 +673,22 @@ static void expect_list_walks_the_chain_once(oc_request_t& request, oc_response_
   g_core_by_index_calls = 0;
   list.get_handler.cb(&request, OC_IF_LI, nullptr);
   EXPECT_EQ(response_buffer.code, oc_status_code(OC_STATUS_OK));
-  EXPECT_TRUE(list_contains(buf, size, oc_string(first.uri))) << oc_string(first.uri);
-  EXPECT_TRUE(list_contains(buf, size, oc_string(first.next->uri))) << oc_string(first.next->uri);
-  EXPECT_EQ(g_core_by_index_calls, 1);
+  EXPECT_TRUE(list_contains(buf, size, oc_string(first->uri))) << oc_string(first->uri);
+  EXPECT_TRUE(list_contains(buf, size, oc_string(second->uri))) << oc_string(second->uri);
+  int entries = 0;
+  for (size_t i = 0; i < size; i++)
+  {
+    entries += (buf[i] == '<');
+  }
+  EXPECT_EQ(g_core_by_index_calls, entries);
 }
 
-TEST_F(KnxDevHandlers, DevListWalksTheCoreChainOnce)
+TEST_F(KnxDevHandlers, DevListLooksUpEachEntryByIndex)
 {
-  expect_list_walks_the_chain_once(request, response_buffer, buf, sizeof(buf), core_resource_dev, core_resource_dev_sn);
+  expect_list_looks_up_each_entry_by_index(request, response_buffer, buf, sizeof(buf), core_resource_dev, OC_DEV_SN);
 }
 
-TEST_F(KnxDevHandlers, ApListWalksTheCoreChainOnce)
+TEST_F(KnxDevHandlers, ApListLooksUpEachEntryByIndex)
 {
-  expect_list_walks_the_chain_once(request, response_buffer, buf, sizeof(buf), core_resource_app, core_resource_app_pv);
+  expect_list_looks_up_each_entry_by_index(request, response_buffer, buf, sizeof(buf), core_resource_app, OC_APP_PV);
 }

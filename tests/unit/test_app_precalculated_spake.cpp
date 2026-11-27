@@ -1,6 +1,6 @@
 /*
  * Unit tests for app_get_precalculated_spake_data() (include/oc_knx.h) and its
- * stack consumer oc_spake2plus_init_data() (api/oc_knx.c).
+ * stack consumer oc_spake2plus_init_data() (resources/knx/oc_knx.c).
  *
  * app_get_precalculated_spake_data() is an application-provided callback that
  * returns the SPAKE2+ precalculated offline registration record (RFC 9383

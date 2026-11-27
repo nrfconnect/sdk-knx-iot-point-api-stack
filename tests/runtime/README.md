@@ -118,8 +118,9 @@ a pile of environment-induced failures that read as a code regression.
   (e.g. the `test_unicast_discovery_*` malformed-length cases wait up to 20 s for a
   discovery GET). They pass when run in isolation; a skip there is a timing
   artefact, not a defect.
-- The script builds fresh inside the container's filesystem (no bind mount),
-  avoiding stale CMake cache issues.
+- The script builds inside the container's filesystem (no bind mount). The
+  objects are kept in a cache volume, but `CMakeCache.txt` is recreated on
+  every run, so preset and `CACHE` default changes always take effect.
 
 ## Running on Linux / CI directly
 

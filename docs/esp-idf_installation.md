@@ -40,7 +40,7 @@ ${ESP32_DEVELOPMENT_DIR}/
 |Directory|Usage|
 |---|---|
 |`EIM`|The eim installer binary, its `eim_config.toml`, and the install log|
-|`ESP-IDF`|The ESP-IDF SDK checkout, under a per-version subdirectory (for example `v6.1/esp-idf`)|
+|`ESP-IDF`|The ESP-IDF SDK checkout, under a per-version subdirectory (for example `v6.1.1/esp-idf`)|
 |`Tools`|Toolchains, OpenOCD, cmake, ninja, the Python environment, and the activation scripts|
 |`Downloads`|eim download cache for the tool archives|
 
@@ -92,7 +92,7 @@ esp_idf_json_path = "${ESP32_DEVELOPMENT_DIR}/Tools"
 tool_download_folder_name = "${ESP32_DEVELOPMENT_DIR}/Downloads"
 tool_install_folder_name = "${ESP32_DEVELOPMENT_DIR}/Tools"
 target = ["esp32c5", "esp32c6", "esp32s3"]
-idf_versions = ["v6.1"]
+idf_versions = ["v6.1.1"]
 tools_json_file = "tools/tools.json"
 config_file_save_path = "${ESP32_DEVELOPMENT_DIR}/EIM/eim_config.toml"
 non_interactive = true
@@ -109,10 +109,10 @@ activation_script_path_override = "${ESP32_DEVELOPMENT_DIR}/Tools"
 python_version_override = "python313"
 
 [idf_features_per_version]
-"v6.1" = ["core", "gdbgui", "pytest", "ci", "docs", "ide"]
+"v6.1.1" = ["core", "gdbgui", "pytest", "ci", "docs", "ide"]
 
 [idf_tools_per_version]
-"v6.1" = ["xtensa-esp-elf-gdb", "riscv32-esp-elf-gdb", "xtensa-esp-elf", "esp-clang", "esp-clang-libs", "riscv32-esp-elf", "esp32ulp-elf", "openocd-esp32", "ninja", "esp-rom-elfs", "cmake"]
+"v6.1.1" = ["xtensa-esp-elf-gdb", "riscv32-esp-elf-gdb", "xtensa-esp-elf", "esp-clang", "esp-clang-libs", "riscv32-esp-elf", "esp32ulp-elf", "openocd-esp32", "ninja", "esp-rom-elfs", "cmake"]
 EOF
 ```
 
@@ -121,7 +121,7 @@ Notes:
 - `target`: list only the SoCs you build for. The values above (ESP32-C5,
   ESP32-C6, ESP32-S3) are an example set. Add or remove targets as needed.
 - `idf_versions` and both version-keyed tables must use the same version key
-  (here `v6.1`). To install a different version, change all three.
+  (here `v6.1.1`). To install a different version, change all three.
 - `config_file_save_path` should point at the config's own location, so an eim
   re-save does not scatter copies elsewhere.
 - `python_version_override` is optional and names the interpreter eim should
@@ -163,7 +163,7 @@ Check which Python the environment was actually built from, since
 `python_version_override` is only a request:
 
 ```bash
-"${ESP32_DEVELOPMENT_DIR}/Tools/python/v6.1/venv/bin/python" --version
+"${ESP32_DEVELOPMENT_DIR}/Tools/python/v6.1.1/venv/bin/python" --version
 ```
 
 If an earlier ESP-IDF or eim installation left a `~/.espressif` directory, it is
@@ -177,20 +177,20 @@ rm -rf ~/.espressif
 ## 5. Activate the environment
 
 eim writes activation and deactivation scripts under the tools directory, named
-after the installed version (for example `activate_idf_v6.1.sh` and
-`deactivate_idf_v6.1.sh`, plus `.fish` variants of both). The exact command is
+after the installed version (for example `activate_idf_v6.1.1.sh` and
+`deactivate_idf_v6.1.1.sh`, plus `.fish` variants of both). The exact command is
 printed at the end of the install. Source the activation script in each shell
 that builds firmware, then confirm `idf.py` is available:
 
 ```bash
-source "${ESP32_DEVELOPMENT_DIR}/Tools/activate_idf_v6.1.sh"
+source "${ESP32_DEVELOPMENT_DIR}/Tools/activate_idf_v6.1.1.sh"
 idf.py --version
 ```
 
 Leave the environment again with:
 
 ```bash
-source "${ESP32_DEVELOPMENT_DIR}/Tools/deactivate_idf_v6.1.sh"
+source "${ESP32_DEVELOPMENT_DIR}/Tools/deactivate_idf_v6.1.1.sh"
 ```
 
 The script refuses to run when it is executed instead of sourced, because it has
@@ -244,8 +244,8 @@ hold absolute paths and keep working in shells where
 
 ```bash
 cat >> ~/.bash_aliases << EOF
-alias esp-idf-activate='source "${ESP32_DEVELOPMENT_DIR}/Tools/activate_idf_v6.1.sh"'
-alias esp-idf-deactivate='source "${ESP32_DEVELOPMENT_DIR}/Tools/deactivate_idf_v6.1.sh"'
+alias esp-idf-activate='source "${ESP32_DEVELOPMENT_DIR}/Tools/activate_idf_v6.1.1.sh"'
+alias esp-idf-deactivate='source "${ESP32_DEVELOPMENT_DIR}/Tools/deactivate_idf_v6.1.1.sh"'
 EOF
 ```
 

@@ -17,6 +17,9 @@
   The client callback is registered with oc_ri_alloc_client_cb (as oc_do_request does), its token and MID go into the
   hand-built ACK.
 
+  Also covers client Block2 reassembly, the empty-ACK/separate-response lifecycle,
+  and parser-error replies. No live networking or OSCORE context is required.
+
   The network side is faked with the GNU linker --wrap facility (see tests/unit/CMakeLists.txt):
     --wrap=oc_main_initialized -> true, so coap_send_transaction() runs
     --wrap=coap_send_message   -> records the response bytes and releases the message
@@ -29,13 +32,14 @@
 #include <vector>
 
 extern "C" {
-#include "oc_buffer.h"
-#include "oc_buffer_settings.h"
-#include "oc_client_state.h"
-#include "oc_ri.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/engine.h"
 #include "messaging/coap/transactions.h"
+#include "oc_blockwise.h"
+#include "oc_buffer.h"
+#include "oc_buffer_settings.h"
+#include "oc_client_state.h"
+#include "oc_ri_internal.h"
 #include "port/oc_network_events_mutex.h"
 #include "port/oc_random.h"
 #include "util/oc_mmem.h"
@@ -111,10 +115,11 @@ static oc_endpoint_t peer_endpoint(void)
 
 /*
   a piggybacked ACK 2.05 (or with 'type' CON a separate response) with 'payload_len' bytes (byte i = i & 0xFF) in ONE message
-  (no Block2); Content-Format application/octet-stream, so the client side hands the raw bytes to the callback without a CBOR parse
+  (optional Block2 with 64-byte blocks); Content-Format application/octet-stream, so the client side hands the raw bytes
+  to the callback without a CBOR parse
 */
 static oc_message_t* make_response(uint16_t mid, const uint8_t* token, uint8_t token_len, size_t payload_len,
-                                   coap_message_type_t type = COAP_TYPE_ACK)
+                                   coap_message_type_t type = COAP_TYPE_ACK, int block2_num = -1, uint8_t block2_more = 0)
 {
   oc_message_t* m = oc_allocate_message();
   if (!m)
@@ -128,6 +133,10 @@ static oc_message_t* make_response(uint16_t mid, const uint8_t* token, uint8_t t
   coap_udp_init_message(pkt, type, CONTENT_2_05, mid);
   coap_set_token(pkt, token, token_len);
   coap_set_header_content_format(pkt, APPLICATION_OCTET_STREAM);
+  if (block2_num >= 0)
+  {
+    coap_set_header_block2(pkt, (uint32_t)block2_num, block2_more, 64);
+  }
 
   size_t len = coap_serialize_message(pkt, m->data);
   m->data[len++] = 0xFF; /* payload marker */
@@ -152,6 +161,8 @@ static void record_client_response(oc_client_response_t* data)
 
 class CoapReceivePayload : public ::testing::Test {
 protected:
+  oc_client_cb_t* client_cb = nullptr;
+
   void SetUp() override
   {
     oc_network_event_handler_mutex_init();
@@ -165,6 +176,11 @@ protected:
 
   void TearDown() override
   {
+    if (client_cb && oc_ri_is_client_cb_valid(client_cb))
+    {
+      oc_ri_remove_client_cb(client_cb);
+    }
+    oc_blockwise_scrub_buffers(true);
     coap_free_all_transactions();
     oc_coap_clear_request_history();
     oc_random_destroy();
@@ -175,6 +191,16 @@ protected:
   bool sent(coap_packet_t *pkt)
   {
     return g_send_calls == 1 && coap_parse_udp_message(pkt, g_sent_data.data(), g_sent_data.size() - 1) == COAP_NO_ERROR;
+  }
+
+  oc_client_cb_t* allocate_client_callback(const char* query = nullptr)
+  {
+    oc_endpoint_t ep = peer_endpoint();
+    oc_client_handler_t handler;
+    memset(&handler, 0, sizeof(handler));
+    handler.response = record_client_response;
+    client_cb = oc_ri_alloc_client_cb("/p/1", &ep, COAP_GET, query, handler, HIGH_QOS, nullptr);
+    return client_cb;
   }
 };
 
@@ -296,6 +322,105 @@ TEST_F(CoapReceivePayload, ClientResponseAboveOneBlockReachesTheCallbackComplete
     EXPECT_EQ(oc_ri_find_client_cb_by_token(token, token_len), nullptr);
     EXPECT_EQ(g_send_calls, 0);
   }
+}
+
+TEST_F(CoapReceivePayload, ClientBlock2RequestsTheNextBlockAndDeliversTheCompleteBody)
+{
+  ASSERT_NE(allocate_client_callback("x=1"), nullptr);
+  uint8_t token[COAP_TOKEN_LEN];
+  const uint8_t token_len = client_cb->token_len;
+  memcpy(token, client_cb->token, token_len);
+
+  oc_message_t* first = make_response((uint16_t)(client_cb->mid + 0x100), token, token_len, 64, COAP_TYPE_CON, 0, 1);
+  ASSERT_NE(first, nullptr);
+  coap_receive(first);
+  oc_message_unref(first);
+
+  EXPECT_EQ(g_cb_calls, 0);
+  EXPECT_EQ(oc_ri_find_client_cb_by_token(token, token_len), client_cb);
+  ASSERT_EQ(g_send_calls, 2); // empty ACK, then the request for block 1
+  coap_packet_t next[1];
+  ASSERT_EQ(coap_parse_udp_message(next, g_sent_data.data(), g_sent_data.size() - 1), COAP_NO_ERROR);
+  EXPECT_EQ(next->type, COAP_TYPE_CON);
+  EXPECT_EQ(next->code, COAP_GET);
+  ASSERT_EQ(next->token_len, token_len);
+  EXPECT_EQ(memcmp(next->token, token, token_len), 0);
+  EXPECT_EQ(std::string(next->uri_path, next->uri_path_len), "p/1");
+  EXPECT_EQ(std::string(next->uri_query, next->uri_query_len), "x=1");
+  uint32_t num = 0, offset = 0;
+  uint8_t more = 1;
+  uint16_t size = 0;
+  ASSERT_EQ(coap_get_header_block2(next, &num, &more, &size, &offset), 1);
+  EXPECT_EQ(num, 1u);
+  EXPECT_EQ(more, 0);
+  EXPECT_EQ(size, 64);
+  EXPECT_EQ(offset, 64u);
+  const uint16_t next_mid = next->mid;
+  EXPECT_NE(coap_get_transaction_by_mid(next_mid), nullptr);
+
+  g_send_calls = 0;
+  oc_message_t* last = make_response(next_mid, token, token_len, 36, COAP_TYPE_ACK, 1, 0);
+  ASSERT_NE(last, nullptr);
+  coap_receive(last);
+  oc_message_unref(last);
+
+  EXPECT_EQ(g_send_calls, 0);
+  EXPECT_EQ(g_cb_calls, 1);
+  std::vector<uint8_t> expected;
+  for (int i = 0; i < 64; i++)
+  {
+    expected.push_back((uint8_t)i);
+  }
+  for (int i = 0; i < 36; i++)
+  {
+    expected.push_back((uint8_t)i);
+  }
+  EXPECT_EQ(g_cb_payload, expected);
+  EXPECT_EQ(oc_ri_find_client_cb_by_token(token, token_len), nullptr);
+  EXPECT_EQ(coap_get_transaction_by_mid(next_mid), nullptr);
+  EXPECT_EQ(oc_blockwise_find_response_buffer_by_mid(next_mid), nullptr);
+}
+
+TEST_F(CoapReceivePayload, EmptyAckKeepsTheCallbackUntilTheSeparateResponse)
+{
+  ASSERT_NE(allocate_client_callback(), nullptr);
+  uint8_t token[COAP_TOKEN_LEN];
+  const uint8_t token_len = client_cb->token_len;
+  memcpy(token, client_cb->token, token_len);
+  const uint16_t request_mid = client_cb->mid;
+  oc_endpoint_t ep = peer_endpoint();
+  ASSERT_NE(coap_new_transaction(request_mid, token, token_len, &ep), nullptr);
+
+  oc_message_t* ack = oc_allocate_message();
+  ASSERT_NE(ack, nullptr);
+  ack->endpoint = ep;
+  coap_packet_t pkt[1];
+  coap_udp_init_message(pkt, COAP_TYPE_ACK, EMPTY_0_00, request_mid);
+  ack->length = coap_serialize_message(pkt, ack->data);
+  ASSERT_EQ(ack->length, 4u);
+  coap_receive(ack);
+  oc_message_unref(ack);
+
+  EXPECT_EQ(g_send_calls, 0);
+  EXPECT_EQ(g_cb_calls, 0);
+  EXPECT_EQ(oc_ri_find_client_cb_by_token(token, token_len), client_cb);
+  EXPECT_EQ(coap_get_transaction_by_mid(request_mid), nullptr);
+
+  const uint16_t separate_mid = (uint16_t)(request_mid + 0x100);
+  oc_message_t* response = make_response(separate_mid, token, token_len, 3, COAP_TYPE_CON);
+  ASSERT_NE(response, nullptr);
+  coap_receive(response);
+  oc_message_unref(response);
+
+  ASSERT_TRUE(sent(pkt));
+  EXPECT_EQ(pkt->type, COAP_TYPE_ACK);
+  EXPECT_EQ(pkt->code, EMPTY_0_00);
+  EXPECT_EQ(pkt->mid, separate_mid);
+  EXPECT_EQ(pkt->token_len, 0);
+  EXPECT_EQ(g_sent_data.size() - 1, 4u);
+  EXPECT_EQ(g_cb_calls, 1);
+  EXPECT_EQ(g_cb_payload, (std::vector<uint8_t>{0, 1, 2}));
+  EXPECT_EQ(oc_ri_find_client_cb_by_token(token, token_len), nullptr);
 }
 
 /*
@@ -493,4 +618,20 @@ TEST_F(CoapReceivePayload, ConRequestWithUnknownCriticalOptionGetsAck402)
   EXPECT_EQ(pkt->type, COAP_TYPE_ACK);
   EXPECT_EQ(pkt->code, BAD_OPTION_4_02);
   EXPECT_EQ(pkt->mid, 0x3347);
+}
+
+TEST_F(CoapReceivePayload, NonRequestWithUnknownCriticalOptionGetsNon402AndKeepsTheToken)
+{
+  const uint8_t data[] = {0x58, COAP_GET, 0x33, 0x48, 1, 2, 3, 4, 5, 6, 7, 8, 0x90};
+  const uint16_t previous_mid = coap_get_next_mid();
+  receive_raw(data, sizeof(data));
+
+  coap_packet_t pkt[1];
+  ASSERT_TRUE(sent(pkt));
+  EXPECT_EQ(pkt->type, COAP_TYPE_NON);
+  EXPECT_EQ(pkt->code, BAD_OPTION_4_02);
+  EXPECT_EQ(pkt->mid, (uint16_t)(previous_mid + 1));
+  ASSERT_EQ(pkt->token_len, COAP_TOKEN_LEN);
+  EXPECT_EQ(memcmp(pkt->token, data + 4, COAP_TOKEN_LEN), 0);
+  EXPECT_EQ(pkt->payload_len, 0u);
 }

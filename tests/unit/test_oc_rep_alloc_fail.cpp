@@ -1,5 +1,5 @@
 /*
- * Unit tests for the CBOR parser (api/oc_rep.c, oc_parse_rep) when malloc fails
+ * Unit tests for the CBOR parser (resources/ri/oc_rep.c, oc_parse_rep) when malloc fails
  *
  * The test links with -Wl,--wrap=malloc: __wrap_malloc() fails exactly the NEXT call once a test arms it, every
  * other call goes to the real malloc. The rep nodes come from calloc (not wrapped), so the next malloc of a parse

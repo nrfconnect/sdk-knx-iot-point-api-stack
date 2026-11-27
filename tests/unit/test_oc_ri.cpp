@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_ri.c and api/oc_knx.c — pure lookup functions
+ * Unit tests for resources/ri/oc_ri.c and resources/knx/oc_knx.c — pure lookup functions
  *
  * Covers:
  *   oc_ri.c:  oc_status_code, oc_count_total_interfaces_in_mask,
@@ -22,25 +22,26 @@
 #include <cstring>
 
 extern "C" {
-#include "oc_ri.h"
-#include "oc_knx.h"
-#include "oc_helpers.h"
-#include "oc_rep.h"
-#include "oc_client_state.h"
-#include "oc_blockwise.h"
-#include "messaging/coap/observe.h"
-#include "port/oc_random.h"
-#include "port/oc_network_events_mutex.h"
-#include "messaging/coap/oc_coap.h"
+#include "resources/knx/oc_knx_observe.h"
 #include "messaging/coap/coap.h"
-#include "util/oc_mmem.h"
-#include "api/oc_knx_sec.h"
+#include "messaging/coap/observe.h"
+#include "oc_blockwise.h"
+#include "oc_client_state.h"
 #include "oc_core_res.h"
+#include "oc_helpers.h"
+#include "oc_knx.h"
+#include "oc_knx_sec.h"
+#include "oc_rep.h"
+#include "oc_ri.h"
+#include "oc_ri_internal.h"
+#include "port/oc_network_events_mutex.h"
+#include "port/oc_random.h"
+#include "util/oc_mmem.h"
 
-extern int __real_coap_remove_observer_by_resource(const oc_resource_t* resource);
-extern void __real_oc_etimer_set(struct oc_etimer* et, oc_clock_time_t interval);
-extern void __real_oc_etimer_stop(struct oc_etimer* et);
-extern const oc_resource_t* __real_oc_core_get_core_resource_by_index(int index);
+  extern int __real_coap_remove_observer_by_resource(const oc_resource_t* resource);
+  extern void __real_oc_etimer_set(struct oc_etimer* et, oc_clock_time_t interval);
+  extern void __real_oc_etimer_stop(struct oc_etimer* et);
+  extern const oc_resource_t* __real_oc_core_get_core_resource_by_index(int index);
 }
 
 static int g_removed_observer_resources;
@@ -858,7 +859,7 @@ TEST(RiDeleteResource, RemovesObserversBeforeFreeingResource)
   endpoint.flags = IPV6;
   endpoint.addr.ipv6.port = 5683;
   endpoint.addr.ipv6.address[15] = 1;
-  ASSERT_EQ(coap_observe_handler(&request, &response, r, 0, &endpoint), 0);
+  ASSERT_EQ(oc_knx_observe_handler(&request, &response, r, 0, &endpoint), 0);
   ASSERT_EQ(r->runtime_data->num_observers, 1);
   g_removed_observer_resources = 0;
   g_removed_observers = 0;
@@ -983,7 +984,7 @@ TEST_F(RiClientCb, GetClientCbReturnsNullForWrongMethod)
  * it can be reclaimed once no longer needed. But oc_ri_invoke_coap_entity_handler
  * itself sweeps every ref_count==0 buffer (regardless of whose request it is)
  * near the end of the function, then returns - and the caller goes on to
- * dereference *request_state/*response_state afterward (see engine.c, right
+ * dereference request_state and response_state afterward (see engine.c, right
  * after the call). If the internal sweep already freed the very buffer that
  * belongs to *this* request, that dereference is a use-after-free.
  *
@@ -1242,6 +1243,32 @@ TEST(RiEntityHandlerPaths, GetHandlerPayloadSetsResponseLength)
   g_ri_emit_payload = false;
 }
 
+TEST(RiEntityHandlerPaths, RejectedObserveRegistrationHasNoPayload)
+{
+  RiEntityResource fixture;
+  fixture.resource->properties = (oc_resource_properties_t)(fixture.resource->properties | OC_OBSERVABLE);
+  g_ri_emit_payload = true;
+
+  coap_packet_t request;
+  coap_packet_t response;
+  memset(&request, 0, sizeof(request));
+  memset(&response, 0, sizeof(response));
+  coap_udp_init_message(&request, COAP_TYPE_CON, COAP_GET, 1);
+  coap_set_header_uri_path(&request, "unit", 4);
+  coap_set_header_observe(&request, OC_OBSERVE_REGISTER);
+
+  oc_blockwise_state_t* request_state = nullptr;
+  oc_blockwise_state_t* response_state = nullptr;
+  bool clear_transaction = false;
+  oc_ri_invoke_coap_entity_handler(&request, &response, &request_state, &response_state, 64, &fixture.endpoint, &clear_transaction);
+  g_ri_emit_payload = false;
+
+  EXPECT_EQ(response.code, BAD_REQUEST_4_00);
+  EXPECT_FALSE(IS_OPTION(&response, COAP_OPTION_CONTENT_FORMAT));
+  ASSERT_NE(response_state, nullptr);
+  EXPECT_EQ(response_state->payload_size, 0u);
+}
+
 TEST(RiEntityHandlerPaths, UnsupportedMethodReturnsMethodNotAllowed)
 {
   RiEntityResource fixture;
@@ -1262,12 +1289,82 @@ TEST(RiEntityHandlerPaths, TruncatedCborReturnsEntityTooLarge)
   EXPECT_EQ(response_code, REQUEST_ENTITY_TOO_LARGE_4_13);
 }
 
+TEST(RiEntityHandlerPaths, NonCborPayloadIsNotParsed)
+{
+  RiEntityResource fixture;
+  g_ri_get_calls = 0;
+  const uint8_t not_cbor[] = { 0xFF };
+  int response_code = 0;
+  EXPECT_TRUE(invoke_entity(fixture.resource, &fixture.endpoint, COAP_GET,
+                            not_cbor, sizeof(not_cbor), TEXT_PLAIN,
+                            &response_code));
+  EXPECT_EQ(g_ri_get_calls, 1);
+  EXPECT_EQ(response_code, CONTENT_2_05);
+}
+
+/* Order of the checks: resource lookup and the payload-free scope check come
+   before the payload is parsed, so a request to an unknown path or without
+   access is answered without building a CBOR tree from untrusted input. */
+
+static int invoke_post_at(const char* path, oc_endpoint_t* endpoint, const uint8_t* payload, size_t payload_len)
+{
+  coap_packet_t request;
+  coap_packet_t response;
+  memset(&request, 0, sizeof(request));
+  memset(&response, 0, sizeof(response));
+  coap_udp_init_message(&request, COAP_TYPE_CON, COAP_POST, 1);
+  coap_set_header_uri_path(&request, path, strlen(path));
+  coap_set_header_content_format(&request, APPLICATION_CBOR);
+
+  oc_blockwise_state_t* request_state = oc_blockwise_alloc_request_buffer(path, strlen(path), endpoint, COAP_POST, OC_BLOCKWISE_SERVER);
+  EXPECT_NE(request_state, nullptr);
+  if (request_state == nullptr)
+    return -1;
+  memcpy(request_state->buffer, payload, payload_len);
+  request_state->payload_size = (uint32_t)payload_len;
+  oc_blockwise_state_t* response_state = nullptr;
+
+  bool clear_transaction = false;
+  oc_ri_invoke_coap_entity_handler(&request, &response, &request_state, &response_state, 64, endpoint, &clear_transaction);
+  return response.code;
+}
+
+TEST(RiEntityHandlerOrder, MalformedPayloadToUnknownPathIsNotFound)
+{
+  RiEntityResource fixture;
+  const uint8_t invalid[] = {0xFF};
+  EXPECT_EQ(invoke_post_at("nope", &fixture.endpoint, invalid, sizeof(invalid)), NOT_FOUND_4_04);
+}
+
+TEST(RiEntityHandlerOrder, MalformedPayloadWithoutCredentialsIsUnauthorized)
+{
+  RiEntityResource fixture;
+  fixture.resource->post_handler.cb = ri_post_handler;
+  fixture.resource->post_handler.acl_scope_mask = OC_ACL_C;
+  g_ri_post_calls = 0;
+  const uint8_t invalid[] = {0xFF};
+  /* the endpoint carries no OSCORE flags: 4.01 from the scope check, not 4.00 from the parser */
+  EXPECT_EQ(invoke_post_at("unit", &fixture.endpoint, invalid, sizeof(invalid)), UNAUTHORIZED_4_01);
+  EXPECT_EQ(g_ri_post_calls, 0);
+}
+
+TEST(RiEntityHandlerOrder, PayloadBeyondMaxDepthIsBadRequestAndNotDispatched)
+{
+  RiEntityResource fixture;
+  fixture.resource->post_handler.cb = ri_post_handler;
+  g_ri_post_calls = 0;
+  uint8_t deep[KNX_CBOR_MAX_DEPTH + 2];
+  memset(deep, 0x81, sizeof(deep) - 1);
+  deep[sizeof(deep) - 1] = 0x00;
+  EXPECT_EQ(invoke_post_at("unit", &fixture.endpoint, deep, sizeof(deep)), BAD_REQUEST_4_00);
+  EXPECT_EQ(g_ri_post_calls, 0);
+}
+
 /*
-  the core resource lookup walks the core resource chain once, not once per index
-  - a request to an application resource (/unit) checks every core resource first
-  - only the chain start is looked up by index (index 0); a lookup per index walks the chain from the start each time
+  the core resources are looked up by index, not by walking a chain (a core resource has no next)
+  - a request to an application resource (/unit) checks every core resource first, one lookup per index
 */
-TEST(RiEntityHandlerPaths, CoreLookupWalksTheChainOnce)
+TEST(RiEntityHandlerPaths, CoreLookupIsByIndex)
 {
   RiEntityResource fixture;
   g_ri_get_calls = 0;
@@ -1276,24 +1373,7 @@ TEST(RiEntityHandlerPaths, CoreLookupWalksTheChainOnce)
   EXPECT_TRUE(invoke_entity(fixture.resource, &fixture.endpoint, COAP_GET, nullptr, 0, CONTENT_NONE, &response_code));
   EXPECT_EQ(response_code, CONTENT_2_05);
   EXPECT_EQ(g_ri_get_calls, 1);
-  EXPECT_EQ(g_core_by_index_calls, 1);
-}
-
-// the walk stops at the end of the chain: OC_NUM_CORE_RESOURCES entries, the last is /.well-known/core with next NULL
-TEST(RiEntityHandlerPaths, CoreChainEndsWithWellKnownCore)
-{
-  int count = 0;
-  const oc_resource_t* last = nullptr;
-  for (const oc_resource_t* r = oc_core_get_core_resource_by_index(0); r != nullptr && count <= OC_NUM_CORE_RESOURCES; r = r->next)
-  {
-    last = r;
-    count++;
-  }
-  EXPECT_EQ(count, OC_NUM_CORE_RESOURCES);
-  ASSERT_NE(last, nullptr);
-  EXPECT_STREQ(oc_string(last->uri), "/.well-known/core");
-  EXPECT_EQ(last->next, nullptr);
-  EXPECT_EQ(last, oc_core_get_core_resource_by_index(WELLKNOWNCORE));
+  EXPECT_EQ(g_core_by_index_calls, OC_NUM_CORE_RESOURCES);
 }
 
 // no core or application resource for the path: 4.04, the handler is not called

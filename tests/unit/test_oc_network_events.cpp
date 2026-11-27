@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Unit tests for api/oc_network_events.c
+ * Unit tests for core/oc_network_events.c
  * Scope note
  * ----------
  * This module is the bridge between the platform receive path and the
@@ -22,10 +22,14 @@
 
 extern "C" {
 #include "oc_buffer.h"
+#include "oc_endpoint.h"
+#include "oc_events.h"
 #include "oc_network_events.h"
 #include "port/oc_network_events_mutex.h"
 #include "util/oc_process.h"
 }
+
+#include <cstring>
 
 #include "gtest/gtest.h"
 
@@ -34,6 +38,13 @@ protected:
   void SetUp() override {
     oc_network_event_handler_mutex_init();
     oc_process_init();
+
+    // The stack allocates the event IDs in oc_ri_init(), which this test does
+    // not run. Without them INTERFACE_UP and INTERFACE_DOWN are both 0 and every
+    // interface event is dispatched as down.
+    oc_events[INTERFACE_DOWN] = oc_process_alloc_event();
+    oc_events[INTERFACE_UP] = oc_process_alloc_event();
+
     oc_process_start(&oc_network_events, nullptr);
   }
   void TearDown() override {
@@ -46,6 +57,7 @@ protected:
 
 static int g_received_messages;
 static int g_interface_events;
+static oc_interface_event_t g_last_interface_event;
 static int g_signal_events;
 
 extern "C" void __wrap_oc_receive_message(oc_message_t *message)
@@ -57,11 +69,24 @@ extern "C" void __wrap_oc_receive_message(oc_message_t *message)
 extern "C" void __wrap_handle_network_interface_event_callback(
   oc_interface_event_t event)
 {
-  if (event == NETWORK_INTERFACE_UP || event == NETWORK_INTERFACE_DOWN)
+  if (event == NETWORK_INTERFACE_UP || event == NETWORK_INTERFACE_DOWN) {
     g_interface_events++;
+  }
+
+  g_last_interface_event = event;
 }
 
 extern "C" void __wrap__oc_signal_event_loop(void) { g_signal_events++; }
+
+// IPv6 endpoint with the address ::<last_byte>.
+static oc_endpoint_t make_ipv6_endpoint(uint8_t last_byte)
+{
+  oc_endpoint_t ep;
+  memset(&ep, 0, sizeof(ep));
+  ep.flags = IPV6;
+  ep.addr.ipv6.address[15] = last_byte;
+  return ep;
+}
 
 // With the oc_network_events process not running, oc_network_event must unref
 // the message (returning it to the pool) and return without touching the queue.
@@ -118,9 +143,12 @@ TEST_F(NetworkEvents, RunningProcessDrainsQueuedMessage)
   EXPECT_EQ(g_received_messages, 1);
 }
 
+// Interface events reported before the event loop runs are merged, only the last
+// one is dispatched: up followed by down dispatches one down.
 TEST_F(NetworkEvents, InterfaceEventsArePostedAndDispatched)
 {
   g_interface_events = 0;
+  g_last_interface_event = (oc_interface_event_t)99;
   g_signal_events = 0;
 
   oc_network_interface_event(NETWORK_INTERFACE_UP);
@@ -129,7 +157,47 @@ TEST_F(NetworkEvents, InterfaceEventsArePostedAndDispatched)
 
   oc_process_run();
   oc_process_run();
+  EXPECT_EQ(g_interface_events, 1);
+  EXPECT_EQ(g_last_interface_event, NETWORK_INTERFACE_DOWN);
+}
+
+// A burst of address changes that ends with the interface up must dispatch up,
+// never a trailing down.
+TEST_F(NetworkEvents, InterfaceEventBurstEndingWithUpDispatchesUp)
+{
+  g_interface_events = 0;
+  g_last_interface_event = (oc_interface_event_t)99;
+  g_signal_events = 0;
+
+  oc_network_interface_event(NETWORK_INTERFACE_DOWN);
+  oc_network_interface_event(NETWORK_INTERFACE_UP);
+  oc_network_interface_event(NETWORK_INTERFACE_DOWN);
+  oc_network_interface_event(NETWORK_INTERFACE_UP);
+  EXPECT_EQ(g_signal_events, 4);
+
+  oc_process_run();
+  oc_process_run();
+  EXPECT_EQ(g_interface_events, 1);
+  EXPECT_EQ(g_last_interface_event, NETWORK_INTERFACE_UP);
+}
+
+// Interface events in separate event loop runs are all dispatched.
+TEST_F(NetworkEvents, InterfaceEventsInSeparateRunsAreAllDispatched)
+{
+  g_interface_events = 0;
+  g_last_interface_event = (oc_interface_event_t)99;
+
+  oc_network_interface_event(NETWORK_INTERFACE_UP);
+  oc_process_run();
+  oc_process_run();
+  EXPECT_EQ(g_interface_events, 1);
+  EXPECT_EQ(g_last_interface_event, NETWORK_INTERFACE_UP);
+
+  oc_network_interface_event(NETWORK_INTERFACE_DOWN);
+  oc_process_run();
+  oc_process_run();
   EXPECT_EQ(g_interface_events, 2);
+  EXPECT_EQ(g_last_interface_event, NETWORK_INTERFACE_DOWN);
 }
 
 TEST_F(NetworkEvents, UnknownInterfaceEventIsIgnored)
@@ -137,6 +205,113 @@ TEST_F(NetworkEvents, UnknownInterfaceEventIsIgnored)
   g_signal_events = 0;
   oc_network_interface_event((oc_interface_event_t)99);
   EXPECT_EQ(g_signal_events, 0);
+}
+
+/*
+  NETWORK_INTERFACE_NO_EVENT marks "no event pending" inside the stack, from outside it is ignored
+  - it wakes nothing and dispatches nothing
+  - it does not clear an event that is already pending: up, then NO_EVENT -> up is dispatched
+*/
+TEST_F(NetworkEvents, NoEventInterfaceEventIsIgnoredAndKeepsThePendingEvent)
+{
+  g_interface_events = 0;
+  g_last_interface_event = (oc_interface_event_t)99;
+  g_signal_events = 0;
+
+  oc_network_interface_event(NETWORK_INTERFACE_NO_EVENT);
+  EXPECT_EQ(g_signal_events, 0);
+  oc_process_run();
+  oc_process_run();
+  EXPECT_EQ(g_interface_events, 0);
+
+  oc_network_interface_event(NETWORK_INTERFACE_UP);
+  oc_network_interface_event(NETWORK_INTERFACE_NO_EVENT);
+  EXPECT_EQ(g_signal_events, 1);
+  oc_process_run();
+  oc_process_run();
+  EXPECT_EQ(g_interface_events, 1);
+  EXPECT_EQ(g_last_interface_event, NETWORK_INTERFACE_UP);
+}
+
+// The address hash does not depend on the order of the endpoint list, another
+// address set gives another hash, a list without addresses gives 0.
+TEST_F(NetworkEvents, AddressesHashIgnoresTheListOrder)
+{
+  oc_endpoint_t a = make_ipv6_endpoint(1);
+  oc_endpoint_t b = make_ipv6_endpoint(2);
+  bool has_address = false;
+
+  a.next = &b;
+  const uint32_t hash_ab = knx_network_addresses_hash(&a, &has_address);
+  EXPECT_TRUE(has_address);
+
+  // the list hash is the sum of the address hashes, ports without a list sum them
+  EXPECT_EQ(hash_ab, knx_network_address_hash(a.addr.ipv6.address) +
+                       knx_network_address_hash(b.addr.ipv6.address));
+
+  a.next = nullptr;
+  b.next = &a;
+  EXPECT_EQ(knx_network_addresses_hash(&b, nullptr), hash_ab);
+
+  EXPECT_NE(knx_network_addresses_hash(&a, nullptr), hash_ab);
+
+  EXPECT_EQ(knx_network_addresses_hash(nullptr, &has_address), 0U);
+  EXPECT_FALSE(has_address);
+}
+
+// Only a change of the reported state dispatches an event: the first address
+// (up), changed addresses (up), the loss of the last address (down). The same
+// state reported again dispatches nothing.
+TEST_F(NetworkEvents, ReportStateDispatchesOnlyChanges)
+{
+  g_interface_events = 0;
+  g_last_interface_event = (oc_interface_event_t)99;
+  knx_network_set_initial_state(false, 0U);
+
+  EXPECT_TRUE(knx_network_report_state(true, 1234U));
+  oc_process_run();
+  oc_process_run();
+  EXPECT_EQ(g_interface_events, 1);
+  EXPECT_EQ(g_last_interface_event, NETWORK_INTERFACE_UP);
+
+  EXPECT_FALSE(knx_network_report_state(true, 1234U));
+  oc_process_run();
+  oc_process_run();
+  EXPECT_EQ(g_interface_events, 1);
+
+  EXPECT_TRUE(knx_network_report_state(true, 5678U));
+  oc_process_run();
+  oc_process_run();
+  EXPECT_EQ(g_interface_events, 2);
+  EXPECT_EQ(g_last_interface_event, NETWORK_INTERFACE_UP);
+
+  EXPECT_TRUE(knx_network_report_state(false, 0U));
+  oc_process_run();
+  oc_process_run();
+  EXPECT_EQ(g_interface_events, 3);
+  EXPECT_EQ(g_last_interface_event, NETWORK_INTERFACE_DOWN);
+
+  EXPECT_FALSE(knx_network_report_state(false, 0U));
+  oc_process_run();
+  oc_process_run();
+  EXPECT_EQ(g_interface_events, 3);
+}
+
+// The initial state is remembered without an event, the same state reported
+// afterwards dispatches nothing.
+TEST_F(NetworkEvents, InitialStateDispatchesNothing)
+{
+  g_interface_events = 0;
+  g_signal_events = 0;
+
+  knx_network_set_initial_state(true, 1234U);
+  EXPECT_EQ(g_signal_events, 0);
+
+  EXPECT_FALSE(knx_network_report_state(true, 1234U));
+  oc_process_run();
+  oc_process_run();
+  EXPECT_EQ(g_signal_events, 0);
+  EXPECT_EQ(g_interface_events, 0);
 }
 
 /* a process that is never started: its events only occupy queue slots (dropped on delivery) */
@@ -149,6 +324,13 @@ OC_PROCESS_THREAD(net_queue_filler, ev, data)
   OC_PROCESS_END();
 }
 
+static void fill_event_queue(void)
+{
+  while (oc_process_nevents() < OC_PROCESS_MAX_EVENTS) {
+    ASSERT_EQ(oc_process_post(&net_queue_filler, OC_PROCESS_EVENT_CONTINUE, nullptr), OC_PROCESS_ERR_OK);
+  }
+}
+
 /*
   an interface event that cannot be queued (queue full) stays pending: it is posted again on a later run and finally
   dispatched (it used to be dropped, the flag was reset even when the post was rejected)
@@ -156,9 +338,8 @@ OC_PROCESS_THREAD(net_queue_filler, ev, data)
 TEST_F(NetworkEvents, InterfaceEventWithFullQueueStaysPendingAndIsDispatchedLater)
 {
   g_interface_events = 0;
-  while (oc_process_nevents() < OC_PROCESS_MAX_EVENTS) {
-    ASSERT_EQ(oc_process_post(&net_queue_filler, OC_PROCESS_EVENT_CONTINUE, nullptr), OC_PROCESS_ERR_OK);
-  }
+  g_last_interface_event = (oc_interface_event_t)99;
+  fill_event_queue();
 
   oc_network_interface_event(NETWORK_INTERFACE_UP);
 
@@ -167,4 +348,49 @@ TEST_F(NetworkEvents, InterfaceEventWithFullQueueStaysPendingAndIsDispatchedLate
     oc_process_run();
   }
   EXPECT_EQ(g_interface_events, 1);
+  EXPECT_EQ(g_last_interface_event, NETWORK_INTERFACE_UP);
+}
+
+/*
+  a burst while the queue is full still dispatches only its last event
+  - the pending event is retried, a newer one replaces it, a burst ending with up never dispatches a trailing down
+*/
+TEST_F(NetworkEvents, InterfaceEventBurstWithFullQueueDispatchesOnlyTheLast)
+{
+  g_interface_events = 0;
+  g_last_interface_event = (oc_interface_event_t)99;
+  fill_event_queue();
+
+  oc_network_interface_event(NETWORK_INTERFACE_DOWN);
+  oc_process_run();
+  oc_network_interface_event(NETWORK_INTERFACE_UP);
+
+  for (int i = 0; i < OC_PROCESS_MAX_EVENTS + 8; i++) {
+    oc_process_run();
+  }
+  EXPECT_EQ(g_interface_events, 1);
+  EXPECT_EQ(g_last_interface_event, NETWORK_INTERFACE_UP);
+}
+
+// Received messages beyond KNX_NET_MAX_RX_PENDING are dropped (unref'd) instead of
+// queued, the ones already queued are still delivered.
+TEST_F(NetworkEvents, MessageBeyondRxPendingLimitIsDropped)
+{
+  g_received_messages = 0;
+  for (int i = 0; i < KNX_NET_MAX_RX_PENDING; i++)
+  {
+    oc_message_t* message = oc_allocate_message();
+    ASSERT_NE(nullptr, message);
+    oc_network_event(message);
+  }
+
+  oc_message_t* extra = oc_allocate_message();
+  ASSERT_NE(nullptr, extra);
+  oc_message_add_ref(extra);
+  oc_network_event(extra);
+  EXPECT_EQ(1U, extra->ref_count);
+  oc_message_unref(extra);
+
+  oc_process_run();
+  EXPECT_EQ(g_received_messages, KNX_NET_MAX_RX_PENDING);
 }

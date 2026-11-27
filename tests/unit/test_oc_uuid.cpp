@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Unit tests for api/oc_uuid.c
+ * Unit tests for util/oc_uuid.c
  * Covers:
  * oc_str_to_uuid - string -> binary parsing
  * oc_uuid_to_str - binary -> string formatting

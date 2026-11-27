@@ -42,7 +42,7 @@ tests/
     fixtures.py       fixtures, constants, helpers and the pytest hooks
                       (tier ordering, --run-record); builds and starts the DUT,
                       performs SPAKE2+ and OSCORE provisioning
-    tools/            run-in-docker.ps1 / .sh, run-local-ci*.sh
+    tools/            run-in-docker.ps1 / .sh, run-local-ci*.sh, lizard_report.py
     runtime_test_server.c   the device under test
     requirements.txt  what the runtime tier needs (the tool has its own)
 
@@ -79,6 +79,15 @@ tests/common/tools/run-in-docker.sh --tier runtime --uncommitted
 tests/common/tools/run-in-docker.sh --tier tool        # the tool's own tests, no device
 ```
 
+To run the unit, coverage and fuzz jobs in Linux as well, use the image in
+`docker/Dockerfile`; see [docs/docker.md](../docs/docker.md).
+
+The DUT is built with the test presets, which set the reset delay
+(`KNX_RESET_DELAY_MILLISECONDS`, 1 ms) and the default echo response delay
+(`KNX_OSCORE_OSN_DELAY_MILLISECONDS`, 10 ms) short: both tools act on the device right
+after a reset or a group message, while a product waits 1 s before a reset and
+up to 1 s before an echo response.
+
 Both wrappers pack the tree with the tool (committed HEAD with the tool at
 the pinned commit, or the working trees with `-IncludeUncommitted` /
 `--uncommitted`), mount the host's cache of KNX's files, start the CI image
@@ -88,6 +97,25 @@ a Linux CI runner can call it directly.
 
 The tool's GUI runs on the tester's machine against a real device
 (`python -m web.backend` in `tests/iot-test-tool`, see the tool's README).
+
+### Heap peak
+
+`-Massif` (`--massif`) runs the DUT under Valgrind Massif, as the nightly
+`runtime-massif` / `conformance-massif` jobs do:
+
+```powershell
+.\tests\common\tools\run-in-docker.ps1 -Tier runtime -Massif -IncludeUncommitted
+```
+
+The profiles (`<tier>.<pid>.out`) and their `ms_print` reports
+(`<tier>.<pid>.txt`) land in `build/massif/`, the same path as in CI. A report
+starts with the heap over time and its peak, followed by the allocation trees
+of the detailed snapshots, the peak among them. The stack's allocation wrappers
+are `--alloc-fn`, so a site in a tree is the code that asked for the memory.
+The figures are 64-bit host values, a trend to follow; the 32-bit target model
+is `docs/memory_breakdown.md`. Valgrind slows the DUT down, so the runner
+lengthens the CoAP, start-up and stop timeouts (`SERVER_STOP_TIMEOUT` gives the
+DUT time to write its profile on exit).
 
 See [`runtime/README.md`](runtime/README.md) for the runner's options and
 gotchas.

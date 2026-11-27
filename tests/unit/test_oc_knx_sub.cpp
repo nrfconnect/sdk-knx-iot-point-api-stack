@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_knx_sub.c — the /sub (subscription) resource.
+ * Unit tests for resources/knx/oc_knx_sub.c — the /sub (subscription) resource.
  *
  * The file's only function is the static request handler
  * oc_core_sub_delete_handler(), which the KNX IoT spec requires to remove ALL
@@ -9,23 +9,23 @@
  * definition core_resource_sub.delete_handler.cb, so the test invokes it via
  * that function pointer. The handler is driven with a hand-built
  * oc_request_t/oc_response_t and a real observer added through
- * coap_observe_handler (same approach as test_coap_observe.cpp).
+ * oc_knx_observe_handler (same approach as test_coap_observe.cpp).
  */
 
 #include <gtest/gtest.h>
 
 extern "C" {
-#include "messaging/coap/observe.h"
+#include <string.h>
+#include "resources/knx/oc_knx_observe.h"
 #include "messaging/coap/coap.h"
 #include "messaging/coap/constants.h"
-#include "messaging/coap/oc_coap.h" /* full def of oc_response_buffer_s */
-#include "port/oc_network_events_mutex.h"
+#include "messaging/coap/observe.h"
 #include "oc_ri.h"
-#include <string.h>
+#include "port/oc_network_events_mutex.h"
 
-/* Resource definition lives in api/oc_knx_sub.c; the static delete handler is
- * reachable through its function pointer. */
-extern const oc_resource_t core_resource_sub;
+  /* Resource definition lives in resources/knx/oc_knx_sub.c; the static delete handler is
+   * reachable through its function pointer. */
+  extern const oc_resource_t core_resource_sub;
 }
 
 /* Convenience wrapper that calls the (static) DELETE handler through the
@@ -82,7 +82,7 @@ static int sub_add_observer(oc_resource_t *resource, oc_endpoint_t *ep,
   memset(&res, 0, sizeof(res));
   res.code = CONTENT_2_05;
 
-  return coap_observe_handler(&req, &res, resource, 0, ep);
+  return oc_knx_observe_handler(&req, &res, resource, 0, ep);
 }
 
 /* Build an oc_request_t with a response buffer the handler can write into. */

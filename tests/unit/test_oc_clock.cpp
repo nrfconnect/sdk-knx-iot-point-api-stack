@@ -1,5 +1,5 @@
 /*
- * Unit tests for the RFC3339 clock helpers in api/oc_clock.c
+ * Unit tests for the RFC3339 clock helpers in util/oc_clock.c
  * (declared in port/oc_clock.h).
  *
  * Covers:

@@ -1,5 +1,5 @@
 /*
- * libFuzzer harness for oc_replay_check_client() (api/oc_replay.c).
+ * libFuzzer harness for oc_replay_check_client() (security/oc_replay.c).
  *
  * The OSCORE anti-replay sliding-window check, run on the decrypted PIV
  * (sequence number) of every inbound OSCORE message before it is accepted -

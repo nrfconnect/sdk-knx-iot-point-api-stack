@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Run runtime conformance tests inside a Docker container with veth pairs.
     Replicates the GitLab CI device-test jobs (runtime-gcc, conformance-gcc) locally.
@@ -24,6 +24,7 @@
     .\tests\common\tools\run-in-docker.ps1 tests/runtime/test_observe.py -v
     .\tests\common\tools\run-in-docker.ps1 --tb=long -x
     .\tests\common\tools\run-in-docker.ps1 -Tier conformance -RunRecord baseline.krr.jsonl
+    .\tests\common\tools\run-in-docker.ps1 -Tier runtime -Massif
 
 .NOTES
     The test tool is the submodule tests/iot-test-tool (git submodule update
@@ -75,9 +76,10 @@ param(
     [double]$TimeScale = 0.05,
     # Skip the persistent build/pip cache volumes and build everything from
     # scratch inside a throwaway container. Slower (~60s of extra fixed
-    # overhead), but the way to rule out a stale artifact — use it after
-    # changing a CMake preset or when a failure smells like a build-cache
-    # problem rather than a test problem.
+    # overhead), but the way to rule out a stale artifact when a failure
+    # smells like a build-cache problem rather than a test problem. The
+    # CMake cache itself is rebuilt on every run, so changed presets and
+    # CACHE defaults take effect without it.
     [switch]$NoCache,
     # Select whole EITT section(s) by number, e.g. -Section 5.6 (repeatable:
     # -Section 5.5,5.6). Prefer this over -PytestArgs "-k","5.6": `-k` is a
@@ -97,6 +99,10 @@ param(
     # It lands in <repo>\artifacts\ (git-ignored), mounted into the container.
     # With -Tier all one per tier: <name>.conformance.krr.jsonl, <name>.runtime.krr.jsonl.
     [string]$RunRecord,
+    # Run the DUT under Valgrind Massif, as the nightly *-massif jobs do: the heap
+    # profiles (<tier>.<pid>.out) and their ms_print reports (<tier>.<pid>.txt)
+    # land in <repo>\build\massif\, the same path as in CI.
+    [switch]$Massif,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$PytestArgs
 )
@@ -147,6 +153,7 @@ if ($OscoreDebug)  { $InnerArgs += "--oscore-debug" }
 if ($CoapDebug)    { $InnerArgs += "--coap-debug" }
 if ($GroupDebug)   { $InnerArgs += "--group-debug" }
 if ($RunSlowTests) { $InnerArgs += "--slow" }
+if ($Massif)       { $InnerArgs += "--massif" }
 $InnerArgs += "--"
 $InnerArgs += $PytestArgs
 
@@ -186,6 +193,8 @@ try {
                        Where-Object { $_ -ne $Sub })
             $files += @(git -C $Sub ls-files --cached --others --exclude-standard |
                         ForEach-Object { "$Sub/$_" })
+            # --cached also lists tracked files deleted in the working tree, tar fails on them
+            $files = @($files | Where-Object { Test-Path -LiteralPath (Join-Path $RepoRoot $_) })
             [IO.File]::WriteAllText($List, ($files -join "`n") + "`n",
                                     [Text.UTF8Encoding]::new($false))
             # Windows' own tar.exe by full path: when this script is launched from
@@ -224,6 +233,13 @@ try {
     # stderr (e.g. CMake warnings) as a terminating error.
     if ($RunRecord) {
         $mounts += "-v ""$($ArtifactsDir):/w/artifacts"" "
+    }
+    # The host's build\massif over the container's build/massif (inside the
+    # build volume): the profiles reach the host at the path CI uses.
+    if ($Massif) {
+        $MassifDir = Join-Path $RepoRoot "build\massif"
+        New-Item -ItemType Directory -Force -Path $MassifDir | Out-Null
+        $mounts += "-v ""$($MassifDir):/w/build/massif"" "
     }
     # KNX's files (template, comment scheme, ...): the host's cache, so the
     # container needs update.knx.org only when the cache is empty.
