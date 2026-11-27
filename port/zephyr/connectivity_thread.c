@@ -142,26 +142,6 @@ uint16_t oc_connectivity_thread_get_port(void)
     return port;
 }
 
-/* The Zephyr net_if index with the Zephyr OpenThread L2 (0 when not found), otherwise OC_THREAD_IF_INDEX. */
-static uint32_t get_thread_if_index(void)
-{
-#if defined(CONFIG_NET_L2_OPENTHREAD)
-    struct openthread_context *ot_context = openthread_get_default_context();
-    int index;
-
-    if ((ot_context == NULL) || (ot_context->iface == NULL))
-    {
-        return 0;
-    }
-
-    index = net_if_get_by_iface(ot_context->iface);
-
-    return (index > 0) ? (uint32_t)index : 0;
-#else
-    return OC_THREAD_IF_INDEX;
-#endif
-}
-
 int oc_connectivity_init(void)
 {
     otError error = OT_ERROR_NONE;
@@ -323,19 +303,8 @@ void oc_send_discovery_request(oc_message_t *message)
 static oc_endpoint_t *find_unicast_endpoint(void)
 {
     const otNetifAddress *addr;
-    uint32_t if_index;
-    uint32_t filter;
 
     if (sInstance == NULL)
-    {
-        return NULL;
-    }
-
-    /* A filter set to another interface leaves no endpoint, as on the other ports. */
-    if_index = get_thread_if_index();
-    filter = oc_network_get_interface_filter();
-
-    if ((filter != 0) && (filter != if_index))
     {
         return NULL;
     }
@@ -381,7 +350,17 @@ static oc_endpoint_t *find_unicast_endpoint(void)
                sizeof(g_endpoint.addr.ipv6.address));
 
         g_endpoint.addr.ipv6.port = g_unicast_port;
-        g_endpoint.interface_index = (int)if_index;
+
+#if defined(CONFIG_NET_L2_OPENTHREAD)
+        struct openthread_context *ot_context = openthread_get_default_context();
+
+        if ((ot_context != NULL) &&
+            (ot_context->iface != NULL))
+        {
+            g_endpoint.interface_index =
+                net_if_get_by_iface(ot_context->iface);
+        }
+#endif
 
         return &g_endpoint;
     }

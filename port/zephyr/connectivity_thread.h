@@ -8,17 +8,13 @@
  * @file
  * @brief OpenThread connectivity port, Zephyr-internal interface.
  *
- * Shared between connectivity_thread.c, port/dns-sd_srp.c and
- * oc_network_interface_thread.c only. The public connectivity API lives in
- * port/oc_connectivity.h.
+ * Shared between connectivity_thread.c and dns-sd-thread.c only. The public
+ * connectivity API lives in port/oc_connectivity.h.
  */
 
 #pragma once
 
 #include <stdint.h>
-
-/** Interface index of OpenThread without the Zephyr OpenThread L2. */
-#define OC_THREAD_IF_INDEX (1)
 
 #ifdef __cplusplus
 extern "C" {
