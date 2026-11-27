@@ -147,19 +147,19 @@ uint16_t oc_connectivity_thread_get_port(void)
 static uint32_t get_thread_if_index(void)
 {
 #if defined(CONFIG_NET_L2_OPENTHREAD)
-    struct openthread_context *ot_context = openthread_get_default_context();
-    int index;
+  struct openthread_context* ot_context = openthread_get_default_context();
+  int index;
 
-    if ((ot_context == NULL) || (ot_context->iface == NULL))
-    {
-        return 0;
-    }
+  if ((ot_context == NULL) || (ot_context->iface == NULL))
+  {
+    return 0;
+  }
 
-    index = net_if_get_by_iface(ot_context->iface);
+  index = net_if_get_by_iface(ot_context->iface);
 
-    return (index > 0) ? (uint32_t)index : 0;
+  return (index > 0) ? (uint32_t)index : 0;
 #else
-    return OC_THREAD_IF_INDEX;
+  return OC_THREAD_IF_INDEX;
 #endif
 }
 
@@ -338,7 +338,7 @@ static oc_endpoint_t *find_unicast_endpoint(void)
 
     if ((filter != 0) && (filter != if_index))
     {
-        return NULL;
+      return NULL;
     }
 
     for (addr = otIp6GetUnicastAddresses(sInstance);
