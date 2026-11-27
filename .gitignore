@@ -1,5 +1,8 @@
 # Patterns see https://git-scm.com/docs/gitignore#_pattern_format
 
+# GitHub files
+.github/
+
 # Dependend subprojects are not tracked (managed by .gitmodules)
 deps/**
 !deps/CMakeLists.txt
@@ -7,7 +10,7 @@ deps/**
 # CMake
 CMakeUserPresets.json
 
-# Claude Code: personal settings stay local
+# Claude Code: agents and skills are shared; personal settings stay local
 .claude/settings.local.json
 CLAUDE.local.md
 

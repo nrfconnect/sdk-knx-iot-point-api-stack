@@ -1,6 +1,8 @@
 ---
 name: memory-footprint
-description: "Use to update docs/memory_breakdown.md or to estimate the flash/RAM cost of a change from the report's formulas and the arm-size object delta, without a Zephyr build."
+description: "Keeps docs/memory_breakdown.md (the KNX IoT stack memory footprint report) current after code changes by estimating the flash and RAM effect of the diff from the report's own formulas, no build required. Use it whenever the user asks to update, refresh or check the memory footprint, memory breakdown or flash/RAM figures, asks what a change costs in memory, or has changed table sizes, buffer constants, rings, Kconfig/CMake options, structs behind a table, or added/removed stack source."
+compatibility:
+  claude: ">=3.5"
 ---
 
 # Memory footprint report update (estimate)
@@ -28,21 +30,14 @@ The measured revision is in § 1 "Stack revision". If a previous estimate was
 already applied, § 1 also says "estimated for `<rev>`"; diff from that one so
 nothing is counted twice.
 
-Discard everything under `tests/`, `docs/`, `.gitlab-ci.yml`, `src/port/linux/`,
-`src/port/windows/`: not in the Zephyr image. Keep `src/resources/`, `src/core/`,
-`src/messaging/`, `src/security/`, `src/util/`, `include/`, `src/port/zephyr/`,
-`src/port/*.c`, `CMakeLists.txt`, `zephyr/`.
+Discard everything under `tests/`, `docs/`, `.gitlab-ci.yml`, `port/linux/`,
+`port/windows/`: not in the Zephyr image. Keep `api/`, `messaging/`,
+`security/`, `util/`, `include/`, `port/zephyr/`, `port/*.c`, `CMakeLists.txt`,
+`zephyr/`.
 
 ## 2. Turn each change into a delta
 
-With Docker, measure first: preset `arm-size` on the base revision and on the
-working tree (commands in `docs/docker.md` "Stack Object Sizes", ~30 s each)
-and compare the two `size.txt`. The text delta of the changed objects replaces
-the B/line density below, the bss delta checks the table arithmetic. Mark these
-rows measured-by-delta (`~`, the image was not rebuilt) and name the objects.
-Without Docker, or for what `arm-size` does not see (Mbed TLS, TinyCBOR, port,
-heap), use the report's numbers, not general rules of thumb. Show the
-arithmetic.
+Use the report's numbers, not general rules of thumb. Show the arithmetic.
 
 | Change | Rule (from the report) | Rows it moves |
 | --- | --- | --- |

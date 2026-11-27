@@ -1,6 +1,6 @@
 ---
 name: unit-test-writer
-description: "Use to write or change Google Test unit tests in tests/unit/: analyse the module, write, register in CMake, run with and without ASan."
+description: "Use when writing or changing Google Test unit tests for the stack's C code (tests/unit/test_*.cpp) - analysing a module, writing the tests, registering them in CMake, building and running them with and without AddressSanitizer."
 ---
 
 # Writing unit tests
@@ -11,7 +11,7 @@ that include the C headers inside `extern "C" { }`.
 ## 1. Pick and read the module
 
 - The target is a source or header file or a module name. Without one, take
-  a module of `src/resources/`, `src/core/`, `src/messaging/`, `src/security/` or `src/util/` that has no
+  a module of `api/`, `messaging/`, `security/` or `util/` that has no
   `tests/unit/test_*.cpp` yet (`tests/TEST_CATALOG.md` lists what exists).
 - Read the header (public API) and the implementation: error paths, early
   returns, platform branches, static state that must be reset between
@@ -56,7 +56,7 @@ gating `unit-asan` CI job), e.g. in the CI image:
 bash -c "cmake --preset=linux-test-asan && cmake --build --preset=linux-test-asan && ctest --preset=linux-test-asan -R <module>"`.
 
 Coverage of a module (`windows-coverage-gcc` / `linux-coverage-gcc`, then
-`gcovr --root . --filter 'src/<component>/<module>.c' --print-summary build/<preset>`):
+`gcovr --root . --filter 'api/<module>.c' --print-summary build/<preset>`):
 aim for line >= 80 %, function >= 90 %, branch >= 70 % per module; branch
 coverage is the telling number.
 
