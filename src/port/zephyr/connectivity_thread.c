@@ -82,32 +82,33 @@ static uint16_t g_unicast_port = COAP_PORT_UNSECURED; // Set via oc_connectivity
 /* KNX-IoT OpenThread integration */
 static void HandleUdpReceive(void *aContext, otMessage *aMessage, const otMessageInfo *aMessageInfo)
 {
-    const uint16_t offset = otMessageGetOffset(aMessage);
-    const uint16_t length = otMessageGetLength(aMessage) - offset;
-    oc_message_t *message;
-    (void)aContext;
+  const uint16_t offset = otMessageGetOffset(aMessage);
+  const uint16_t length = otMessageGetLength(aMessage) - offset;
+  oc_message_t* message;
+  (void)aContext;
 
-    if (length > OC_PDU_SIZE)
-    {
-        OC_ERR("Dropping a %u byte datagram, larger than the PDU size %u", (unsigned)length, (unsigned)OC_PDU_SIZE);
-        return;
-    }
+  if (length > OC_PDU_SIZE)
+  {
+    OC_ERR("Dropping a %u byte datagram, larger than the PDU size %u", (unsigned)length, (unsigned)OC_PDU_SIZE);
+    return;
+  }
 
-    message = oc_allocate_message();
-    if (!message)
-    {
-        OC_ERR("Failed to allocate OC message");
-        return;
-    }
+  message = oc_allocate_message();
+  if (!message)
+  {
+    OC_ERR("Failed to allocate OC message");
+    return;
+  }
 
-    message->length = otMessageRead(aMessage, offset, message->data, length);
-    message->endpoint.flags = IPV6;
-    /* mSockAddr is the packet's destination address. All IPv6 multicast
-     * addresses start with 0xFF (RFC 4291 prefix FF00::/8).
-     */
-    if (aMessageInfo->mSockAddr.mFields.m8[0] == 0xFF) {
-        message->endpoint.flags |= MULTICAST;
-    }
+  message->length = otMessageRead(aMessage, offset, message->data, length);
+  message->endpoint.flags = IPV6;
+  /* mSockAddr is the packet's destination address. All IPv6 multicast
+   * addresses start with 0xFF (RFC 4291 prefix FF00::/8).
+   */
+  if (aMessageInfo->mSockAddr.mFields.m8[0] == 0xFF)
+  {
+    message->endpoint.flags |= MULTICAST;
+  }
     message->endpoint.addr.ipv6.port = aMessageInfo->mPeerPort;
     memcpy(message->endpoint.addr.ipv6.address, aMessageInfo->mPeerAddr.mFields.m8, 16);
 
