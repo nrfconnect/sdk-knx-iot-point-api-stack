@@ -32,7 +32,8 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     if(BUILD_FUZZERS)
         # fuzzer-no-link: coverage instrumentation everywhere, libFuzzer's main()
         # is linked into the harness executables only (see tests/fuzz).
-        add_compile_options(-fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -g)
+        # no-recover: a UBSan report must abort, otherwise libFuzzer never records it as a crash
+        add_compile_options(-fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -g)
         add_link_options(-fsanitize=address,undefined)
     endif()
     if(ENABLE_COVERAGE)
@@ -69,7 +70,14 @@ if(MSVC)
 endif()
 
 # Add preprocessor definitions for the current CMakeLists file.
-add_compile_definitions(OC_CLIENT OC_SERVER)
+# OC_CLIENT_ENABLED OFF: server-only stack, unicast s-mode recipients are never resolved (CONFIG_KNXIOT_CLIENT on Zephyr and ESP-IDF).
+set(OC_CLIENT_ENABLED ON CACHE BOOL "Enable the CoAP client (resolves the IPv6 address of unicast s-mode recipients).")
+add_compile_definitions(OC_SERVER)
+if(OC_CLIENT_ENABLED)
+  add_compile_definitions(OC_CLIENT)
+elseif(BUILD_TESTING)
+  message(FATAL_ERROR "BUILD_TESTING needs OC_CLIENT_ENABLED; the client-off build is tested in tests/unit/client_off")
+endif()
 
 ### KNX-IoT Stack compilation variables ###
 
@@ -82,7 +90,6 @@ add_compile_definitions(OC_CLIENT OC_SERVER)
 #   - stack 'values' that SHALL NOT be overwritten by device application uses FORCE = fixed stack 'value'
 
 ## Common
-set(CLANG_TIDY_ENABLED OFF CACHE BOOL "Enable clang-tidy analysis during compilation.")
 set(KNX_LOG_CAST_64_BIT_INTS_ENABLED OFF CACHE BOOL "Cast int64_t and uint64_t values to (int) if platform doesn't support 64 bit int format specifiers")
 set(OC_PUBLISHER_TABLE_ENABLED ON CACHE BOOL "Enable publisher table, with this a device can (also) receive (OFF: for plain senders).")
 
@@ -112,7 +119,14 @@ set(KNX_GRT_MAX_ENTRIES "20" CACHE STRING "Maximum number of group recipient tab
 set(KNX_ATT_MAX_ENTRIES "20" CACHE STRING "Maximum number of access token table entries")
 set(KNX_PAGE_SIZE "20" CACHE STRING "Server default page size for pagination")
 set(KNX_PAYLOAD_SIZE "768" CACHE STRING "Application payload bytes per CoAP exchange (buffer size, see below)" FORCE)
-set(KNX_ECHO_RING_SIZE "64" CACHE STRING "Echo ring size, used buffers to defend against replayed 4.01 unicast echo responses")
+set(KNX_ECHO_RING_SIZE "16" CACHE STRING "Echo ring size, used buffers to defend against replayed 4.01 unicast echo responses")
+set(KNX_COAP_MAX_OBSERVERS "8" CACHE STRING "Maximum number of CoAP observe relationships (all resources together)")
+set(KNX_NET_MAX_RX_PENDING "8" CACHE STRING "Received messages that may wait for the event loop, a message beyond it is dropped")
+set(KNX_COAP_MAX_OPEN_TRANSACTIONS "32" CACHE STRING "Maximum number of open CoAP transactions (requests and responses awaiting send or ACK)")
+set(KNX_CBOR_MAX_DEPTH "8" CACHE STRING "Maximum nesting depth of a received CBOR payload, deeper payloads are rejected before parsing (passed to the built-in TinyCBOR as CBOR_PARSER_MAX_RECURSIONS)")
+if(KNX_CBOR_MAX_DEPTH LESS 4)
+    message(FATAL_ERROR "KNX_CBOR_MAX_DEPTH must be at least 4: KNX payloads nest up to 4 deep, a smaller value rejects valid table writes")
+endif()
 
 ## KNX payload size (bytes)
 #
@@ -175,71 +189,96 @@ set(KNX_READ_ON_INIT_DELAY_MILLISECONDS "100" CACHE STRING "KNX read on init del
 # KNX reset "Process Time" in seconds
 set(KNX_RESPONSE_TIME_SECONDS "2" CACHE STRING "KNX reset Process Time in seconds")
 
+# KNX reset delay in ms, lets the reset response be sent before the security contexts are wiped (< Process Time)
+set(KNX_RESET_DELAY_MILLISECONDS "1000" CACHE STRING "KNX reset delay before executing the reset (milliseconds)")
+
+# default of the OSCORE echo response delay (/auth/o/osndelay, ms): a 4.01 + Echo to a multicast is delayed by a random
+# 0 ... osn delay; the test presets set it (and the reset delay) short, the test tools act on the device without waiting
+set(KNX_OSCORE_OSN_DELAY_MILLISECONDS "1000" CACHE STRING "Default OSCORE echo response delay (milliseconds)")
+
 ### KNX-IoT Stack ###
+# public: include/ only (with the platform's oc_config.h directory, exported by kis-port)
 set(KNX_INCLUDE_DIRS 
-    ${PROJECT_SOURCE_DIR}/
     ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_SOURCE_DIR}/security		# TODO this should not be PUBLIC
-    ${PROJECT_SOURCE_DIR}/messaging/coap/	# TODO this should not be PUBLIC
-    ${PROJECT_SOURCE_DIR}/api			# TODO this should not be PUBLIC
-    ${PROJECT_SOURCE_DIR}/api/c-timestamp	# TODO this should not be PUBLIC
+)
+# stack internal, also used by the tests that call into the internals
+set(KNX_PRIVATE_INCLUDE_DIRS
+    ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/src/resources/knx
+    ${PROJECT_SOURCE_DIR}/src/resources/ri
+    ${PROJECT_SOURCE_DIR}/src/core
+    ${PROJECT_SOURCE_DIR}/src/security
+    ${PROJECT_SOURCE_DIR}/src/messaging/coap
+    ${PROJECT_SOURCE_DIR}/src/util
+    ${PROJECT_SOURCE_DIR}/src/util/c-timestamp
 )
 
-set(API_SOURCES
-    ${PROJECT_SOURCE_DIR}/api/oc_base64.c
-    ${PROJECT_SOURCE_DIR}/api/oc_blockwise.c
-    ${PROJECT_SOURCE_DIR}/api/oc_buffer.c
-    ${PROJECT_SOURCE_DIR}/api/oc_client_api.c
-    ${PROJECT_SOURCE_DIR}/api/oc_clock.c
-    ${PROJECT_SOURCE_DIR}/api/oc_core_res.c
-    ${PROJECT_SOURCE_DIR}/api/oc_discovery.c
-    ${PROJECT_SOURCE_DIR}/api/oc_endpoint.c
-    ${PROJECT_SOURCE_DIR}/api/oc_helpers.c
-    ${PROJECT_SOURCE_DIR}/api/oc_main.c
-    ${PROJECT_SOURCE_DIR}/api/oc_network_events.c
-    ${PROJECT_SOURCE_DIR}/api/oc_rep.c
-    ${PROJECT_SOURCE_DIR}/api/oc_replay.c
-    ${PROJECT_SOURCE_DIR}/api/oc_ri.c
-    ${PROJECT_SOURCE_DIR}/api/oc_server_api.c
-    ${PROJECT_SOURCE_DIR}/api/oc_uuid.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_client.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_dev.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_fb.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_fp.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_helpers.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_p.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_sec.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_swu.c
-    ${PROJECT_SOURCE_DIR}/api/oc_knx_sub.c
-    ${PROJECT_SOURCE_DIR}/api/c-timestamp/timestamp_compare.c
-    ${PROJECT_SOURCE_DIR}/api/c-timestamp/timestamp_format.c
-    ${PROJECT_SOURCE_DIR}/api/c-timestamp/timestamp_parse.c
-    ${PROJECT_SOURCE_DIR}/api/c-timestamp/timestamp_tm.c
-    ${PROJECT_SOURCE_DIR}/api/c-timestamp/timestamp_valid.c
+set(RI_SOURCES
+    ${PROJECT_SOURCE_DIR}/src/resources/ri/oc_client_api.c
+    ${PROJECT_SOURCE_DIR}/src/resources/ri/oc_core_res.c
+    ${PROJECT_SOURCE_DIR}/src/resources/ri/oc_discovery.c
+    ${PROJECT_SOURCE_DIR}/src/resources/ri/oc_rep.c
+    ${PROJECT_SOURCE_DIR}/src/resources/ri/oc_ri.c
+    ${PROJECT_SOURCE_DIR}/src/resources/ri/oc_server_api.c
 )
 
-set(CORE_SOURCES
-    # Utilities that are used deep within the stack
-    ${PROJECT_SOURCE_DIR}/util/oc_etimer.c
-    ${PROJECT_SOURCE_DIR}/util/oc_list.c
-    ${PROJECT_SOURCE_DIR}/util/oc_mmem.c
-    ${PROJECT_SOURCE_DIR}/util/oc_process.c
-    ${PROJECT_SOURCE_DIR}/util/oc_timer.c
+set(KNX_API_SOURCES
+    ${PROJECT_SOURCE_DIR}/src/resources/knx/oc_knx.c
+    ${PROJECT_SOURCE_DIR}/src/resources/knx/oc_knx_client.c
+    ${PROJECT_SOURCE_DIR}/src/resources/knx/oc_knx_dev.c
+    ${PROJECT_SOURCE_DIR}/src/resources/knx/oc_knx_fb.c
+    ${PROJECT_SOURCE_DIR}/src/resources/knx/oc_knx_fp.c
+    ${PROJECT_SOURCE_DIR}/src/resources/knx/oc_knx_helpers.c
+    ${PROJECT_SOURCE_DIR}/src/resources/knx/oc_knx_hooks.c
+    ${PROJECT_SOURCE_DIR}/src/resources/knx/oc_knx_observe.c
+    ${PROJECT_SOURCE_DIR}/src/resources/knx/oc_knx_p.c
+    ${PROJECT_SOURCE_DIR}/src/resources/knx/oc_knx_publisher.c
+    ${PROJECT_SOURCE_DIR}/src/resources/knx/oc_knx_sec.c
+    ${PROJECT_SOURCE_DIR}/src/resources/knx/oc_knx_swu.c
+    ${PROJECT_SOURCE_DIR}/src/resources/knx/oc_knx_sub.c
+)
+
+set(RUNTIME_SOURCES
+    ${PROJECT_SOURCE_DIR}/src/core/oc_buffer.c
+    ${PROJECT_SOURCE_DIR}/src/core/oc_endpoint.c
+    ${PROJECT_SOURCE_DIR}/src/core/oc_main.c
+    ${PROJECT_SOURCE_DIR}/src/core/oc_network_events.c
+)
+
+set(UTIL_SOURCES
+    ${PROJECT_SOURCE_DIR}/src/util/oc_base64.c
+    ${PROJECT_SOURCE_DIR}/src/util/oc_clock.c
+    ${PROJECT_SOURCE_DIR}/src/util/oc_etimer.c
+    ${PROJECT_SOURCE_DIR}/src/util/oc_helpers.c
+    ${PROJECT_SOURCE_DIR}/src/util/oc_list.c
+    ${PROJECT_SOURCE_DIR}/src/util/oc_mmem.c
+    ${PROJECT_SOURCE_DIR}/src/util/oc_process.c
+    ${PROJECT_SOURCE_DIR}/src/util/oc_timer.c
+    ${PROJECT_SOURCE_DIR}/src/util/oc_uuid.c
+    ${PROJECT_SOURCE_DIR}/src/util/c-timestamp/timestamp_compare.c
+    ${PROJECT_SOURCE_DIR}/src/util/c-timestamp/timestamp_format.c
+    ${PROJECT_SOURCE_DIR}/src/util/c-timestamp/timestamp_parse.c
+    ${PROJECT_SOURCE_DIR}/src/util/c-timestamp/timestamp_tm.c
+    ${PROJECT_SOURCE_DIR}/src/util/c-timestamp/timestamp_valid.c
+)
+
+set(SECURITY_SOURCES
     # Security
-    ${PROJECT_SOURCE_DIR}/security/oc_oscore_context.c
-    ${PROJECT_SOURCE_DIR}/security/oc_oscore_crypto.c
-    ${PROJECT_SOURCE_DIR}/security/oc_oscore_engine.c
-    ${PROJECT_SOURCE_DIR}/security/spake2plus.c
+    ${PROJECT_SOURCE_DIR}/src/security/oc_oscore_context.c
+    ${PROJECT_SOURCE_DIR}/src/security/oc_oscore_crypto.c
+    ${PROJECT_SOURCE_DIR}/src/security/oc_oscore_engine.c
+    ${PROJECT_SOURCE_DIR}/src/security/oc_replay.c
+    ${PROJECT_SOURCE_DIR}/src/security/spake2plus.c
 )
 
 set(COAP_SOURCES
-    ${PROJECT_SOURCE_DIR}/messaging/coap/coap.c
-    ${PROJECT_SOURCE_DIR}/messaging/coap/engine.c
-    ${PROJECT_SOURCE_DIR}/messaging/coap/observe.c
-    ${PROJECT_SOURCE_DIR}/messaging/coap/oscore.c
-    ${PROJECT_SOURCE_DIR}/messaging/coap/separate.c
-    ${PROJECT_SOURCE_DIR}/messaging/coap/transactions.c
+    ${PROJECT_SOURCE_DIR}/src/messaging/coap/oc_blockwise.c
+    ${PROJECT_SOURCE_DIR}/src/messaging/coap/coap.c
+    ${PROJECT_SOURCE_DIR}/src/messaging/coap/engine.c
+    ${PROJECT_SOURCE_DIR}/src/messaging/coap/observe.c
+    ${PROJECT_SOURCE_DIR}/src/messaging/coap/oscore.c
+    ${PROJECT_SOURCE_DIR}/src/messaging/coap/separate.c
+    ${PROJECT_SOURCE_DIR}/src/messaging/coap/transactions.c
 )
 
 ## KNX-IoT Stack Options ##
@@ -254,7 +293,7 @@ add_library(kis-common INTERFACE)
 # - One set for Debug and Release, with one exception: _FORTIFY_SOURCE needs the optimiser
 #   and is Release only.
 # - The warning policy is the same as on Zephyr (zephyr/CMakeLists.txt) and ESP-IDF
-#   (esp-idf/knx_iot/CMakeLists.txt), the documentation checks of clang stay warnings.
+#   (esp-idf/knx_iot/CMakeLists.txt); with clang -Wdocumentation is an error as well.
 # - -fstack-protector-strong: A canary between the local buffers and the return address,
 #   checked on return, an overflow that overwrote it aborts the program.
 # - _FORTIFY_SOURCE=2: glibc replaces memcpy, strcpy, snprintf, ... by checking variants
@@ -275,7 +314,6 @@ elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     if(CMAKE_C_COMPILER_ID MATCHES "Clang")
         list(APPEND KNX_STACK_C_FLAGS
             -Wdocumentation -Wno-documentation-deprecated-sync -Wunreachable-code
-            -Wno-error=documentation -Wno-error=documentation-html
         )
     endif()
     if(UNIX)
@@ -303,7 +341,8 @@ if(OC_DEBUG_OSCORE_ENABLED)
 endif()
 
 if(OC_PUBLISHER_TABLE_ENABLED)
-    target_compile_definitions(kis-common INTERFACE OC_PUBLISHER_TABLE)
+    # Not for targets with the property KIS_NO_PUBLISHER_TABLE: the plain-sender unit tests, tests/unit/publisher_off
+    target_compile_definitions(kis-common INTERFACE $<$<NOT:$<BOOL:$<TARGET_PROPERTY:KIS_NO_PUBLISHER_TABLE>>>:OC_PUBLISHER_TABLE>)
 endif()
 
 if(KNX_LOG_CAST_64_BIT_INTS_ENABLED)
@@ -311,17 +350,24 @@ if(KNX_LOG_CAST_64_BIT_INTS_ENABLED)
 endif()
 
 ### KNX-IoT Stack - Platform Ports ###
-add_subdirectory(port)
+add_subdirectory(src/port)
 
 ### KNX-IoT Stack ###
 # physical library targets, with default type STATIC
-add_library(kisClientServer ${CORE_SOURCES} ${COAP_SOURCES} ${API_SOURCES})
+add_library(kisClientServer
+    ${RUNTIME_SOURCES}
+    ${UTIL_SOURCES}
+    ${SECURITY_SOURCES}
+    ${COAP_SOURCES}
+    ${RI_SOURCES}
+    ${KNX_API_SOURCES}
+)
 
-# Stack can send + receive
-target_compile_definitions(kisClientServer PUBLIC OC_CLIENT OC_SERVER)                   
+# Stack can receive, with OC_CLIENT_ENABLED also send requests of its own (CoAP discovery)
+target_compile_definitions(kisClientServer PUBLIC OC_SERVER $<$<BOOL:${OC_CLIENT_ENABLED}>:OC_CLIENT>)
 
 # Specifies include directories to use when compiling a given target
-target_include_directories(kisClientServer PUBLIC ${KNX_INCLUDE_DIRS})
+target_include_directories(kisClientServer PUBLIC ${KNX_INCLUDE_DIRS} PRIVATE ${KNX_PRIVATE_INCLUDE_DIRS})
 
 ## KNX-IoT Stack Options (2) ##
 target_link_libraries(kisClientServer PUBLIC kis-common)
@@ -341,7 +387,27 @@ endif()
 target_link_libraries(kisClientServer PUBLIC kis-port)
 target_compile_options(kisClientServer PRIVATE ${KNX_STACK_C_FLAGS})
 target_compile_definitions(kisClientServer PRIVATE ${KNX_STACK_C_DEFINITIONS})
-set_target_properties(kisClientServer PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# PIC for the hosted hardening (PIE); bare metal (preset arm-size) has no loader,
+# and PIC would move const pointer tables into writable .data
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Generic")
+    set_target_properties(kisClientServer PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+
+## Object sizes of the stack (preset arm-size, CI job quality-size) ##
+# text/data/bss per stack object and TOTALS, written to <build>/size/size.txt.
+# Compiles only the stack objects, nothing is linked.
+set(KNX_SIZE_TOOL "" CACHE STRING "GNU size of the target toolchain; set it to get the target stack-size")
+if(KNX_SIZE_TOOL)
+    add_custom_target(stack-size
+        COMMAND ${CMAKE_COMMAND} -E make_directory size
+        COMMAND ${KNX_SIZE_TOOL} -t $<TARGET_OBJECTS:kisClientServer> > size/size.txt
+        COMMAND ${CMAKE_COMMAND} -E cat size/size.txt
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        DEPENDS $<TARGET_OBJECTS:kisClientServer>
+        COMMAND_EXPAND_LISTS
+        COMMENT "Stack object sizes -> size/size.txt"
+    )
+endif()
 
 ## Process individual stack/application behavior ##
 target_compile_definitions(kis-common INTERFACE
@@ -352,6 +418,10 @@ target_compile_definitions(kis-common INTERFACE
     KNX_ATT_MAX_ENTRIES=${KNX_ATT_MAX_ENTRIES} # access token table size
     KNX_PAGE_SIZE=${KNX_PAGE_SIZE}             # server default page size
     KNX_ECHO_RING_SIZE=${KNX_ECHO_RING_SIZE}   # echo ring size
+    COAP_MAX_OBSERVERS=${KNX_COAP_MAX_OBSERVERS}    # observe relationships
+    KNX_NET_MAX_RX_PENDING=${KNX_NET_MAX_RX_PENDING}   # received messages waiting for the event loop
+    COAP_MAX_OPEN_TRANSACTIONS=${KNX_COAP_MAX_OPEN_TRANSACTIONS} # open CoAP transactions
+    KNX_CBOR_MAX_DEPTH=${KNX_CBOR_MAX_DEPTH}   # nesting depth of a received CBOR payload
 
     ## Network
     # IPv6 unicast port
@@ -366,6 +436,12 @@ target_compile_definitions(kis-common INTERFACE
     # KNX reset Process Time (seconds)
     KNX_RESPONSE_TIME_SECONDS=${KNX_RESPONSE_TIME_SECONDS}
 
+    # KNX reset delay (milliseconds)
+    KNX_RESET_DELAY_MILLISECONDS=${KNX_RESET_DELAY_MILLISECONDS}
+
+    # default OSCORE echo response delay (milliseconds)
+    DEFAULT_OSN_DELAY=${KNX_OSCORE_OSN_DELAY_MILLISECONDS}
+
     
     # see notes on defintion above
     KNX_PAYLOAD_SIZE=${KNX_PAYLOAD_SIZE}
@@ -375,8 +451,8 @@ target_compile_definitions(kis-common INTERFACE
 # Optional library that registers /test/restart, /test/factory-reset and
 # /test/trigger endpoints.  Link kisTestControl in any app that needs
 # automated testing (e.g. eitt_virtual_gui, runtime_test_server).
-add_library(kisTestControl STATIC ${PROJECT_SOURCE_DIR}/api/oc_test_control.c)
-target_include_directories(kisTestControl PUBLIC ${PROJECT_SOURCE_DIR}/api)
+add_library(kisTestControl STATIC ${PROJECT_SOURCE_DIR}/src/resources/ri/oc_test_control.c)
+target_include_directories(kisTestControl PUBLIC ${PROJECT_SOURCE_DIR}/src/resources/ri PRIVATE ${KNX_PRIVATE_INCLUDE_DIRS})
 target_link_libraries(kisTestControl PUBLIC kisClientServer)
 target_compile_options(kisTestControl PRIVATE ${KNX_STACK_C_FLAGS})
 target_compile_definitions(kisTestControl PRIVATE ${KNX_STACK_C_DEFINITIONS})

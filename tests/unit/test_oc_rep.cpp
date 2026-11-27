@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_rep.c
+ * Unit tests for resources/ri/oc_rep.c
  *
  * Covers: oc_rep_new, encode+parse round-trips for int/bool/float/double/
  *         string/byte_string, int-keyed variants, arrays, nested objects,
@@ -14,10 +14,11 @@
  * Copyright 2026 KNXA (to the extent protectable under applicable law)
  */
 
-#include <gtest/gtest.h>
-#include <cstring>
 #include <cstdlib>
+#include <cstring>
+#include <gtest/gtest.h>
 #include <string>
+#include <vector>
 
 extern "C" {
 #include "oc_rep.h"
@@ -374,7 +375,7 @@ TEST_F(OcRepTest, DoubleArray)
  *
  * The fix went through a truncating-copy intermediate step before settling
  * here on all-or-nothing: silently keeping a truncated prefix is only as
- * safe as its one real consumer (ACL scope names, api/oc_knx_sec.c), which
+ * safe as its one real consumer (ACL scope names, resources/knx/oc_knx_sec.c), which
  * happens to fail closed on any string that doesn't exactly match a known
  * short name. A future consumer without that property could turn a quietly
  * truncated value into a logic or security bug - e.g. two different
@@ -556,6 +557,24 @@ TEST_F(OcRepTest, ToJson_NullBuf_ReturnsSizeNeeded)
 
   size_t needed = oc_rep_to_json(rep, nullptr, 0, false);
   EXPECT_GT(needed, 0u);
+}
+
+TEST_F(OcRepTest, ToJson_NullBuf_ByteString_ReturnsExactSize)
+{
+  /* the size query (NULL, 0) must not do arithmetic on the NULL buffer, also
+     not in the base64 branch of a byte string (UBSan: zero offset to null) */
+  const uint8_t bytes[] = {0x01, 0x02, 0x03, 0x04, 0x05};
+  oc_rep_new(buf, sizeof(buf));
+  oc_rep_begin_root_object();
+  oc_rep_i_set_byte_string(root, 1, bytes, sizeof(bytes));
+  int rc = encode_and_parse();
+  ASSERT_EQ(rc, CborNoError);
+
+  const size_t needed = oc_rep_to_json(rep, nullptr, 0, true);
+  std::vector<char> json(needed + 1);
+  const size_t written = oc_rep_to_json(rep, json.data(), json.size(), true);
+  EXPECT_EQ(needed, written);
+  EXPECT_EQ(strlen(json.data()), written);
 }
 
 TEST_F(OcRepTest, ToJson_BoolFalse)
@@ -845,6 +864,58 @@ TEST_F(OcRepTest, AddLineSizeToBuffer)
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+ * raw writes are bounded by the encoder capacity (link-format responses)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+TEST_F(OcRepTest, AddLineToBuffer_BeyondCapacityWritesNothingAndFlagsOutOfMemory)
+{
+  memset(buf, 0xAA, sizeof(buf));
+  oc_rep_new(buf, 8);
+
+  EXPECT_EQ(oc_rep_add_line_to_buffer("0123"), 4);
+  EXPECT_EQ(oc_rep_add_line_to_buffer("456789"), 0);
+
+  EXPECT_EQ(oc_rep_get_cbor_errno(), CborErrorOutOfMemory);
+  EXPECT_EQ(memcmp(buf, "0123", 4), 0);
+  for (size_t i = 4; i < 64; i++)
+  {
+    EXPECT_EQ(buf[i], 0xAA) << "byte " << i << " written beyond the capacity";
+  }
+}
+
+TEST_F(OcRepTest, AddLineToBuffer_OutOfMemoryIsStickyForLaterLinesThatFit)
+{
+  oc_rep_new(buf, 8);
+
+  EXPECT_EQ(oc_rep_add_line_to_buffer("0123456789"), 0);
+  EXPECT_EQ(oc_rep_add_line_to_buffer("ab"), 2);
+
+  EXPECT_EQ(oc_rep_get_cbor_errno(), CborErrorOutOfMemory);
+}
+
+TEST_F(OcRepTest, AddLineToBuffer_ExactCapacityFits)
+{
+  memset(buf, 0xAA, sizeof(buf));
+  oc_rep_new(buf, 8);
+
+  EXPECT_EQ(oc_rep_add_line_to_buffer("01234567"), 8);
+
+  EXPECT_EQ(oc_rep_get_cbor_errno(), CborNoError);
+  EXPECT_EQ(buf[8], 0xAA);
+}
+
+TEST_F(OcRepTest, AddLineSizeToBuffer_BeyondCapacityWritesNothing)
+{
+  memset(buf, 0xAA, sizeof(buf));
+  oc_rep_new(buf, 4);
+
+  EXPECT_EQ(oc_rep_add_line_size_to_buffer("hello world", 5), 0);
+
+  EXPECT_EQ(oc_rep_get_cbor_errno(), CborErrorOutOfMemory);
+  EXPECT_EQ(buf[0], 0xAA);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
  * oc_rep_encode_raw
  * ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -932,6 +1003,135 @@ TEST_F(OcRepTest, ParseRep_DuplicateIntegerKeyInNestedMap)
   EXPECT_EQ(ga_nodes, 2) << "parser collapsed or dropped the duplicate key";
   EXPECT_EQ(first_ga, 1234);
   EXPECT_EQ(last_ga, 9999);
+}
+
+/* Integers outside the int64 range (found by fuzz_dev_put) */
+
+TEST_F(OcRepTest, ParseRep_NegativeIntBelowInt64Min_IsRejected)
+{
+  /* { 1: -2^63 - 1 } */
+  const uint8_t payload[] = {0xa1, 0x01, 0x3b, 0x80, 0, 0, 0, 0, 0, 0, 0};
+  EXPECT_NE(oc_parse_rep(payload, sizeof(payload), &rep), CborNoError);
+}
+
+TEST_F(OcRepTest, ParseRep_NegativeIntArrayItemBelowInt64Min_IsRejected)
+{
+  /* { 1: [ -1, -2^64 ] } */
+  const uint8_t payload[] = {0xa1, 0x01, 0x82, 0x20, 0x3b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+  EXPECT_NE(oc_parse_rep(payload, sizeof(payload), &rep), CborNoError);
+}
+
+TEST_F(OcRepTest, ParseRep_Int64Min_IsAccepted)
+{
+  /* { 1: -2^63 } */
+  const uint8_t payload[] = {0xa1, 0x01, 0x3b, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+  ASSERT_EQ(oc_parse_rep(payload, sizeof(payload), &rep), CborNoError);
+  int64_t value = 0;
+  EXPECT_TRUE(oc_rep_i_get_int(rep, 1, &value));
+  EXPECT_EQ(value, INT64_MIN);
+}
+
+TEST_F(OcRepTest, ParseRep_Uint64AboveInt64Max_KeepsBitPattern)
+{
+  /* { 1: 2^64 - 1 }: a 64-bit iid is read back as uint64 */
+  const uint8_t payload[] = {0xa1, 0x01, 0x1b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+  ASSERT_EQ(oc_parse_rep(payload, sizeof(payload), &rep), CborNoError);
+  int64_t value = 0;
+  EXPECT_TRUE(oc_rep_i_get_int(rep, 1, &value));
+  EXPECT_EQ((uint64_t)value, UINT64_MAX);
+}
+
+TEST_F(OcRepTest, ParseRep_IntKeyAboveIntMax_IsRejected)
+{
+  /* { 2^32 + 1: 0 } would otherwise be truncated to key 1 */
+  const uint8_t payload[] = {0xa1, 0x1b, 0, 0, 0, 0x01, 0, 0, 0, 0x01, 0x00};
+  EXPECT_NE(oc_parse_rep(payload, sizeof(payload), &rep), CborNoError);
+}
+
+/* Nesting depth (KNX_CBOR_MAX_DEPTH): the parse recurses per level, so a deeper
+   payload is rejected before any node is allocated */
+
+/* depth nested one-element arrays around the integer 0: [[[...0...]]] */
+static std::vector<uint8_t> nested_arrays(int depth)
+{
+  std::vector<uint8_t> p((size_t)depth, 0x81);
+  p.push_back(0x00);
+  return p;
+}
+
+TEST_F(OcRepTest, ParseRep_ArraysAtMaxDepth_AreAccepted)
+{
+  const std::vector<uint8_t> p = nested_arrays(KNX_CBOR_MAX_DEPTH);
+  EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborNoError);
+  EXPECT_NE(rep, nullptr);
+}
+
+TEST_F(OcRepTest, ParseRep_ArraysOneBeyondMaxDepth_AreRejectedWithoutTree)
+{
+  /* 400: the 401-byte payload that drove the stack to 84 KB before the check */
+  for (const int depth : {KNX_CBOR_MAX_DEPTH + 1, 400})
+  {
+    const std::vector<uint8_t> p = nested_arrays(depth);
+    EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborErrorNestingTooDeep) << "depth " << depth;
+    EXPECT_EQ(rep, nullptr) << "depth " << depth;
+    if (rep != nullptr)
+    {
+      oc_free_rep(rep);
+      rep = nullptr;
+    }
+  }
+}
+
+TEST_F(OcRepTest, ParseRep_MapsOneBeyondMaxDepth_AreRejected)
+{
+  /* { 1: { 1: ... { 1: 0 } } } */
+  std::vector<uint8_t> p;
+  for (int i = 0; i < KNX_CBOR_MAX_DEPTH + 1; i++)
+  {
+    p.push_back(0xa1);
+    p.push_back(0x01);
+  }
+  p.push_back(0x00);
+  EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborErrorNestingTooDeep);
+  EXPECT_EQ(rep, nullptr);
+}
+
+TEST_F(OcRepTest, ParseRep_DeepSecondArrayItem_IsRejected)
+{
+  /* [ 1, [[...]] ]: the array type scan skips the second item before parsing it */
+  std::vector<uint8_t> p = {0x82, 0x01};
+  const std::vector<uint8_t> inner = nested_arrays(KNX_CBOR_MAX_DEPTH);
+  p.insert(p.end(), inner.begin(), inner.end());
+  EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborErrorNestingTooDeep);
+  EXPECT_EQ(rep, nullptr);
+}
+
+TEST_F(OcRepTest, ParseRep_TaggedRootOverDeepArrays_IsRejected)
+{
+  /* tag 32 in front of the nested arrays */
+  std::vector<uint8_t> p = {0xd8, 0x20};
+  const std::vector<uint8_t> inner = nested_arrays(KNX_CBOR_MAX_DEPTH + 1);
+  p.insert(p.end(), inner.begin(), inner.end());
+  EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborErrorNestingTooDeep);
+  EXPECT_EQ(rep, nullptr);
+}
+
+TEST_F(OcRepTest, ParseRep_SiblingsAtMaxDepth_AreAccepted)
+{
+  /* [ X, X ] with X nested to the limit: leaving a container restores the depth */
+  std::vector<uint8_t> p = {0x82};
+  const std::vector<uint8_t> inner = nested_arrays(KNX_CBOR_MAX_DEPTH - 1);
+  p.insert(p.end(), inner.begin(), inner.end());
+  p.insert(p.end(), inner.begin(), inner.end());
+  EXPECT_EQ(oc_parse_rep(p.data(), (int)p.size(), &rep), CborNoError);
+  EXPECT_NE(rep, nullptr);
+}
+
+TEST_F(OcRepTest, ParseRep_TruncatedNestedPayload_StillReportsUnexpectedEof)
+{
+  /* the walk must keep the error that maps to 4.13 (entity too large) */
+  const uint8_t payload[] = {0xa1, 0x01, 0x82, 0x01};
+  EXPECT_EQ(oc_parse_rep(payload, sizeof(payload), &rep), CborErrorUnexpectedEOF);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1057,12 +1257,29 @@ TEST_F(OcRepTest, EncodeRawEncoder_WritesBytesAndAdvances)
   CborEncoder enc;
   cbor_encoder_init(&enc, buf, sizeof(buf), 0);
   const uint8_t data[] = { 0xDE, 0xAD, 0xBE, 0xEF };
-  g_err = CborUnknownError; /* sentinel: function must reset to NoError */
+  g_err = CborNoError;
   oc_rep_encode_raw_encoder(&enc, data, sizeof(data));
   EXPECT_EQ(g_err, CborNoError);
   EXPECT_EQ(memcmp(buf, data, sizeof(data)), 0);
   /* encoder write pointer advanced by len */
   EXPECT_EQ(enc.data.ptr, buf + sizeof(data));
+}
+
+TEST_F(OcRepTest, EncodeRawEncoder_BeyondCapacityWritesNothing)
+{
+  memset(buf, 0xAA, sizeof(buf));
+  CborEncoder enc;
+  cbor_encoder_init(&enc, buf, 4, 0);
+  const uint8_t data[] = {1, 2, 3, 4, 5, 6};
+
+  oc_rep_encode_raw_encoder(&enc, data, sizeof(data));
+
+  EXPECT_EQ(g_err, CborErrorOutOfMemory);
+  EXPECT_EQ(enc.data.ptr, buf);
+  for (size_t i = 0; i < 16; i++)
+  {
+    EXPECT_EQ(buf[i], 0xAA) << "byte " << i << " written beyond the capacity";
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

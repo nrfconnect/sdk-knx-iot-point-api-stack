@@ -11,7 +11,7 @@
 # by the tf-psa-crypto default config (no ESP-IDF Kconfig gate), and the PSA RNG is
 # external (esp_fill_random), so none of those need a select.
 #
-# lwIP requirements of the connectivity backend (port/freertos_esp32/connectivity_lwip.c)
+# lwIP requirements of the connectivity backend (src/port/freertos_esp32/connectivity_lwip.c)
 # are force-enabled the same way: IPv6 (KNX-IoT is IPv6 only) and the netbuf receive
 # info, which is off by default and without which recvmsg() delivers no IPV6_PKTINFO,
 # so the MULTICAST endpoint flag and the receive interface would be lost silently.
@@ -52,7 +52,10 @@ config KNXIOT_CLIENT
     bool "KNX-IoT client mode support"
     default y
     help
-      Corresponds to CMake: OC_CLIENT.
+      Corresponds to CMake: OC_CLIENT (host CMake: OC_CLIENT_ENABLED).
+      Without it the IPv6 address of a unicast s-mode recipient is never
+      resolved (no CoAP discovery): such recipients are marked failed and
+      get nothing. Multicast s-mode is not affected.
 
 config KNXIOT_SERVER
     bool "KNX-IoT server mode support"
@@ -87,6 +90,33 @@ config KNXIOT_ATT_MAX_ENTRIES
     int "Access Token (AT) table max entries"
     default 20
 
+config KNXIOT_COAP_MAX_OBSERVERS
+    int "Maximum number of observe relationships (all resources)"
+    default 8
+    range 1 255
+
+config KNXIOT_NET_MAX_RX_PENDING
+    int "Received messages waiting for the event loop"
+    default 8
+    range 1 255
+
+config KNXIOT_COAP_MAX_OPEN_TRANSACTIONS
+    int "Maximum number of open CoAP transactions"
+    default 32
+    range 1 255
+    help
+      Every s-mode unicast recipient and every confirmable notification holds
+      one until it is acknowledged, size it for those plus a few responses.
+
+config KNXIOT_CBOR_MAX_DEPTH
+    int "Maximum nesting depth of a received CBOR payload"
+    default 8
+    range 4 32
+    help
+      KNX payloads nest up to 4 deep, a smaller value rejects valid table writes.
+      Passed to the built-in TinyCBOR as CBOR_PARSER_MAX_RECURSIONS; with an
+      external TinyCBOR define CBOR_PARSER_MAX_RECURSIONS there.
+
 config KNXIOT_PAGE_SIZE
     int "Server default page size"
     default 20
@@ -105,8 +135,8 @@ config KNXIOT_NETWORK_BACKEND_ETHERNET
     bool "Ethernet"
     help
       Use Ethernet as the network backend.
-      Compiles port/freertos_esp32/connectivity_lwip.c with the shared DNS-SD
-      responder (port/dns-sd_mdns.c). Needs the esp_eth component and the
+      Compiles src/port/freertos_esp32/connectivity_lwip.c with the shared DNS-SD
+      responder (src/port/dns-sd_mdns.c). Needs the esp_eth component and the
       Ethernet esp_netif (ETH_DEF) created by the application.
 
 config KNXIOT_NETWORK_BACKEND_THREAD
@@ -114,9 +144,9 @@ config KNXIOT_NETWORK_BACKEND_THREAD
     select OPENTHREAD_ENABLED
     help
       Use OpenThread (IEEE 802.15.4 Thread mesh) as the network backend.
-      Compiles port/freertos_esp32/connectivity_lwip.c over the OpenThread
+      Compiles src/port/freertos_esp32/connectivity_lwip.c over the OpenThread
       esp_netif (OT_DEF, CONFIG_OPENTHREAD_PLATFORM_NETIF) with the DNS-SD
-      registration through the OpenThread SRP client (port/dns-sd_srp.c,
+      registration through the OpenThread SRP client (src/port/dns-sd_srp.c,
       shared with Zephyr). Selects the OpenThread component, the application
       starts OpenThread and supplies its configuration.
 
@@ -124,8 +154,8 @@ config KNXIOT_NETWORK_BACKEND_WIFI
     bool "Wi-Fi"
     help
       Use Wi-Fi as the network backend.
-      Compiles port/freertos_esp32/connectivity_lwip.c with the shared DNS-SD
-      responder (port/dns-sd_mdns.c).
+      Compiles src/port/freertos_esp32/connectivity_lwip.c with the shared DNS-SD
+      responder (src/port/dns-sd_mdns.c).
 
 endchoice
 
@@ -144,6 +174,10 @@ config KNX_READ_ON_INIT_DELAY_MS
 config KNX_RESET_PROCESS_TIME_S
     int "KNX reset process time (seconds)"
     default 2
+
+config KNX_RESET_DELAY_MS
+    int "KNX reset delay (milliseconds)"
+    default 1000
 
 config KNXIOT_LWIP_MLD6_GROUPS
     int "lwIP IPv6 multicast group memberships (MEMP_NUM_MLD6_GROUP)"
@@ -166,7 +200,7 @@ config KNXIOT_RX_TASK_STACK_SIZE
     default 4096
     help
       Stack of the task that waits on the CoAP sockets and hands every received
-      datagram to the stack (port/freertos_esp32/connectivity_lwip.c). The datagram
+      datagram to the stack (src/port/freertos_esp32/connectivity_lwip.c). The datagram
       buffers come from the stack's message pool, not from this stack.
 
 config KNXIOT_RX_TASK_PRIORITY
@@ -180,7 +214,7 @@ config KNXIOT_MDNS_LISTENER_STACK_SIZE
     int "mDNS listener thread stack size (bytes)"
     default 8192
     help
-      Stack of the DNS-SD query responder thread (port/dns-sd_mdns.c), created as a
+      Stack of the DNS-SD query responder thread (src/port/dns-sd_mdns.c), created as a
       pthread with this explicit size. It parses incoming mDNS queries and builds the
       response records on this stack. 4096 overflowed on Zephyr while answering a
       query, 8192 gives safe headroom.
@@ -191,8 +225,8 @@ config KNXIOT_SHELL
     bool "KNX IoT console command (knx_iot)"
     default y
     help
-      Compiles the shared KNX IoT shell commands (port/knx_shell_commands.c) and their
-      ESP-IDF console binding (port/freertos_esp32/knx_shell.c), which registers the
+      Compiles the shared KNX IoT shell commands (src/port/knx_shell_commands.c) and their
+      ESP-IDF console binding (src/port/freertos_esp32/knx_shell.c), which registers the
       "knx_iot" console command with its subcommands (device parameters, tables, factory
       reset, heap statistics). The application creates the console REPL, calls
       knx_shell_register() and starts the REPL. The ESP-IDF console component is a fixed
@@ -204,7 +238,7 @@ config KNXIOT_TEST_CONTROL
     bool "Test-control endpoints (/test/restart, /test/factory-reset, /test/trigger)"
     default n
     help
-      Compiles api/oc_test_control.c and defines KNX_TEST_CONTROL for all targets.
+      Compiles src/resources/ri/oc_test_control.c and defines KNX_TEST_CONTROL for all targets.
       Registers the non-standard /test/* CoAP endpoints used by the Python runtime
       conformance suite. The application must call oc_test_control_register().
 
@@ -217,6 +251,8 @@ config KNXIOT_LOG_LEVEL
     range 0 4 if KNXIOT_DEBUG
     help
       Corresponds to CMake: OC_PRINT_ENABLED (level > 0) / OC_DEBUG_ENABLED (level 4).
+      With KNXIOT_LOG_PLATFORM_NATIVE, OC_PRINT also needs LOG_MAXIMUM_LEVEL > 0:
+      at "No output" the stack compiles no log calls and no print helpers.
 
 config KNXIOT_DEBUG
     bool "Enable debug logging (unlocks level 4) and debug code paths"
@@ -242,7 +278,7 @@ config KNXIOT_LOG_PLATFORM_NATIVE
     default y
     help
       When enabled, OC_ERR/OC_WRN/OC_INF/OC_DBG map to ESP_LOGE/W/I/D with the
-      tag "knx_iot" (port/log_esp-idf.h), so the stack output gets the ESP-IDF
+      tag "knx_iot" (include/port/log_esp-idf.h), so the stack output gets the ESP-IDF
       format, colours and runtime level control (esp_log_level_set).
       When disabled, the stack prints its own OC_LOG format (timestamp,
       file:line, function) through printf, the same output as on Linux.

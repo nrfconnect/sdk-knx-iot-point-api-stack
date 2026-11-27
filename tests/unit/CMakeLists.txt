@@ -24,12 +24,13 @@ add_library(kis-app-stubs STATIC test_app_stubs.c)
 # headers parse consistently with the rest of the build.
 target_link_libraries(kis-app-stubs PRIVATE kis-common)
 # Compile-only include dirs needed to parse oc_knx.h's transitive chain
-# (oc_api.h -> oc_ri.h -> ipadapter.h via kis-port; oc_rep.h -> cbor.h via tinycbor).
+# (oc_knx.h -> oc_api.h -> oc_ri.h -> oc_config.h in the port directory kis-port exports;
+# oc_rep.h -> cbor.h via tinycbor).
 # Pulled via generator expressions so the real static libraries are NOT linked here:
 # linking them would re-append their archives at the end of each test executable's
 # link line and break the carefully ordered kisClientServer <-> kis-port circular link.
 target_include_directories(kis-app-stubs PRIVATE
-    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/src
     ${PROJECT_SOURCE_DIR}/include
     $<TARGET_PROPERTY:kis-port,INTERFACE_INCLUDE_DIRECTORIES>
     $<TARGET_PROPERTY:tinycbor,INTERFACE_INCLUDE_DIRECTORIES>
@@ -61,10 +62,11 @@ function(kis_add_test TEST_NAME TEST_SOURCE)
     add_executable(${TEST_NAME} ${TEST_SOURCE})
 
     target_include_directories(${TEST_NAME} PRIVATE
-        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/src
         ${PROJECT_SOURCE_DIR}/include
-        ${PROJECT_SOURCE_DIR}/port
-        ${PROJECT_SOURCE_DIR}/api
+        ${PROJECT_SOURCE_DIR}/src/port
+        ${PROJECT_SOURCE_DIR}/src/resources
+        ${KNX_PRIVATE_INCLUDE_DIRS}
     )
 
     target_link_libraries(${TEST_NAME} PRIVATE
@@ -73,6 +75,9 @@ function(kis_add_test TEST_NAME TEST_SOURCE)
         ${ARG_LIBS}
         kisClientServer_tail
     )
+
+    # clang: test code stays free of warnings (linux-test-asan-clang gates CI on it)
+    target_compile_options(${TEST_NAME} PRIVATE $<$<CXX_COMPILER_ID:Clang>:-Werror>)
 
     # Let CTest discover individual TEST() cases.
     # gtest_discover_tests runs the binary at build time (POST_BUILD), so the listing
@@ -86,8 +91,110 @@ function(kis_add_test TEST_NAME TEST_SOURCE)
     set_property(GLOBAL APPEND PROPERTY KIS_UNIT_TEST_TARGETS ${TEST_NAME})
 endfunction()
 
+# ── Helper: the stack in another configuration, with its unit-test executables ──
+# Usage, in the directory of the configuration:
+#   kis_add_stack_variant(<lib> <suite> <build test> [SUFFIX <suffix>] SOURCES <test.cpp> ...)
+#
+# The library <lib> and one executable <test><suffix> per source are left out of the default build
+# (EXCLUDE_FROM_ALL). The CTest <suite>.<build test> builds them all, <suite>.<test> runs one and needs
+# the first. KIS_VARIANT_TESTS (parent scope) lists the executables, for properties of the caller.
+function(kis_add_stack_variant LIB SUITE BUILD_TEST)
+    cmake_parse_arguments(ARG "" "SUFFIX" "SOURCES" ${ARGN})
+    add_library(${LIB} STATIC EXCLUDE_FROM_ALL
+        ${RUNTIME_SOURCES}
+        ${UTIL_SOURCES}
+        ${SECURITY_SOURCES}
+        ${COAP_SOURCES}
+        ${RI_SOURCES}
+        ${KNX_API_SOURCES}
+    )
+    target_include_directories(${LIB} PUBLIC ${KNX_INCLUDE_DIRS} PRIVATE ${KNX_PRIVATE_INCLUDE_DIRS})
+    target_link_libraries(${LIB} PUBLIC kis-common kis-port)
+    if(CONFIG_KNXIOT_MBEDTLS_BUILTIN)
+        target_link_libraries(${LIB} PUBLIC mbedtls)
+        target_include_directories(${LIB} PRIVATE "${mbedtls_SOURCE_DIR}/tf-psa-crypto/drivers/builtin/include")
+    endif()
+    if(CONFIG_KNXIOT_TINYCBOR_BUILTIN)
+        target_link_libraries(${LIB} PUBLIC tinycbor)
+    endif()
+    target_compile_options(${LIB} PRIVATE ${KNX_STACK_C_FLAGS})
+    target_compile_definitions(${LIB} PRIVATE ${KNX_STACK_C_DEFINITIONS})
+
+    set(executables "")
+    foreach(source ${ARG_SOURCES})
+        get_filename_component(test ${source} NAME_WE)
+        set(exe ${test}${ARG_SUFFIX})
+        add_executable(${exe} EXCLUDE_FROM_ALL ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/${source})
+        target_include_directories(${exe} PRIVATE
+            ${PROJECT_SOURCE_DIR}/src
+            ${PROJECT_SOURCE_DIR}/include
+            ${PROJECT_SOURCE_DIR}/src/port
+            ${PROJECT_SOURCE_DIR}/src/resources
+            ${KNX_PRIVATE_INCLUDE_DIRS}
+        )
+        # ${LIB} again at the end: the circular ${LIB} <-> kis-port link, see kisClientServer_tail
+        target_link_libraries(${exe} PRIVATE
+            ${LIB}
+            GTest::gtest_main
+            $<TARGET_FILE:${LIB}>
+            $<TARGET_FILE:tinycbor>
+            $<TARGET_FILE:kis-port>
+            $<TARGET_FILE:tfpsacrypto>
+            kis-app-stubs
+        )
+        if(WIN32)
+            target_link_libraries(${exe} PRIVATE ws2_32 bcrypt iphlpapi)
+        endif()
+        target_compile_options(${exe} PRIVATE $<$<CXX_COMPILER_ID:Clang>:-Werror>)
+
+        add_test(NAME ${SUITE}.${test} COMMAND ${exe})
+        set_tests_properties(${SUITE}.${test} PROPERTIES FIXTURES_REQUIRED ${LIB})
+        list(APPEND executables ${exe})
+    endforeach()
+
+    add_test(NAME ${SUITE}.${BUILD_TEST}
+             COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target ${executables} --config $<CONFIG>)
+    set_tests_properties(${SUITE}.${BUILD_TEST} PROPERTIES FIXTURES_SETUP ${LIB})
+    set(KIS_VARIANT_TESTS ${executables} PARENT_SCOPE)
+endfunction()
+
 # ── Test targets ───────────────────────────────────────────────────────────────
+# Layering: src/messaging/, src/security/ and src/port/ reach the KNX layer only through their *_knx_hooks.h
+add_test(NAME LayeringCheck.LowerLayersUseOnlyTheirKnxHooks
+         COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${PROJECT_SOURCE_DIR}/cmake/check_layering.cmake)
+
+# Public headers: an application needs only include/ (plus its platform's oc_config.h directory and
+# TinyCBOR) on the include path. Every header under include/ compiles on its own with nothing else;
+# the platform-specific log backends are left out, oc_log.h includes them on their platform only.
+file(GLOB_RECURSE kis_public_headers RELATIVE ${PROJECT_SOURCE_DIR}/include CONFIGURE_DEPENDS
+     ${PROJECT_SOURCE_DIR}/include/*.h)
+list(FILTER kis_public_headers EXCLUDE REGEX "^port/log_(zephyr|esp-idf)\\.h$")
+set(kis_public_header_sources "")
+foreach(header ${kis_public_headers})
+    string(MAKE_C_IDENTIFIER "${header}" header_id)
+    set(source "${CMAKE_CURRENT_BINARY_DIR}/public_headers/${header_id}.c")
+    file(CONFIGURE OUTPUT "${source}" CONTENT "#include \"${header}\"\n")
+    list(APPEND kis_public_header_sources "${source}")
+endforeach()
+add_library(kis-public-headers OBJECT EXCLUDE_FROM_ALL ${kis_public_header_sources})
+target_include_directories(kis-public-headers PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PORT_DIR}
+    $<TARGET_PROPERTY:tinycbor,INTERFACE_INCLUDE_DIRECTORIES>
+)
+target_compile_definitions(kis-public-headers PRIVATE
+    OC_CLIENT OC_SERVER $<TARGET_PROPERTY:kis-common,INTERFACE_COMPILE_DEFINITIONS>
+)
+add_test(NAME PublicHeaders.CompileWithOnlyTheIncludeDirectory
+         COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target kis-public-headers --config $<CONFIG>)
+
+# The stack without OC_CLIENT builds, links and leaves unicast recipients unresolved
+add_subdirectory(client_off)
+# The stack without OC_PUBLISHER_TABLE (plain sender) builds, links and passes the table tests
+add_subdirectory(publisher_off)
+
 # Pure-function tests (no platform/network dependencies)
+kis_add_test(test_oc_knx_hooks test_oc_knx_hooks.cpp)
 kis_add_test(test_oc_base64  test_oc_base64.cpp)
 kis_add_test(test_oc_uuid    test_oc_uuid.cpp)
 kis_add_test(test_oc_list    test_oc_list.cpp)
@@ -123,6 +230,8 @@ target_link_options(test_oc_oscore_echo_tx PRIVATE
 )
 kis_add_test(test_oc_endpoint       test_oc_endpoint.cpp)
 kis_add_test(test_oc_knx_fp        test_oc_knx_fp.cpp)
+# counts the group multicast joins of oc_register_group_multicasts(), no socket is touched
+target_link_options(test_oc_knx_fp PRIVATE -Wl,--wrap=oc_connectivity_subscribe_mcast_ipv6)
 kis_add_test(test_oc_ri            test_oc_ri.cpp)
 target_link_options(test_oc_ri PRIVATE
     -Wl,--wrap=coap_remove_observer_by_resource
@@ -145,6 +254,10 @@ target_link_options(test_oc_ri_periodic_observe PRIVATE
     -Wl,--wrap=oc_notify_observers
 )
 kis_add_test(test_coap_engine       test_coap_engine.cpp)
+# --wrap=oc_send_buffer records the re-send of a cached response
+target_link_options(test_coap_engine PRIVATE
+    -Wl,--wrap=oc_send_buffer
+)
 kis_add_test(test_coap_receive_payload test_coap_receive_payload.cpp)
 # Request payload size limits in coap_receive: --wrap fakes the network side (same pattern as test_smode_send_refcount)
 # and records the response.
@@ -170,6 +283,18 @@ target_link_options(test_coap_blockwise_server PRIVATE
     -Wl,--wrap=oc_etimer_restart
     -Wl,--wrap=coap_send_message
 )
+# server side OSCORE replay/Echo admission in coap_receive(): replies go to the recorder, the delayed Echo callback is
+# recorded and fired by the test, a fixed clock pins the freshness limit, --wrap=malloc fails the delayed context
+kis_add_test(test_coap_receive_oscore_admission test_coap_receive_oscore_admission.cpp)
+target_link_options(test_coap_receive_oscore_admission PRIVATE
+    -Wl,--wrap=oc_main_initialized
+    -Wl,--wrap=oc_etimer_restart
+    -Wl,--wrap=coap_send_message
+    -Wl,--wrap=oc_set_delayed_callback_ms
+    -Wl,--wrap=coap_knx_echo_max_delay_ms
+    -Wl,--wrap=oc_clock_time
+    -Wl,--wrap=malloc
+)
 # separate responses through coap_receive(): replies go to the recorder __wrap_coap_send_message(), --wrap=calloc fails a store
 kis_add_test(test_coap_receive_notify test_coap_receive_notify.cpp)
 target_link_options(test_coap_receive_notify PRIVATE
@@ -183,7 +308,12 @@ target_link_options(test_coap_observe PRIVATE
     -Wl,--wrap=oc_main_initialized
     -Wl,--wrap=oc_etimer_restart
     -Wl,--wrap=coap_send_message
+    -Wl,--wrap=malloc
     -Wl,--wrap=calloc
+    -Wl,--wrap=oc_clock_time
+    -Wl,--wrap=oc_ri_add_timed_event_callback_ticks
+    -Wl,--wrap=oc_ri_remove_timed_event_callback
+    -Wl,--wrap=oc_ri_get_app_resource_by_resource_path
 )
 kis_add_test(test_smode_refcount     test_smode_refcount.cpp)
 kis_add_test(test_smode_send_refcount test_smode_send_refcount.cpp)
@@ -206,7 +336,7 @@ target_link_options(test_smode_issue PRIVATE
     -Wl,--wrap=oc_etimer_restart
     -Wl,--wrap=oc_allocate_message
     -Wl,--wrap=coap_new_transaction_with_message
-    -Wl,--wrap=coap_notify_k_observers
+    -Wl,--wrap=oc_knx_notify_k_observers
 )
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(test_smode_issue PRIVATE -fpermissive)
@@ -220,6 +350,9 @@ kis_add_test(test_smode_loopback_recursion test_smode_loopback_recursion.cpp)
 # transaction), so no live network stack or oc_main_init() is needed.
 target_link_options(test_smode_loopback_recursion PRIVATE
     -Wl,--wrap=coap_new_transaction_with_message
+    -Wl,--wrap=coap_send_transaction
+    -Wl,--wrap=coap_notify_observers_dispatched
+    -Wl,--wrap=oc_knx_notify_k_observers
 )
 # oc_rep macros use g_err |= cbor_encode_*() which is an invalid
 # enum-to-int conversion in strict C++.
@@ -291,6 +424,29 @@ target_link_options(test_oc_client_api PRIVATE
     -Wl,--wrap=oc_allocate_message
 )
 kis_add_test(test_oc_knx_client      test_oc_knx_client.cpp)
+kis_add_test(test_read_on_init       test_read_on_init.cpp)
+# The timed-event registry (to reach the static callback), the network scope
+# and the s-mode senders are replaced, so the read-on-init gate runs without
+# event loop or network.
+target_link_options(test_read_on_init PRIVATE
+    -Wl,--wrap=oc_ri_add_timed_event_callback_ticks
+    -Wl,--wrap=oc_ri_remove_timed_event_callback
+    -Wl,--wrap=oc_connectivity_get_network_scope
+    -Wl,--wrap=oc_send_s_mode_multicast_message
+    -Wl,--wrap=oc_send_s_mode_unicast_message
+)
+kis_add_test(test_oc_knx_publisher   test_oc_knx_publisher.cpp)
+# The clock, the timed-event registry, the load state, the resource lookup and
+# the s-mode sender are replaced by test doubles, so the periodic check runs
+# without event loop or network.
+target_link_options(test_oc_knx_publisher PRIVATE
+    -Wl,--wrap=oc_clock_time
+    -Wl,--wrap=oc_ri_add_timed_event_callback_ticks
+    -Wl,--wrap=oc_ri_remove_timed_event_callback
+    -Wl,--wrap=oc_send_s_mode_mc_or_uc_message_dispatched
+    -Wl,--wrap=oc_is_device_in_runtime
+    -Wl,--wrap=oc_ri_get_app_resource_by_resource_path
+)
 kis_add_test(test_oc_network_events  test_oc_network_events.cpp)
 target_link_options(test_oc_network_events PRIVATE
     -Wl,--wrap=oc_receive_message
@@ -298,6 +454,21 @@ target_link_options(test_oc_network_events PRIVATE
     -Wl,--wrap=_oc_signal_event_loop
 )
 kis_add_test(test_oc_main            test_oc_main.cpp)
+# oc_main_init() without storage, network or crypto: the wraps make the bootstrap
+# steps no-ops and record when the DNS-SD registration runs.
+kis_add_test(test_oc_main_init       test_oc_main_init.cpp)
+target_link_options(test_oc_main_init PRIVATE
+    -Wl,--wrap=knx_dns_sd_update_service
+    -Wl,--wrap=oc_spake2plus_init_data
+    -Wl,--wrap=oc_knx_load_device
+    -Wl,--wrap=oc_knx_load_fingerprint
+    -Wl,--wrap=oc_register_group_multicasts
+    -Wl,--wrap=oc_unregister_group_multicasts
+    -Wl,--wrap=oc_network_refresh_endpoints
+    -Wl,--wrap=oc_init_datapoints_at_initialization
+    -Wl,--wrap=knx_dns_sd_stop
+    -Wl,--wrap=oc_connectivity_shutdown
+)
 kis_add_test(test_oc_core_res        test_oc_core_res.cpp)
 kis_add_test(test_spake2plus         test_spake2plus.cpp)
 kis_add_test(test_app_precalculated_spake test_app_precalculated_spake.cpp)

@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "coap.h"
+#include "messaging/coap/coap.h"
 #include "oc_buffer_settings.h"
 
 int

@@ -24,17 +24,17 @@
 #include <cstring>
 
 extern "C" {
-#include "messaging/coap/separate.h"
 #include "messaging/coap/coap.h"
-#include "messaging/coap/oc_coap.h"
-#include "oc_endpoint.h"
-#include "oc_helpers.h"
-#include "util/oc_list.h"
-#include "util/oc_mmem.h"
-#include "oc_buffer.h"
+#include "messaging/coap/separate.h"
+#include "messaging/coap/transactions.h"
 #include "oc_api.h"
 #include "oc_blockwise.h"
-#include "messaging/coap/transactions.h"
+#include "oc_buffer.h"
+#include "oc_endpoint.h"
+#include "oc_helpers.h"
+#include "oc_ri.h"
+#include "util/oc_list.h"
+#include "util/oc_mmem.h"
 }
 
 /*

@@ -182,9 +182,9 @@ extern "C" {
   /**
    * @brief parse endpoint
    *
-   * @param endpoint_str
-   * @param path
-   * @return int
+   * @param endpoint_str the endpoint string, e.g. coap://[fe80::1]:5683/p/1
+   * @param path the URI path of the endpoint string (output)
+   * @return int 0 success, -1 on a NULL argument or an endpoint string without address
    */
   int oc_endpoint_string_parse_path(oc_string_t* endpoint_str, oc_string_t* path);
 
@@ -273,7 +273,7 @@ extern "C" {
   /**
    * @brief print the (first) endpoint to std out
    *
-   * @param ep
+   * @param ep the endpoint to print
    */
   void oc_endpoint_print(oc_endpoint_t* ep);
 

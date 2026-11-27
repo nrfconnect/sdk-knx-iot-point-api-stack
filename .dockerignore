@@ -1,0 +1,20 @@
+# Build context of docker/Dockerfile (docs/docker.md): the source tree only.
+.git
+**/.git
+build/
+install/
+artifacts/
+reviews/
+.vs/
+.vscode/
+**/__pycache__/
+**/.pytest_cache/
+*.o
+*.gcda
+*.gcno
+integration_test_storage_*/
+runtime_test_storage_*/
+knx_storage_unit_test/
+knx_storage_fp_unit_test/
+knx_iot_virtual_eitt_*/
+EITT_REFERENCE_PROJECT/

@@ -310,16 +310,7 @@ static void test_set_dp(const char *path, bool value, bool has_value)
     else if (strcmp(path, "/p/3") == 0) g_dp3 = !g_dp3;
     else if (strcmp(path, "/p/4") == 0) g_dp4 = !g_dp4;
   }
-
-  /* Notify any CoAP observers that the datapoint value changed. Real KNX
-   * devices update output datapoints internally and push notifications; the
-   * test trigger emulates that internal change, so drive the notification
-   * here. Harmless for non-observable resources (no registered observers). */
-  const oc_resource_t *res =
-    oc_ri_get_app_resource_by_resource_path(path, strlen(path));
-  if (res != NULL) {
-    oc_notify_observers(res);
-  }
+  /* the /p observers are notified by the s-mode send that the trigger schedules next */
 }
 
 static void test_reset_dp(void)

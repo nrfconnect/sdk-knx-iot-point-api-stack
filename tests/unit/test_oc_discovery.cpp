@@ -1,6 +1,6 @@
 /*
- * Unit tests for the CoAP/KNX discovery helpers (api/oc_discovery.c,
- * declared in include/oc_discovery.h + oc_client_state.h).
+ * Unit tests for the CoAP/KNX discovery helpers (resources/ri/oc_discovery.c,
+ * declared in src/resources/ri/oc_discovery.h + oc_client_state.h).
  *
  * Covers the unit-testable public helpers:
  *   oc_add_resource_to_response_payload — frame one resource as an RFC-6690
@@ -36,7 +36,6 @@ extern "C" {
 #include "oc_core_res.h"
 #include "oc_knx_dev.h"
 #include "oc_knx_fp.h"
-#include "messaging/coap/oc_coap.h"
 #include "util/oc_mmem.h"
 
 extern const oc_resource_t core_resource_well_known_core;
@@ -406,6 +405,18 @@ TEST_F(WellKnownCoreHandler, FinalPageOmitsNextPageIndicator)
   ASSERT_EQ(response_buffer.code, oc_status_code(OC_STATUS_OK));
   EXPECT_EQ(payload().find("rt=\"p.next\""), std::string::npos);
   EXPECT_EQ(payload().find("?pn="), std::string::npos);
+}
+
+TEST_F(WellKnownCoreHandler, PagingOnlyQueryReturnsRequestedPage)
+{
+  // A p.next link of a plain discovery carries only pn, it must not be treated as a filter without a match.
+  set_handler_query("pn=1&ps=1");
+
+  invoke();
+
+  ASSERT_EQ(response_buffer.code, oc_status_code(OC_STATUS_OK));
+  EXPECT_GT(response_buffer.response_length, 0);
+  EXPECT_NE(payload().find("</.well-known/core?pn=2>"), std::string::npos);
 }
 
 TEST_F(WellKnownCoreHandler, MatchingResourceTypeAndInterfaceReturnResource)
@@ -972,7 +983,7 @@ TEST_F(DiscoveryBase, AddPayloadTruncateStripsUrnKnxPrefix)
 }
 
 /* a resource only reports interfaces when at least one method handler is defined,
-   see oc_resource_get_all_interfaces_for_a_resource() in api/oc_server_api.c */
+   see oc_resource_get_all_interfaces_for_a_resource() in resources/ri/oc_server_api.c */
 static void discovery_dummy_get_handler(oc_request_t*, oc_interface_mask_t, void*) {}
 
 static void init_resource_with_interface(oc_resource_t* r)

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Regression tests for the internal group object update ("loopback") in
- * oc_send_s_mode_mc_or_uc_message() - api/oc_knx_client.c.
+ * oc_send_s_mode_mc_or_uc_message() - resources/knx/oc_knx_client.c.
  *
  * Background (finding F-022)
  * --------------------------
@@ -46,20 +46,34 @@
  * stub that returns NULL, so oc_issue_s_mode_message() releases its message and sends nothing. That
  * keeps every other function - crucially oc_send_s_mode_mc_or_uc_message() and its GO table walk - the
  * real production code, which is what the recursion lives in.
+ *
+ * The SmodeDispatch tests pin the delivery result of oc_send_s_mode_mc_or_uc_message_dispatched():
+ * for them the stub hands out a fake transaction (g_transmit_ok and g_send_ok, recording the serialized
+ * message), --wrap=coap_send_transaction releases its message instead of sending it.
+ * --wrap=coap_notify_observers_dispatched stands in for the /p observers (g_observers), notified on a
+ * write also without a transmitting group object; --wrap=oc_knx_notify_k_observers records the /k
+ * notification.
  */
 
 #include <gtest/gtest.h>
 #include <cstring>
 
+#include "test_helpers_tables.h"
+
 extern "C" {
 #include "oc_api.h"
 #include "oc_core_res.h"
-#include "api/oc_knx_client.h"
-#include "api/oc_knx_fp.h"
+#include "oc_knx_client.h"
+#include "oc_knx_fp.h"
 #include "oc_knx.h"
 #include "oc_ri.h"
 #include "messaging/coap/transactions.h"
 }
+
+using test_helpers::clear_go_table;
+using test_helpers::clear_recipient_table;
+using test_helpers::set_go;
+using test_helpers::set_recipient;
 
 /* -- linker --wrap stubs -------------------------------------------------- */
 
@@ -72,15 +86,63 @@ extern "C" {
 */
 static int g_send_attempts = 0;
 
+/* g_transmit_ok and g_send_ok: the transaction takes the message (dispatch tests), otherwise nothing is sent */
+static bool g_transmit_ok = false;
+static bool g_send_ok = true;
+static uint8_t g_sent_message[1024];
+static size_t g_sent_message_len = 0;
+static coap_transaction_t g_fake_transaction;
+
 extern "C" coap_transaction_t *__wrap_coap_new_transaction_with_message(uint16_t mid, const uint8_t *token,
                                                                        uint8_t token_len, oc_message_t *message)
 {
   (void)mid;
   (void)token;
   (void)token_len;
-  (void)message;
   g_send_attempts++;
-  return nullptr;
+  if (!g_transmit_ok || !g_send_ok)
+  {
+    return nullptr;
+  }
+  /* the serialized CoAP message, the envelope is its payload at the end */
+  g_sent_message_len = message->length <= sizeof(g_sent_message) ? message->length : 0;
+  memcpy(g_sent_message, message->data, g_sent_message_len);
+  memset(&g_fake_transaction, 0, sizeof(g_fake_transaction));
+  g_fake_transaction.message = message;
+  return &g_fake_transaction;
+}
+
+/* the fake transaction is not sent, its message is released */
+extern "C" void __wrap_coap_send_transaction(coap_transaction_t* t) { oc_message_unref(t->message); }
+
+/* /k observer notifications: only counted, the payload of the last one is kept */
+static int g_k_notify_calls = 0;
+static uint8_t g_k_payload[256];
+static size_t g_k_payload_len = 0;
+
+extern "C" void __wrap_oc_knx_notify_k_observers(const uint8_t* payload, size_t payload_len, uint32_t group_address)
+{
+  (void)group_address;
+  g_k_notify_calls++;
+  g_k_payload_len = payload_len <= sizeof(g_k_payload) ? payload_len : 0;
+  if (g_k_payload_len > 0)
+  {
+    memcpy(g_k_payload, payload, g_k_payload_len);
+  }
+}
+
+/* g_observers: /p notifications queued per call, without a CoAP observe registration */
+static int g_observers = 0;
+static int g_notify_calls = 0;
+
+extern "C" int __wrap_coap_notify_observers_dispatched(const oc_resource_t* resource, oc_response_buffer_t* response_buf,
+                                                       const oc_endpoint_t* endpoint)
+{
+  (void)resource;
+  (void)response_buf;
+  (void)endpoint;
+  g_notify_calls++;
+  return g_observers;
 }
 
 /* -- handler instrumentation ---------------------------------------------- */
@@ -158,6 +220,13 @@ protected:
   void SetUp() override
   {
     g_send_attempts = 0;
+    g_transmit_ok = false;
+    g_send_ok = true;
+    g_sent_message_len = 0;
+    g_k_notify_calls = 0;
+    g_k_payload_len = 0;
+    g_observers = 0;
+    g_notify_calls = 0;
     g_put_p1_calls = 0;
     g_put_p3_calls = 0;
 
@@ -184,66 +253,6 @@ protected:
       dev->lsm_s = m_saved_lsm;
     }
   }
-
-  static void clear_go_table()
-  {
-    int n = oc_core_get_group_object_table_total_size();
-    for (int i = 0; i < n; i++) {
-      oc_group_object_table_t *e = oc_core_get_group_object_table_entry(i);
-      if (e == nullptr) {
-        continue;
-      }
-      e->id = -1; /* empty slot sentinel */
-      e->ga = nullptr;
-      e->ga_len = 0;
-      e->cflags = OC_CFLAG_NONE;
-      oc_free_string(&e->href); /* release the href set_go() allocated (LeakSanitizer) */
-      e->href = (oc_string_t){ 0 };
-    }
-  }
-
-  static void clear_recipient_table()
-  {
-    int n = oc_core_get_recipient_table_size();
-    for (int i = 0; i < n; i++) {
-      oc_group_table_t *e = oc_core_get_recipient_table_entry(i);
-      if (e == nullptr) {
-        continue;
-      }
-      memset(e, 0, sizeof(*e));
-      e->id = -1;
-      e->ia = -1;
-    }
-  }
-
-  /* Populate GO slot `index`. The ga array and href string must outlive the call. */
-  static void set_go(int index, int32_t id, const char *href, uint32_t *ga,
-                     uint16_t ga_len, oc_cflag_mask_t cflags)
-  {
-    oc_group_object_table_t *e = oc_core_get_group_object_table_entry(index);
-    ASSERT_NE_PTR(e);
-    e->id = id;
-    e->ga = ga;
-    e->ga_len = ga_len;
-    e->cflags = cflags;
-    oc_new_string(&e->href, href, strlen(href));
-  }
-
-  /* Recipient entry making `ga` a multicast sending GA (grpid > 0). */
-  static void set_recipient(int index, int32_t id, uint32_t *ga, uint16_t ga_len,
-                            uint32_t grpid)
-  {
-    oc_group_table_t *e = oc_core_get_recipient_table_entry(index);
-    ASSERT_NE_PTR(e);
-    e->id = id;
-    e->ga = ga;
-    e->ga_len = ga_len;
-    e->grpid = grpid;
-    e->iid = -1;
-    e->ia = -1;
-  }
-
-  static void ASSERT_NE_PTR(const void *p) { ASSERT_TRUE(p != nullptr); }
 
   uint64_t m_saved_iid = 0;
   oc_lsm_state_t m_saved_lsm = LSM_S_UNLOADED;
@@ -369,6 +378,181 @@ TEST_F(SmodeLoopback, SingleLevelLoopbackStillUpdatesOtherInputs)
 
   oc_ri_delete_resource(r2);
   oc_ri_delete_resource(r3);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * oc_send_s_mode_mc_or_uc_message_dispatched: rc 0 is not "sent"
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+class SmodeDispatch : public SmodeLoopback
+{
+protected:
+  void SetUp() override
+  {
+    SmodeLoopback::SetUp();
+    static uint32_t ga_p2[1] = {2};
+    set_go(0, 14, "/p/2", ga_p2, 1, (oc_cflag_mask_t)(OC_CFLAG_READ | OC_CFLAG_WRITE | OC_CFLAG_TRANSMISSION));
+    static char path_p2[] = "/p/2";
+    m_resource = oc_new_resource(path_p2, 1);
+    ASSERT_NE(m_resource, nullptr);
+    oc_resource_bind_resource_type(m_resource, "urn:knx:dpa.417.51");
+    oc_resource_set_request_handler(m_resource, COAP_GET, get_p2, nullptr, OC_ACL_G, OC_IF_O);
+    oc_add_resource(m_resource);
+  }
+
+  void TearDown() override
+  {
+    oc_ri_delete_resource(m_resource);
+    SmodeLoopback::TearDown();
+  }
+
+  oc_resource_t* m_resource = nullptr;
+};
+
+TEST_F(SmodeDispatch, WriteWithoutRecipientAndObserverIsNotDispatched)
+{
+  bool dispatched = true;
+  EXPECT_EQ(oc_send_s_mode_mc_or_uc_message_dispatched(2, "/p/2", 'w', &dispatched), 0);
+  EXPECT_FALSE(dispatched);
+  EXPECT_EQ(g_send_attempts, 0);
+  // the public contract is unchanged
+  EXPECT_EQ(oc_send_s_mode_mc_or_uc_message(2, "/p/2", 'w'), 0);
+}
+
+TEST_F(SmodeDispatch, MulticastWriteIsDispatched)
+{
+  static uint32_t ga_rcp[1] = {2};
+  set_recipient(0, 1, ga_rcp, 1, /*grpid*/ 5);
+  g_transmit_ok = true;
+  bool dispatched = false;
+  EXPECT_EQ(oc_send_s_mode_mc_or_uc_message_dispatched(2, "/p/2", 'w', &dispatched), 0);
+  EXPECT_TRUE(dispatched);
+  EXPECT_EQ(g_send_attempts, 1);
+}
+
+TEST_F(SmodeDispatch, WriteIsNotDispatchedWhenMessageCannotBeCreated)
+{
+  static uint32_t ga_rcp[1] = {2};
+  set_recipient(0, 1, ga_rcp, 1, /*grpid*/ 5);
+  bool dispatched = true;
+  EXPECT_EQ(oc_send_s_mode_mc_or_uc_message_dispatched(2, "/p/2", 'w', &dispatched), 0);
+  EXPECT_FALSE(dispatched);
+  EXPECT_EQ(g_send_attempts, 1);
+}
+
+/* the send encodes into the message buffer, a handler that sends hands its own encoder back */
+TEST_F(SmodeDispatch, SendHandsTheEncoderBackToTheCaller)
+{
+  static uint32_t ga_rcp[1] = {2};
+  set_recipient(0, 1, ga_rcp, 1, /*grpid*/ 5);
+  g_transmit_ok = true;
+  uint8_t response[64];
+  oc_rep_new(response, (int)sizeof(response));
+
+  oc_rep_begin_root_object();
+  oc_rep_i_set_int(root, 1, 7);
+  bool dispatched = false;
+  EXPECT_EQ(oc_send_s_mode_mc_or_uc_message_dispatched(2, "/p/2", 'w', &dispatched), 0);
+  oc_rep_i_set_int(root, 2, 8);
+  oc_rep_end_root_object();
+
+  EXPECT_TRUE(dispatched);
+  EXPECT_EQ(oc_rep_get_encoder_buf(), response);
+  /* {1: 7, 2: 8}, the root map has an indefinite length */
+  const uint8_t expected[] = {0xbf, 0x01, 0x07, 0x02, 0x08, 0xff};
+  ASSERT_EQ(oc_rep_get_encoded_payload_size(), (int)sizeof(expected));
+  EXPECT_EQ(0, memcmp(response, expected, sizeof(expected)));
+}
+
+/* the /k observers see a write only once it was sent: one that is not sent is repeated later */
+TEST_F(SmodeDispatch, WriteThatIsNotSentDoesNotNotifyKObservers)
+{
+  static uint32_t ga_rcp[1] = {2};
+  set_recipient(0, 1, ga_rcp, 1, /*grpid*/ 5);
+  g_transmit_ok = true;
+  g_send_ok = false;
+  bool dispatched = true;
+  EXPECT_EQ(oc_send_s_mode_mc_or_uc_message_dispatched(2, "/p/2", 'w', &dispatched), 0);
+  EXPECT_FALSE(dispatched);
+  EXPECT_EQ(g_k_notify_calls, 0);
+}
+
+/* the send overwrites the encoder buffer, the /k observers still get the envelope that was sent */
+TEST_F(SmodeDispatch, SentWriteNotifiesKObserversWithTheSentEnvelope)
+{
+  static uint32_t ga_rcp[1] = {2};
+  set_recipient(0, 1, ga_rcp, 1, /*grpid*/ 5);
+  g_transmit_ok = true;
+  bool dispatched = false;
+  EXPECT_EQ(oc_send_s_mode_mc_or_uc_message_dispatched(2, "/p/2", 'w', &dispatched), 0);
+  EXPECT_TRUE(dispatched);
+  ASSERT_EQ(g_k_notify_calls, 1);
+  ASSERT_GT(g_k_payload_len, 0u);
+  ASSERT_GT(g_sent_message_len, g_k_payload_len);
+  const uint8_t* sent_payload = g_sent_message + g_sent_message_len - g_k_payload_len;
+  EXPECT_EQ(sent_payload[-1], 0xFF) << "no payload marker in front of the envelope";
+  EXPECT_EQ(0, memcmp(g_k_payload, sent_payload, g_k_payload_len));
+}
+
+TEST_F(SmodeDispatch, UnicastWithoutIndividualAddressIsNotDispatched)
+{
+  static uint32_t ga_rcp[1] = {2};
+  set_recipient(0, 1, ga_rcp, 1, /*grpid*/ 0);
+  g_transmit_ok = true;
+  bool dispatched = true;
+  EXPECT_EQ(oc_send_s_mode_mc_or_uc_message_dispatched(2, "/p/2", 'w', &dispatched), 0);
+  EXPECT_FALSE(dispatched);
+  EXPECT_EQ(g_send_attempts, 0);
+}
+
+/* the /p observers do not depend on s-mode (KNX IoT Point API 2.6.10.1) */
+TEST_F(SmodeDispatch, WriteWithoutTransmitFlagNotifiesObservers)
+{
+  oc_core_get_group_object_table_entry(0)->cflags = (oc_cflag_mask_t)(OC_CFLAG_READ | OC_CFLAG_WRITE);
+  g_observers = 1;
+  bool dispatched = false;
+  EXPECT_EQ(oc_send_s_mode_mc_or_uc_message_dispatched(2, "/p/2", 'w', &dispatched), -1);
+  EXPECT_TRUE(dispatched) << "the /p observers were not notified";
+  EXPECT_EQ(g_notify_calls, 1);
+  EXPECT_EQ(g_send_attempts, 0);
+}
+
+TEST_F(SmodeDispatch, WriteWithoutGroupObjectNotifiesObservers)
+{
+  clear_go_table();
+  g_observers = 1;
+  bool dispatched = false;
+  EXPECT_EQ(oc_send_s_mode_mc_or_uc_message_dispatched(2, "/p/2", 'w', &dispatched), -1);
+  EXPECT_TRUE(dispatched) << "the /p observers were not notified";
+  EXPECT_EQ(g_notify_calls, 1);
+}
+
+TEST_F(SmodeDispatch, WriteWithoutGroupObjectAndObserversIsNotDispatched)
+{
+  clear_go_table();
+  bool dispatched = true;
+  EXPECT_EQ(oc_send_s_mode_mc_or_uc_message_dispatched(2, "/p/2", 'w', &dispatched), -1);
+  EXPECT_FALSE(dispatched);
+}
+
+TEST_F(SmodeDispatch, ReadWithoutGroupObjectDoesNotNotifyObservers)
+{
+  clear_go_table();
+  g_observers = 1;
+  bool dispatched = true;
+  EXPECT_EQ(oc_send_s_mode_mc_or_uc_message_dispatched(2, "/p/2", 'r', &dispatched), -1);
+  EXPECT_FALSE(dispatched);
+  EXPECT_EQ(g_notify_calls, 0);
+}
+
+TEST_F(SmodeDispatch, WriteBeforeLoadingDoesNotNotifyObservers)
+{
+  oc_core_get_device_info()->lsm_s = LSM_S_UNLOADED;
+  g_observers = 1;
+  bool dispatched = true;
+  EXPECT_EQ(oc_send_s_mode_mc_or_uc_message_dispatched(2, "/p/2", 'w', &dispatched), -1);
+  EXPECT_FALSE(dispatched);
+  EXPECT_EQ(g_notify_calls, 0);
 }
 
 /* ===========================================================================

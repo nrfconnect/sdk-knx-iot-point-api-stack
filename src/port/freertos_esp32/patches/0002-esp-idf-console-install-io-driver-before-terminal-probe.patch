@@ -1,0 +1,90 @@
+From 051e4c4eb20346e043cdd47bc388fde75ff8af63 Mon Sep 17 00:00:00 2001
+From: Alexander Burker <burker@ucs.at>
+Date: Thu, 26 Nov 2026 12:00:00 +0100
+Subject: [PATCH] fix(console): Install the IO driver before probing the terminal
+
+esp_console_new_repl_stdio() runs esp_console_setup_prompt(), and with it
+linenoiseProbe(), before esp_stdio_install_io_driver(). On a USB Serial/JTAG
+console the VFS read reports no available bytes until the driver is
+installed, so the probe never receives the reply of the terminal. Linenoise
+falls back to dumb mode: No command history, no line editing, a prompt
+without colors. The late reply then shows up as "[0n" after the prompt and
+esp-idf-monitor warns that writing to serial is timing out.
+
+Backport of espressif/esp-idf commit
+fc0bd1a015a6e1d9da162a5f8e06164d8c381781 (master, 2026-09-20,
+"fix(console): install IO driver before probing the terminal", Closes
+IDF-16181). The code changes are verbatim, only the context of the error
+path differs (master also deletes state_mux there, commit a287bbc2).
+
+Base: ESP-IDF v6.1.1 commit 051e4c4eb20346e043cdd47bc388fde75ff8af63.
+The file is identical in v6.1, v6.1.1 and release/v6.1 (blob
+ba80b13806a7), so the patch fits both versions. Drop this patch once the
+ESP-IDF version in use contains fc0bd1a0.
+
+Apply in the ESP-IDF root with git am --3way. Patch 0001 goes into the
+lwIP submodule components/lwip/lwip instead.
+---
+ components/console/esp_console_common.c | 21 +++++++++++++--------
+ 1 file changed, 13 insertions(+), 8 deletions(-)
+
+diff --git a/components/console/esp_console_common.c b/components/console/esp_console_common.c
+index ba80b13806a7..04a743d64cd0 100644
+--- a/components/console/esp_console_common.c
++++ b/components/console/esp_console_common.c
+@@ -277,6 +277,7 @@ esp_err_t esp_console_new_repl_stdio(const esp_console_repl_config_t *repl_config, esp_console_repl_t **ret_repl)
+ {
+     esp_err_t ret = ESP_OK;
+     esp_console_repl_universal_t *universal_repl = NULL;
++    bool io_driver_installed = false;
+     if (!repl_config || !ret_repl) {
+         ret = ESP_ERR_INVALID_ARG;
+         goto _exit;
+@@ -293,9 +294,6 @@ esp_err_t esp_console_new_repl_stdio(const esp_console_repl_config_t *repl_config, esp_console_repl_t **ret_repl)
+     fflush(stdout);
+     fsync(fileno(stdout));
+
+-    /* the IO related initialization will be performed within the task
+-     * created to run esp_console_repl_task */
+-
+     /* initialize console, common part */
+     ret = esp_console_common_init(repl_config->max_cmdline_length,
+                                   repl_config->max_cmdline_args,
+@@ -304,6 +302,15 @@ esp_err_t esp_console_new_repl_stdio(const esp_console_repl_config_t *repl_config, esp_console_repl_t **ret_repl)
+         goto _exit;
+     }
+
++    /* Must happen before esp_console_setup_prompt(): the terminal probe it runs
++     * needs a working stdin to read the reply back. Some backends (USB Serial
++     * JTAG) cannot be read from at all until their driver is installed. */
++    ret = esp_stdio_install_io_driver();
++    if (ret != ESP_OK) {
++        goto _exit;
++    }
++    io_driver_installed = true;
++
+     /* setup history */
+     ret = esp_console_setup_history(repl_config->history_save_path, repl_config->max_history_len, &universal_repl->repl_com);
+     if (ret != ESP_OK) {
+@@ -312,11 +319,6 @@ esp_err_t esp_console_new_repl_stdio(const esp_console_repl_config_t *repl_config, esp_console_repl_t **ret_repl)
+
+     /* setup prompt */
+     ret = esp_console_setup_prompt(repl_config->prompt, &universal_repl->repl_com);
+-    if (ret != ESP_OK) {
+-        goto _exit;
+-    }
+-
+-    ret = esp_stdio_install_io_driver();
+     if (ret != ESP_OK) {
+         goto _exit;
+     }
+@@ -336,6 +338,9 @@ esp_err_t esp_console_new_repl_stdio(const esp_console_repl_config_t *repl_config, esp_console_repl_t **ret_repl)
+     *ret_repl = &universal_repl->repl_com.repl_core;
+     return ESP_OK;
+ _exit:
++    if (io_driver_installed) {
++        esp_stdio_uninstall_io_driver();
++    }
+     if (universal_repl) {
+         esp_console_deinit();
+         free(universal_repl);

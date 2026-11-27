@@ -19,12 +19,13 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <string>
+
+#include "test_helpers_storage.h"
 
 extern "C" {
 #include "port/oc_storage.h"
 }
-
-static const char *kStoreDir = "knx_storage_unit_test";
 
 /* ----- Negative paths that must run while path_set is still false --------- */
 
@@ -56,17 +57,11 @@ TEST(OcStorageBeforeConfig, ReadWriteEraseFailWithoutConfig)
 
 class OcStorage : public ::testing::Test {
 protected:
-  static void SetUpTestSuite()
-  {
-    /* mkdir returns 0 on create, -1 if it already exists — both fine. */
-    oc_storage_config(kStoreDir);
-  }
+  std::string dir_;
 
-  void TearDown() override
-  {
-    oc_storage_erase("blob");
-    oc_storage_erase("bin");
-  }
+  void SetUp() override { dir_ = test_helpers::config_per_test_storage("st_"); }
+
+  void TearDown() override { test_helpers::remove_tree(dir_); }
 };
 
 TEST_F(OcStorage, WriteThenReadRoundTrips)

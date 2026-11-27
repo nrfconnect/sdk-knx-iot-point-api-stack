@@ -33,13 +33,13 @@ overlaps").
    (`set_source_files_properties(... PROPERTIES LANGUAGE C)` or a `.c` shim) so
    the `void*` aggregate initializers don't trip g++'s C++ strictness.
 3. Build a minimal `oc_request_t` + `oc_response_t` + `oc_response_buffer_t`
-   (full struct in `messaging/coap/oc_coap.h`) to drive request handlers.
+   (full struct in `include/oc_ri.h`) to drive request handlers.
 
 ---
 
 ## File-level inventory
 
-### api/
+### src/resources/
 
 | Source | Test file | Status |
 |--------|-----------|--------|
@@ -60,6 +60,7 @@ overlaps").
 | oc_knx_helpers.c | test_oc_knx_helpers.cpp | DONE |
 | oc_knx_p.c | test_oc_knx_p.cpp | DONE (helper integration-level) |
 | oc_knx_sec.c | test_oc_knx_sec.cpp | DONE |
+| oc_knx_publisher.c | test_oc_knx_publisher.cpp | DONE |
 | oc_knx_sub.c | test_oc_knx_sub.cpp | DONE |
 | oc_knx_swu.c | test_oc_knx_swu.cpp | DONE |
 | oc_main.c | test_oc_main.cpp + test_oc_buffer_settings.cpp | DONE |
@@ -71,7 +72,7 @@ overlaps").
 | oc_test_control.c | test_oc_test_control.cpp | DONE |
 | oc_uuid.c | test_oc_uuid.cpp | DONE |
 
-### security/
+### src/security/
 
 | Source | Test file | Status |
 |--------|-----------|--------|
@@ -80,7 +81,7 @@ overlaps").
 | oc_oscore_engine.c | test_oc_oscore_echo_tx.cpp | PARTIAL (echo ring, inbound parser/decrypt and wrapped unicast/multicast request plus normal-response transport boundaries; echo-response and observe variants remain integration-level) |
 | spake2plus.c | test_spake2plus.cpp | DONE |
 
-### messaging/coap/
+### src/messaging/coap/
 
 | Source | Test file | Status |
 |--------|-----------|--------|
@@ -91,7 +92,7 @@ overlaps").
 | separate.c | test_separate.cpp | DONE |
 | transactions.c | test_coap_transactions.cpp | DONE |
 
-### util/
+### src/util/
 
 | Source | Test file | Status |
 |--------|-----------|--------|
@@ -105,22 +106,22 @@ overlaps").
 
 | Source | Test file | Status |
 |--------|-----------|--------|
-| api/c-timestamp/timestamp_*.c | test_c_timestamp.cpp | DONE |
+| src/util/c-timestamp/timestamp_*.c | test_c_timestamp.cpp | DONE |
 
-### port/ (platform glue — per file)
+### src/port/ (platform glue — per file)
 
 | Source | Test file | Status |
 |--------|-----------|--------|
-| port/linux/clock.c | test_oc_clock.cpp | DONE |
-| port/linux/storage.c | test_oc_storage.cpp | DONE |
-| port/linux/abort.c | test_oc_abort.cpp | DONE |
-| port/linux/oc_network_interface.c | test_oc_network_interface.cpp | DONE |
-| port/random_psa.c | test_oc_random.cpp | DONE |
-| port/oc_log.c | test_oc_log.cpp | DONE |
-| port/dns-sd_mdns.c | test_dns_sd_mdns.cpp | DONE |
-| port/linux/ipadapter.c | — | INTEGRATION |
+| src/port/linux/clock.c | test_oc_clock.cpp | DONE |
+| src/port/linux/storage.c | test_oc_storage.cpp | DONE |
+| src/port/linux/abort.c | test_oc_abort.cpp | DONE |
+| src/port/linux/oc_network_interface.c | test_oc_network_interface.cpp | DONE |
+| src/port/random_psa.c | test_oc_random.cpp | DONE |
+| src/port/oc_log.c | test_oc_log.cpp | DONE |
+| src/port/dns-sd_mdns.c | test_dns_sd_mdns.cpp | DONE |
+| src/port/linux/ipadapter.c | — | INTEGRATION |
 
-> Note: `port/windows/*` and `port/zephyr/*` variants (mutex.c,
+> Note: `src/port/windows/*` and `src/port/zephyr/*` variants (mutex.c,
 > network_addresses.c, random.c, connectivity_*.c, dns-sd-thread/wifi.c,
 > knx_shell.c) are platform-specific and are NOT compiled in the
 > `linux-test-gcc` build used for unit testing — out of scope here.
@@ -132,7 +133,7 @@ overlaps").
 Filled in as each `TODO`/`PARTIAL` file is worked. Only functions marked
 `UNTESTABLE` need a reason; everything else is driven to `DONE`.
 
-### api/oc_knx_helpers.c — DONE (paging + framing + query helpers + bounded integer parsers)
+### src/resources/knx/oc_knx_helpers.c — DONE (paging + framing + query helpers + bounded integer parsers)
 
 Unit-tested in `test_oc_knx_helpers.cpp`. The paging helpers (`oc_knx_get_next_page`,
 etc.) are pure arithmetic on stack values. The CBOR/string framing helpers are
@@ -173,7 +174,7 @@ nothing is read past `value_len`.
 | oc_parse_uint64_from_base16_string | DONE (hex incl. full 64-bit range, upper/lower case, leading zeros; rejects NULL value, NULL result, empty, `1a2zz`, `-1`, `+1`, >16 chars, `g`; bounded read) |
 | parse_64bit_from_string | DONE (file-static; covered through the four wrappers above) |
 
-### api/oc_knx_fb.c — DONE (FB query/count drivers exercising the statics)
+### src/resources/knx/oc_knx_fb.c — DONE (FB query/count drivers exercising the statics)
 
 Unit-tested in `test_oc_knx_fb.cpp`.
 The two file-static helpers cannot be reached directly (no external linkage) and
@@ -194,7 +195,7 @@ behaviorally through their public callers:
 | oc_check_if_functional_blocks_need_to_add | DONE (also covers static bounded_strstr) |
 | oc_count_functional_blocks_from_application | DONE (also covers static check_array_for_scanned_fbs_and_add_if_fresh) |
 
-### api/oc_knx_fp.c — DONE (cflags string + GO/recipient/publisher table accessors + payload-id parser + href lookups + list/entry CoAP handlers); table CRUD / storage / s-mode tx are integration-level
+### src/resources/knx/oc_knx_fp.c — DONE (cflags string + GO/recipient/publisher table accessors + payload-id parser + href lookups + list/entry CoAP handlers); table CRUD / storage / s-mode tx are integration-level
 
 Unit-tested in `test_oc_knx_fp.cpp`. `oc_cflags_as_string` is a pure bitmask
 formatter. The GO/recipient/publisher tables are file-static arrays reached for
@@ -248,7 +249,7 @@ repeated key -> last wins, `ia` + `grpid` -> 4.00, empty `ga` array before
 unicast/multicast CoAP send — all need a bootstrapped device + populated RI
 tables + network.
 
-### api/oc_knx_sec.c — DONE (string helper + OSCORE config getters/setter + AT-table slot accessors and content ops + /auth CoAP handlers + ACL gate); storage / OSCORE auth are integration-level
+### src/resources/knx/oc_knx_sec.c — DONE (string helper + OSCORE config getters/setter + AT-table slot accessors and content ops + /auth CoAP handlers + ACL gate); storage / OSCORE auth are integration-level
 
 Unit-tested in `test_oc_knx_sec.cpp`. Pure helpers: `oc_at_profile_to_string`.
 OSCORE config: `OSCORE_REPLAY_WINDOW_SIZE` (RFC default 32),
@@ -293,7 +294,7 @@ The `AtTable` fixture scrubs every slot via
   cases are also what covers `check_access_token_for_group_address`.
   `SecAcl.GaScopeRejectsForeignGaAnywhereInOneSMap` and
   `SecAcl.GaScopeRejectsForeignGaInASecondSMap` pin the F-026 fix.
-- `check_access_token_for_group_address` is public now (second caller: the `/k` observer filter in `coap_notify_k_observers`,
+- `check_access_token_for_group_address` is public now (second caller: the `/k` observer filter in `oc_knx_notify_k_observers`,
   `if.g.s` checked inline there): `CoapObserve.NotifyKObserversOnlyToSubscribersWithTheGroupAddressInScope` (`test_coap_observe.cpp`).
 
 INTEGRATION (concrete reasons): `oc_oscore_set_auth_shared`,
@@ -303,7 +304,7 @@ sender/recipient contexts; `oc_create_knx_sec_resources` and the
 `oc_core_auth_at_post_handler` CBOR-parsing path register RI resources and build
 OSCORE contexts — all require oc_main_init + storage + network.
 
-### api/oc_main.c — DONE (callback registry + config accessors); bootstrap/teardown is integration-level
+### src/core/oc_main.c — DONE (callback registry + config accessors); bootstrap/teardown is integration-level
 
 The MTU / block-size / max-app-data accessors are covered by
 `test_oc_buffer_settings.cpp`; the callback registry, init state and the
@@ -327,7 +328,7 @@ or tear down the whole stack and are INTEGRATION.
 | oc_main_shutdown | INTEGRATION — tears down mDNS, RI, connectivity |
 | oc_shutdown_device (static) | INTEGRATION — connectivity + mutex destroy |
 
-### api/oc_network_events.c — DONE (process-not-running early-out); scheduler-driven paths are integration-level
+### src/core/oc_network_events.c — DONE (process-not-running early-out); scheduler-driven paths are integration-level
 
 This module bridges the platform receive path to the oc_network_events process.
 The only branch with no process-scheduler / signal-loop dependency is the
@@ -343,7 +344,7 @@ process and event loop, or the full CoAP/OSCORE receive path.
 | oc_network_events OC_PROCESS_THREAD | INTEGRATION — driven by the process scheduler |
 | oc_network_interface_event | INTEGRATION — OC_NETWORK_MONITOR-only + running process |
 
-### api/oc_knx_client.c — DONE (pure URI dispatcher); s-mode senders + discovery state machine are integration-level
+### src/resources/knx/oc_knx_client.c — DONE (pure URI dispatcher); s-mode senders + discovery state machine are integration-level
 
 The module is an s-mode / discovery transport layer. Only the pure URI
 first-byte dispatcher has no device / network / table dependency; it is fully
@@ -365,7 +366,7 @@ timed-event-driven IPv6 resolution state machine — all INTEGRATION.
 | knx_remove_ipv6_address_coap_discovery_handler (static) | INTEGRATION — delayed-callback cleanup of client-cb |
 | knx_coap_discovery_response_handler (static) | INTEGRATION — parses a live discovery response |
 
-### api/oc_client_api.c — DONE (link-format parsers + raw accessors); message senders are integration-level
+### src/resources/ri/oc_client_api.c — DONE (link-format parsers + raw accessors); message senders are integration-level
 
 The pure link-format parsers and raw accessors are unit-tested in
 `test_oc_client_api.cpp` on literal payloads / stack structs. The static
@@ -382,7 +383,7 @@ INTEGRATION.
 | oc_lf_get_entry_param | DONE |
 | oc_send_well_known_message | DONE — builds + sends the .well-known GET in one call (local message and packet, no static), unit: `SendWellKnownNonConfirmableSendsOneGet`, `SendWellKnownConfirmableSendsOneGet`, `SendWellKnownWithoutCallbackSendsNothing`; replaces `oc_init_well_known_message_update` + `oc_do_well_known_message_update` |
 
-### api/oc_knx.c — DONE (LSM string/getter, runtime predicate, and the read-only GET handlers); stateful POST handlers + storage/crypto/SPAKE paths are integration-level
+### src/resources/knx/oc_knx.c — DONE (LSM string/getter, runtime predicate, and the read-only GET handlers); stateful POST handlers + storage/crypto/SPAKE paths are integration-level
 
 Unit-tested in `test_oc_knx.cpp`: `oc_core_get_lsm_state_as_string`,
 `oc_core_get_lsm_event_as_string`, `oc_knx_get_lsm` and `oc_is_device_in_runtime`
@@ -423,7 +424,7 @@ INTEGRATION (concrete reasons):
   aggregate literals fail to compile under g++ (C++), so a white-box shim is not
   buildable here. Exercised through the SPAKE handshake at runtime instead.
 
-### api/oc_ri.c — DONE (status/mask/scope lookups, mask→string expanders, framing, request rewire, accept check, query parsers, resource allocators); RI singleton + observe/client-cb/timed-event paths are integration-level
+### src/resources/ri/oc_ri.c — DONE (status/mask/scope lookups, mask→string expanders, framing, request rewire, accept check, query parsers, resource allocators); RI singleton + observe/client-cb/timed-event paths are integration-level
 
 The pure helpers are unit-tested in `test_oc_ri.cpp` on stack values:
 `oc_status_code` / `get_oc_status_code_from_coap_code` (round-trip),
@@ -448,7 +449,7 @@ list); all observe / timed-callback / client-cb registry functions and
 tables, network endpoints and the running etimer/process scheduler). These
 corrupt the RI singleton or require a bootstrapped device + live event loop.
 
-### api/oc_discovery.c — DONE (link-format framing + request filter + client dispatch); well-known handler is integration-level
+### src/resources/ri/oc_discovery.c — DONE (link-format framing + request filter + client dispatch); well-known handler is integration-level
 
 The framing/filter helpers are unit-tested in `test_oc_discovery.cpp` on
 stack `oc_resource_t` / `oc_request_t` values, with the global rep encoder set up
@@ -468,7 +469,7 @@ INTEGRATION.
 | frame_sn (static) | INTEGRATION — frames stored serial-number / iid / ia into the response |
 | oc_well_known_core_discovery_handler (static GET) | INTEGRATION — needs bootstrapped device: core+app resources, serial/ia/iid, MTU/paging |
 
-### security/spake2plus.c — DONE (full public SPAKE2+ API)
+### src/security/spake2plus.c — DONE (full public SPAKE2+ API)
 
 `test_spake2plus.cpp` exercises the entire public surface against linked
 Mbed TLS / PSA crypto (global env calls `psa_crypto_init()`; `abort_impl` /
@@ -499,7 +500,7 @@ asserted via the public results), so they are covered without `#include`-ing the
 | spake2plus_calc_K_shared / _256 | DONE (deterministic, nonzero) |
 | static crypto helpers (w0_w1, w0_L, ecp_point_*, mpi_mod_N, derive_*, hmac_sha256, calculate_*) | DONE — covered transitively via the public API (no public entry point of their own) |
 
-### security/oc_oscore_engine.c — INTEGRATION (3 static parsers not g++-includable)
+### src/security/oc_oscore_engine.c — INTEGRATION (3 static parsers not g++-includable)
 
 All externally-visible functions in `oc_oscore_engine.c` are `static`; reaching
 them for unit test would require `#include`-ing the translation unit. That was
@@ -523,7 +524,7 @@ ordering)**; the engine send/receive paths are additionally INTEGRATION
 | oc_oscore_send_multicast_message (static) | INTEGRATION — multicast context, encrypt, network/process events. Context: first token holding the ga that is not a unicast recipient's 'at' (spec 6.3.2.1), runtime: `TestMulticastSkipsUnicastRecipientToken`, `TestUnicastAndMulticastFromSameTables`. Outgoing message via `oc_oscore_outgoing_message` (static): clone only for `ref_count` > 1, unit: `OutboundMulticastRequestNotSharedIsEncryptedInPlace`, `OutboundMulticastRequestSharedIsClonedAndStaysPlaintext` |
 | OC_PROCESS_THREAD(oc_oscore_handler) | INTEGRATION — live process/event loop |
 
-### messaging/coap/separate.c — DONE (full public OC_SERVER API)
+### src/messaging/coap/separate.c — DONE (full public OC_SERVER API)
 
 `test_separate.cpp` exercises the three public functions on stack structs
 (the store keeps an `oc_string_t uri`).
@@ -543,7 +544,7 @@ remove + free).
 | coap_separate_clear | DONE (middle-of-list removal + free) |
 | coap_separate_accept (CON request) | INTEGRATION — sends an empty ACK over the network (`coap_send_response_with_empty_ack`) |
 
-### util/oc_process.c — DONE (full cooperative scheduler API)
+### src/util/oc_process.c — DONE (full cooperative scheduler API)
 
 `test_oc_process.cpp` drives the real scheduler by defining an instrumented
 test process via `OC_PROCESS` / `OC_PROCESS_THREAD`. The fixture re-runs
@@ -566,7 +567,7 @@ restarts cleanly. The static helpers (`call_process`, `exit_process`, `do_poll`,
 | oc_process_is_running | DONE |
 | call_process / exit_process / do_poll / do_event (static) | DONE (transitive) |
 
-### util/oc_etimer.c — DONE (timer-list API); process thread is integration-level
+### src/util/oc_etimer.c — DONE (timer-list API); process thread is integration-level
 
 `test_oc_etimer.cpp` covers the timer-list management API on the file-static
 `timerlist`. `oc_etimer_set` records `OC_PROCESS_CURRENT()` as owner, so the
@@ -592,7 +593,7 @@ covered transitively by set/reset/restart/stop.
 | update_time / add_timer (static) | DONE (transitive) |
 | OC_PROCESS_THREAD(oc_etimer_process) | INTEGRATION — needs the live scheduler event loop to deliver TIMER events and process EXITED cleanup |
 
-### port/linux/storage.c — DONE (full POSIX file-backed storage API)
+### src/port/linux/storage.c — DONE (full POSIX file-backed storage API)
 
 `test_oc_storage.cpp` drives real file I/O in a temp directory. The file-static
 `path_set` flag cannot be cleared once a successful `oc_storage_config()` runs,
@@ -606,7 +607,7 @@ definition order) before any successful config.
 | oc_storage_read | DONE (round-trip, size cap, missing → -EINVAL, no-config → -ENOENT) |
 | oc_storage_erase | DONE (removes file, no-config → -ENOENT) |
 
-### port/linux/abort.c — DONE (via GoogleTest death tests)
+### src/port/linux/abort.c — DONE (via GoogleTest death tests)
 
 `test_oc_abort.cpp` does **not** define its own `abort_impl`/`exit_impl` stubs,
 so the linker pulls the real port objects and the death tests exercise the
@@ -618,7 +619,7 @@ production implementations.
 | exit_impl | DONE (EXPECT_EXIT → exit code) |
 | oc_abort / oc_exit / oc_assert (inline, oc_assert.h) | DONE (wrappers + assert true/false) |
 
-### port/linux/oc_network_interface.c — DONE (enumeration guards + filter API)
+### src/port/linux/oc_network_interface.c — DONE (enumeration guards + filter API)
 
 `test_oc_network_interface.cpp` covers the argument guards deterministically and
 asserts invariants on the host-dependent `getifaddrs()` enumeration (0..max,
@@ -631,7 +632,7 @@ round-trip.
 | oc_network_set_interface_filter | DONE |
 | oc_network_get_interface_filter | DONE |
 
-### port/random_psa.c — DONE (PSA-backed RNG)
+### src/port/random_psa.c — DONE (PSA-backed RNG)
 
 `test_oc_random.cpp` initialises PSA in the fixture and asserts randomness
 statistically (varying values, non-zero/differing buffers).
@@ -643,7 +644,7 @@ statistically (varying values, non-zero/differing buffers).
 | oc_random_fill | DONE (return 0, writes bytes, zero-length, two-fills-differ) |
 | oc_random_destroy | DONE (fixture TearDown) |
 
-### port/oc_log.c — DONE (hex logging helper); file logging compiled out
+### src/port/oc_log.c — DONE (hex logging helper); file logging compiled out
 
 `test_oc_log.cpp` captures stdout to assert the exact lowercase hex formatting
 of `knx_log_bytes_hex`, including the 32-byte line-wrap boundary. `oc_file_print`
@@ -655,7 +656,7 @@ it is absent from the unit binary.
 | knx_log_bytes_hex | DONE (single line, empty, 16-byte, 33-byte wrap) |
 | oc_file_print | COMPILED-OUT — `#if defined(OC_PRINT) && defined(KNX_LOG_TO_FILE)` (off) |
 
-### port/dns-sd_mdns.c — DONE (`--wrap` for the sockets, real listener thread)
+### src/port/dns-sd_mdns.c — DONE (`--wrap` for the sockets, real listener thread)
 
 `test_dns_sd_mdns.cpp` covers every public function and, through the listener
 thread, the static query responder:
@@ -682,7 +683,7 @@ poll. The target is registered
 under `if(UNIX)`, because the source and the `--wrap` facility are POSIX/GNU ld
 only.
 
-### port/linux/ipadapter.c — INTEGRATION (live UDP/multicast sockets + RX threads)
+### src/port/linux/ipadapter.c — INTEGRATION (live UDP/multicast sockets + RX threads)
 
 Every public function (`oc_connectivity_init`, `oc_send_buffer`,
 `oc_send_discovery_request`, the per-device receive threads, multicast join,
@@ -690,7 +691,7 @@ etc.) binds real sockets, joins multicast groups, and runs receive threads.
 Concrete reason: **requires live network sockets and the connectivity thread
 loop** — exercised by integration tests.
 
-### api/oc_buffer.c — DONE (pool primitives); message routing is integration-level
+### src/core/oc_buffer.c — DONE (pool primitives); message routing is integration-level
 
 The message-pool primitives are unit-tested in `test_oc_buffer.cpp` (the fixture
 calls `oc_network_event_handler_mutex_init()` once, since `oc_allocate_message`
@@ -709,7 +710,7 @@ API that also lives logically alongside the buffer module is covered by
 | oc_send_message | INTEGRATION — posts OUTBOUND_NETWORK_EVENT + signals the event loop; routes to OSCORE/IP layers |
 | message_buffer_handler (OC_PROCESS_THREAD) | INTEGRATION — routes to OSCORE/CoAP processes and calls oc_send_buffer (real network I/O) |
 
-### api/oc_blockwise.c — DONE (all public functions, full alloc/find/scrub/free lifecycle)
+### src/messaging/coap/oc_blockwise.c — DONE (all public functions, full alloc/find/scrub/free lifecycle)
 
 The file-static `oc_blockwise_requests` / `oc_blockwise_responses` lists are populated through the public `alloc_*` API and scrubbed clean in the fixture `TearDown` via `oc_blockwise_scrub_buffers(true)`. The static `oc_blockwise_init_buffer` / `oc_blockwise_free_buffer` are exercised transitively by every alloc/free test. The timed-event registration inside the allocators (`oc_ri_add_timed_event_callback_seconds`, `oc_etimer_set`) and the response ETag generation (`oc_random_value`) run crash-free without a live process loop, so no part of this module needed integration-level deferral. Client-only finders (`*_by_token/_by_mid/_by_client_cb`) are reached by setting the `token`/`mid`/`client_cb` fields on an allocated buffer (the allocators do not populate them).
 
@@ -735,7 +736,7 @@ The file-static `oc_blockwise_requests` / `oc_blockwise_responses` lists are pop
 | oc_blockwise_handle_block | DONE |
 | request/response_timeout callbacks (static) | DONE (transitive via free) |
 
-### api/oc_knx_swu.c — DONE (all handlers + public API); init/storage-load + link-format-body integration-level
+### src/resources/knx/oc_knx_swu.c — DONE (all handlers + public API); init/storage-load + link-format-body integration-level
 
 Static GET/PUT handlers are reached through their owning `const oc_resource_t core_resource_knx_swu_*` structs (handler callback pointers). The file-static `swu_device` is reset to a known baseline in the fixture `SetUp` via the public setters, which also seed the `oc_string_t` fields (NULL on init) to avoid `strlen(NULL)` in the string-serializing GETs. Public setters are verified indirectly through the matching GET handlers. `oc_storage_write` returns `-ENOENT` (no crash) when unconfigured, so PUT success branches that persist to storage remain unit-testable.
 
@@ -761,7 +762,7 @@ Static GET/PUT handlers are reached through their owning `const oc_resource_t co
 | oc_swu_set_query_url | REMOVED (function no longer exists) |
 | oc_create_knx_swu_resources | INTEGRATION - calls oc_storage_read during init and is meaningful only against the RI resource table; the device mfg_date seeding of /swu/lastupdate is covered at runtime by `TestSwuLastUpdateLifecycle` in test_swu.py |
 
-### api/oc_server_api.c — DONE (pure helpers + resource mutators); network/RI paths integration-level
+### src/resources/ri/oc_server_api.c — DONE (pure helpers + resource mutators); network/RI paths integration-level
 
 All pure functions are driven on stack-allocated request/response/response_buffer or stack `oc_resource_t` structs (no RI/core singleton). CBOR/JSON non-empty payloads are produced with `oc_rep_encode_raw` because the `oc_rep_*_root_object` container macros use `g_err |= ...` which g++ rejects in test TUs.
 
@@ -780,20 +781,19 @@ All pure functions are driven on stack-allocated request/response/response_buffe
 | oc_resource_get_acl_for_method | DONE — per method returns acl_scope_mask; NULL→false. |
 | oc_resource_set_periodic_observable / set_properties / reset_properties | DONE — OBSERVABLE+PERIODIC + period; bit set/unset; resetting OBSERVABLE also clears PERIODIC. |
 | oc_resource_set_functional_block_data | DONE — fb_data = (fb<<16)+(inst<<8)+ndp. |
-| oc_resource_set_properties_cbs | DONE — assigns get/set props cb + user_data. |
 | (all mutators) is_const guard | DONE — MutatorsRespectIsConst verifies const resources are not modified. |
 | oc_add_resource | UNTESTABLE in isolation — delegates to `oc_ri_add_resource` (app_resources list + duplicate-URI checks inside the RI singleton). Integration-level. |
 | oc_set_delayed_callback / _ms / oc_remove_delayed_callback | UNTESTABLE in isolation — schedule/cancel RI timed events (`oc_ri_add/remove_timed_event_callback*`); require the running RI event loop. Integration-level. |
 | oc_prepare_separate_response / oc_set_separate_response_buffer / oc_send_separate_response[_with_length] / oc_send_empty_separate_response | UNTESTABLE in isolation — blockwise buffer allocation + CoAP transaction creation/serialisation + network send. Integration-level. |
 | oc_notify_observers | UNTESTABLE in isolation — delegates to `coap_notify_observers` (observer table + network notifications). Integration-level. |
 
-### api/oc_knx_sub.c — DONE
+### src/resources/knx/oc_knx_sub.c — DONE
 
 | Function | Status |
 |----------|--------|
 | oc_core_sub_delete_handler (static) | DONE — via `core_resource_sub.delete_handler.cb` |
 
-### api/oc_knx_p.c — DONE (handler branches); helper integration-level
+### src/resources/knx/oc_knx_p.c — DONE (handler branches); helper integration-level
 
 | Function | Status |
 |----------|--------|
@@ -801,9 +801,11 @@ All pure functions are driven on stack-allocated request/response/response_buffe
 | oc_core_p_post_handler (static) | DONE — via `core_resource_knx_p.post_handler.cb`: wrong-accept→4.00, empty payload→2.xx OK, unknown href→4.04 |
 | oc_was_adding_data_points_to_response (static helper) | UNTESTABLE in isolation — only runs with registered application datapoints inside an initialised RI singleton; oc_ri_init/shutdown + global mmem pools have no isolated setup/teardown contract (aborts with `free(): invalid pointer`). Exercised via full-stack GET /p at integration level. |
 
-### api/oc_test_control.c — DONE (isolatable branches); device/network paths integration-level
+### src/resources/ri/oc_test_control.c — DONE (isolatable branches); device/network paths integration-level
 
-Statics reached by compiling the TU into the test (`#include "api/oc_test_control.c"`); there is no const-resource literal so g++ accepts it, and the test object's own `oc_test_control_register` keeps the archive copy from being pulled in (no duplicate symbols).
+Statics reached by compiling the TU into the test (`#include "resources/ri/oc_test_control.c"`); there is no const-resource literal so g++ accepts it, and the test object's own `oc_test_control_register` keeps the archive copy from being pulled in (no duplicate symbols).
+
+Excluded from the gcovr report (`--exclude 'src/resources/ri/oc_test_control[.]c'`, CI `unit-coverage-gcc`): it is test infrastructure (library `kisTestControl`, registered only by `tests/common/runtime_test_server.c`), exercised by the runtime and conformance tiers, whose coverage is not measured.
 
 | Function | Status |
 |----------|--------|
@@ -813,7 +815,7 @@ Statics reached by compiling the TU into the test (`#include "api/oc_test_contro
 | post_test_factory_reset (static) | UNTESTABLE in isolation — calls `oc_knx_device_storage_reset(2)`, which wipes persistent storage and the device singleton. Destructive; requires a device/storage fixture. |
 | oc_test_control_register (public) | UNTESTABLE in isolation — `oc_new_resource()`/`oc_add_resource()` require an initialised RI/core. Exercised at integration level when a device registers the test endpoints. |
 
-### api/oc_knx_dev.c — DONE (handler branches); device/network success paths integration-level
+### src/resources/knx/oc_knx_dev.c — DONE (handler branches); device/network success paths integration-level
 
 Static handlers reached through the public `const oc_resource_t core_resource_dev_*` / `core_resource_app*` structs' handler function pointers. Each handler's Accept gate is tested; CBOR GETs also test the happy-path serialisation (`oc_rep_new` standalone encoder, no RI singleton); PUTs test the empty/invalid-payload BAD_REQUEST. Device string fields are pre-initialised in the fixture so the string-serialising GETs don't `strlen(NULL)`.
 
@@ -827,7 +829,7 @@ Static handlers reached through the public `const oc_resource_t core_resource_de
 | oc_core_dev_pm_put_handler + oc_core_ap_x_put_handler (static) | DONE — wrong-accept→4.00 and empty/invalid-payload→4.00 (ap/pv also wrong-array-size→4.00); `/dev/hname`, `/dev/iid` and `/dev/fid` have no PUT handler (optional in the specification, removed; IID and FID are written via `/.well-known/knx/ia`). Success branches are integration-level (storage writes, app-version store). |
 | oc_knx_load_device / oc_knx_device_storage_reset / oc_knx_device_restart (public) | UNTESTABLE in isolation — require an initialised storage backend + device singleton (and DNS-SD); destructive global side effects. |
 
-### messaging/coap (G4 function-level gap-fill) — DONE except network-send wrappers
+### src/messaging/coap (G4 function-level gap-fill) — DONE except network-send wrappers
 
 Gap-fill from the June 2026 function-level audit. The pure packet/header helpers,
 MID generator, OSCORE-option scanner, observe-counter accessor and the
@@ -842,8 +844,8 @@ functions push a message onto the outbound process queue and are integration-lev
 | coap.c: coap_get_header_uri_query | DONE — set/get + leading-`?` skip + no-option→0 |
 | coap.c: coap_set_header_location_query | DONE — stores value, sets option, skips leading `?` |
 | observe.c: get_observe_counter | DONE — ≥ OC_OBSERVE_FIRST_NOTIFICATION_VALUE, side-effect-free |
-| observe.c: coap_remove_observers_by_access_token | DONE — all observers of the token, others kept, NULL → 0 (`RemoveObserversByAccessTokenRemovesOnlyThatTokensObservers`); called from `oc_delete_at_table_entry` |
-| observe.c: coap_notify_k_observers | DONE — guards (NULL/empty payload, no observers); only observers whose subscription token covers the GA (`NotifyKObserversOnlyToSubscribersWithTheGroupAddressInScope`); called after a successful s-mode write (`test_smode_issue.cpp`) |
+| oc_knx_observe.c: oc_knx_remove_observers_of_access_token | DONE — all observers of the token, others kept (`RemoveObserversByAccessTokenRemovesOnlyThatTokensObservers`); called from `oc_delete_at_table_entry` |
+| oc_knx_observe.c: oc_knx_notify_k_observers | DONE — guards (NULL/empty payload, no observers); only observers whose subscription token covers the GA (`NotifyKObserversOnlyToSubscribersWithTheGroupAddressInScope`); called after a successful s-mode write (`test_smode_issue.cpp`) |
 | oscore.c: oscore_is_oscore_message | DONE — detects option 9, rejects other option / no options |
 | transactions.c: coap_new_transaction_with_message | DONE — adopts the caller's message (no copy), mid/token, registers in list (`NewTransactionWithMessage*`, `test_coap_transactions.cpp`); used by the s-mode send and the regenerated 'echo re-request' (the re-request of a unicast original takes a plain `coap_new_transaction` and is serialized from the original); s-mode send (`HandOver_*`, `test_smode_send_refcount.cpp`; one allocation per send, `test_oc_client_api.cpp`) |
 | transactions.c: coap_register_as_transaction_handler | DONE — smoke (records OC_PROCESS_CURRENT; no externally observable state in a unit context) |
@@ -852,7 +854,7 @@ functions push a message onto the outbound process queue and are integration-lev
 | engine.c: coap_receive, client response 513 ... 768 B without Block2 | DONE — up to 767 B reaches the callback complete, 768 B rejected by the parser (`test_coap_receive_payload.cpp`; F-030: device answers the response with NON 4.13) |
 | observe.c: coap_notify_observers, /p notification above the observer's block size | DONE — first block with Block2, rest from the response buffer (`NotifyObserversAboveTheBlockSizeSendsTheFirstBlockAndKeepsTheRest`), later blocks keep application/cbor; a second notification while a transfer is open replaces the unfinished buffer (`NotifyObserversAboveTheBlockSizeTwiceReplacesTheUnfinishedBuffer`) |
 | oc_knx_sec.c: POST /auth/at update in place, /k observers | DONE — observers follow the new scope (`TokenUpdatedInPlace*`, `test_coap_observe.cpp`) |
-| port/linux/ipadapter.c: recv_msg, datagram above OC_PDU_SIZE | DONE — dropped (MSG_TRUNC), no response (runtime `TestDatagramAboveReceiveBuffer`) |
+| src/port/linux/ipadapter.c: recv_msg, datagram above OC_PDU_SIZE | DONE — dropped (MSG_TRUNC), no response (runtime `TestDatagramAboveReceiveBuffer`) |
 | engine.c: coap_init_engine | DONE — smoke (thin wrapper over coap_register_as_transaction_handler) |
 | engine.c: coap_send_response_with_empty_ack | INTEGRATION — calls coap_send_message → oc_send_message → oc_process_post to the message_buffer_handler process; requires the populated oc_events table + running process scheduler from oc_main_init |
 

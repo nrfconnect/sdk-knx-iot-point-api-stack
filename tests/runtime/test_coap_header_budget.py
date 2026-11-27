@@ -12,7 +12,7 @@ message is dropped SILENTLY.  A unit test can only prove the arithmetic; only a
 live exchange proves the DUT still answers when every option is at its KNX
 maximum.
 
-Budget-relevant limits (messaging/coap/constants.h):
+Budget-relevant limits (include/messaging/coap/constants.h):
   KNX_MAX_URI_PATH_LEN        48
   KNX_MAX_URI_PATH_SEGMENTS    8
   KNX_MAX_URI_QUERY_LEN       64
@@ -30,7 +30,7 @@ from transport.coap_client import LINK_FORMAT
 
 COAP_TIMEOUT = 5.0
 
-# Must mirror messaging/coap/constants.h
+# Must mirror include/messaging/coap/constants.h
 KNX_MAX_URI_PATH_LEN = 48
 KNX_MAX_URI_PATH_SEGMENTS = 8
 KNX_MAX_URI_QUERY_LEN = 64

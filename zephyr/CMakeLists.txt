@@ -2,7 +2,7 @@
 # Included automatically by the Zephyr build system when this stack is
 # registered as a module via zephyr/module.yml.
 # Mirrors the source file and compile definition logic of the stack's
-# top-level CMakeLists.txt and port/CMakeLists.txt for the Zephyr platform.
+# top-level CMakeLists.txt and src/port/CMakeLists.txt for the Zephyr platform.
 
 if(CONFIG_KNXIOT_LIB)
 
@@ -10,7 +10,7 @@ if(CONFIG_KNXIOT_LIB)
 get_filename_component(STACK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." REALPATH)
 
 # ── External libraries ─────────────────────────────────────────────────────────
-# Mirrors the FetchContent logic in port/CMakeLists.txt.
+# Mirrors the FetchContent logic in src/port/CMakeLists.txt.
 
 include(FetchContent)
 
@@ -21,8 +21,8 @@ if(CONFIG_KNXIOT_MBEDTLS_BUILTIN)
     #
     # TF_PSA_CRYPTO_CONFIG_FILE: PSA crypto primitives (PSA_WANT_* defines).
     # MBEDTLS_CONFIG_FILE: TLS/X.509/platform options (MBEDTLS_* defines).
-    set(TF_PSA_CRYPTO_CONFIG_FILE "${STACK_ROOT}/security/knx_psa_crypto_config.h" CACHE FILEPATH "" FORCE)
-    set(MBEDTLS_CONFIG_FILE "${STACK_ROOT}/security/knx_mbedtls_config.h" CACHE FILEPATH "" FORCE)
+    set(TF_PSA_CRYPTO_CONFIG_FILE "${STACK_ROOT}/src/security/knx_psa_crypto_config.h" CACHE FILEPATH "" FORCE)
+    set(MBEDTLS_CONFIG_FILE "${STACK_ROOT}/src/security/knx_mbedtls_config.h" CACHE FILEPATH "" FORCE)
     set(UNSAFE_BUILD OFF CACHE BOOL "" FORCE)
     set(MBEDTLS_FATAL_WARNINGS ON CACHE BOOL "" FORCE)
     set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
@@ -46,9 +46,9 @@ if(CONFIG_KNXIOT_MBEDTLS_BUILTIN)
     FetchContent_MakeAvailable(mbedtls)
 
     set(MBEDTLS_INCLUDE_DIRS
-        PRIVATE "${STACK_ROOT}"
+        PRIVATE "${STACK_ROOT}/src"
         PRIVATE "${STACK_ROOT}/include"
-        PRIVATE "${STACK_ROOT}/port/zephyr"   # for oc_config.h
+        PRIVATE "${STACK_ROOT}/src/port/zephyr"   # for oc_config.h
     )
     # Note:
     # Both config files include KNX-IoT stack headers (<oc_config.h>, "port/oc_assert.h").
@@ -129,6 +129,8 @@ if(CONFIG_KNXIOT_TINYCBOR_BUILTIN)
         $<TARGET_PROPERTY:zephyr_interface,INTERFACE_INCLUDE_DIRECTORIES>)
     target_compile_definitions(tinycbor PRIVATE
         $<TARGET_PROPERTY:zephyr_interface,INTERFACE_COMPILE_DEFINITIONS>)
+    # bounds TinyCBOR's recursion when it skips a container (see oc_parse_rep)
+    target_compile_definitions(tinycbor PRIVATE CBOR_PARSER_MAX_RECURSIONS=${CONFIG_KNXIOT_CBOR_MAX_DEPTH})
 
     zephyr_library_link_libraries(tinycbor)
     zephyr_include_directories(${tinycbor_SOURCE_DIR}/src ${tinycbor_BINARY_DIR})
@@ -136,101 +138,113 @@ endif()
 
 # mDNS header-only library
 # Note:
-# Required by port/dns-sd_mdns.c, the DNS-SD responder of the socket backends
-# (Ethernet, Wi-Fi). Vendored and maintained in port/mdns, see its README.md.
-zephyr_include_directories(${STACK_ROOT}/port/mdns)
+# Required by src/port/dns-sd_mdns.c, the DNS-SD responder of the socket backends
+# (Ethernet, Wi-Fi). Vendored and maintained in src/port/mdns, see its README.md.
+zephyr_include_directories(${STACK_ROOT}/src/port/mdns)
 
 # ── Source files ───────────────────────────────────────────────────────────────
 
-set(API_SOURCES
-    ${STACK_ROOT}/api/oc_base64.c
-    ${STACK_ROOT}/api/oc_blockwise.c
-    ${STACK_ROOT}/api/oc_buffer.c
-    ${STACK_ROOT}/api/oc_client_api.c
-    ${STACK_ROOT}/api/oc_clock.c
-    ${STACK_ROOT}/api/oc_core_res.c
-    ${STACK_ROOT}/api/oc_discovery.c
-    ${STACK_ROOT}/api/oc_endpoint.c
-    ${STACK_ROOT}/api/oc_helpers.c
-    ${STACK_ROOT}/api/oc_main.c
-    ${STACK_ROOT}/api/oc_network_events.c
-    ${STACK_ROOT}/api/oc_rep.c
-    ${STACK_ROOT}/api/oc_replay.c
-    ${STACK_ROOT}/api/oc_ri.c
-    ${STACK_ROOT}/api/oc_server_api.c
-    ${STACK_ROOT}/api/oc_uuid.c
-    ${STACK_ROOT}/api/oc_knx.c
-    ${STACK_ROOT}/api/oc_knx_client.c
-    ${STACK_ROOT}/api/oc_knx_dev.c
-    ${STACK_ROOT}/api/oc_knx_fb.c
-    ${STACK_ROOT}/api/oc_knx_fp.c
-    ${STACK_ROOT}/api/oc_knx_helpers.c
-    ${STACK_ROOT}/api/oc_knx_p.c
-    ${STACK_ROOT}/api/oc_knx_sec.c
-    ${STACK_ROOT}/api/oc_knx_swu.c
-    ${STACK_ROOT}/api/oc_knx_sub.c
-    ${STACK_ROOT}/api/c-timestamp/timestamp_compare.c
-    ${STACK_ROOT}/api/c-timestamp/timestamp_format.c
-    ${STACK_ROOT}/api/c-timestamp/timestamp_parse.c
-    ${STACK_ROOT}/api/c-timestamp/timestamp_tm.c
-    ${STACK_ROOT}/api/c-timestamp/timestamp_valid.c
+set(RI_SOURCES
+    ${STACK_ROOT}/src/resources/ri/oc_client_api.c
+    ${STACK_ROOT}/src/resources/ri/oc_core_res.c
+    ${STACK_ROOT}/src/resources/ri/oc_discovery.c
+    ${STACK_ROOT}/src/resources/ri/oc_rep.c
+    ${STACK_ROOT}/src/resources/ri/oc_ri.c
+    ${STACK_ROOT}/src/resources/ri/oc_server_api.c
 )
 
-set(CORE_SOURCES
-    ${STACK_ROOT}/util/oc_etimer.c
-    ${STACK_ROOT}/util/oc_list.c
-    ${STACK_ROOT}/util/oc_mmem.c
-    ${STACK_ROOT}/util/oc_process.c
-    ${STACK_ROOT}/util/oc_timer.c
+set(KNX_API_SOURCES
+    ${STACK_ROOT}/src/resources/knx/oc_knx.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_client.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_dev.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_fb.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_fp.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_helpers.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_hooks.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_observe.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_p.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_publisher.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_sec.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_swu.c
+    ${STACK_ROOT}/src/resources/knx/oc_knx_sub.c
+)
+
+set(RUNTIME_SOURCES
+    ${STACK_ROOT}/src/core/oc_buffer.c
+    ${STACK_ROOT}/src/core/oc_endpoint.c
+    ${STACK_ROOT}/src/core/oc_main.c
+    ${STACK_ROOT}/src/core/oc_network_events.c
+)
+
+set(UTIL_SOURCES
+    ${STACK_ROOT}/src/util/oc_base64.c
+    ${STACK_ROOT}/src/util/oc_clock.c
+    ${STACK_ROOT}/src/util/oc_etimer.c
+    ${STACK_ROOT}/src/util/oc_helpers.c
+    ${STACK_ROOT}/src/util/oc_list.c
+    ${STACK_ROOT}/src/util/oc_mmem.c
+    ${STACK_ROOT}/src/util/oc_process.c
+    ${STACK_ROOT}/src/util/oc_timer.c
+    ${STACK_ROOT}/src/util/oc_uuid.c
+    ${STACK_ROOT}/src/util/c-timestamp/timestamp_compare.c
+    ${STACK_ROOT}/src/util/c-timestamp/timestamp_format.c
+    ${STACK_ROOT}/src/util/c-timestamp/timestamp_parse.c
+    ${STACK_ROOT}/src/util/c-timestamp/timestamp_tm.c
+    ${STACK_ROOT}/src/util/c-timestamp/timestamp_valid.c
+)
+
+set(SECURITY_SOURCES
     # Security
-    ${STACK_ROOT}/security/oc_oscore_context.c
-    ${STACK_ROOT}/security/oc_oscore_crypto.c
-    ${STACK_ROOT}/security/oc_oscore_engine.c
-    ${STACK_ROOT}/security/spake2plus.c
+    ${STACK_ROOT}/src/security/oc_oscore_context.c
+    ${STACK_ROOT}/src/security/oc_oscore_crypto.c
+    ${STACK_ROOT}/src/security/oc_oscore_engine.c
+    ${STACK_ROOT}/src/security/oc_replay.c
+    ${STACK_ROOT}/src/security/spake2plus.c
 )
 
 set(COAP_SOURCES
-    ${STACK_ROOT}/messaging/coap/coap.c
-    ${STACK_ROOT}/messaging/coap/engine.c
-    ${STACK_ROOT}/messaging/coap/observe.c
-    ${STACK_ROOT}/messaging/coap/oscore.c
-    ${STACK_ROOT}/messaging/coap/separate.c
-    ${STACK_ROOT}/messaging/coap/transactions.c
+    ${STACK_ROOT}/src/messaging/coap/oc_blockwise.c
+    ${STACK_ROOT}/src/messaging/coap/coap.c
+    ${STACK_ROOT}/src/messaging/coap/engine.c
+    ${STACK_ROOT}/src/messaging/coap/observe.c
+    ${STACK_ROOT}/src/messaging/coap/oscore.c
+    ${STACK_ROOT}/src/messaging/coap/separate.c
+    ${STACK_ROOT}/src/messaging/coap/transactions.c
 )
 
 # Platform port - common
 set(PORT_SOURCES
-    ${STACK_ROOT}/port/oc_log.c
+    ${STACK_ROOT}/src/port/oc_log.c
 )
 
 # Platform port - Zephyr-specific
 list(APPEND PORT_SOURCES
-    ${STACK_ROOT}/port/zephyr/abort.c
-    ${STACK_ROOT}/port/zephyr/clock.c
-    ${STACK_ROOT}/port/zephyr/random.c
-    ${STACK_ROOT}/port/zephyr/storage.c
+    ${STACK_ROOT}/src/port/zephyr/abort.c
+    ${STACK_ROOT}/src/port/zephyr/clock.c
+    ${STACK_ROOT}/src/port/zephyr/random.c
+    ${STACK_ROOT}/src/port/zephyr/storage.c
 )
 
 # Platform port - Zephyr-specific - Optional
-# KNX IoT shell command: The shared command handlers (port/knx_shell_commands.c) plus the
+# KNX IoT shell command: The shared command handlers (src/port/knx_shell_commands.c) plus the
 # Zephyr shell binding, compiled with the KNXIOT_SHELL option.
 if(CONFIG_KNXIOT_SHELL)
     list(APPEND PORT_SOURCES
-        ${STACK_ROOT}/port/knx_shell_commands.c
-        ${STACK_ROOT}/port/zephyr/knx_shell.c
+        ${STACK_ROOT}/src/port/knx_shell_commands.c
+        ${STACK_ROOT}/src/port/zephyr/knx_shell.c
     )
 endif()
 
 # Network backend selection:
-#   OpenThread   — connectivity_thread.c  +  port/dns-sd_srp.c  (DNS-SD and OT_SRP)
-#   Wi-Fi/Ether. — connectivity_posix.c   +  port/dns-sd_mdns.c (DNS-SD and mDNS)
-# Note: port/dns-sd_srp.c uses the OpenThread SRP client instead of POSIX mDNS sockets,
+#   OpenThread   — connectivity_thread.c  +  src/port/dns-sd_srp.c  (DNS-SD and OT_SRP)
+#   Wi-Fi/Ether. — connectivity_posix.c   +  src/port/dns-sd_mdns.c (DNS-SD and mDNS)
+# Note: src/port/dns-sd_srp.c uses the OpenThread SRP client instead of POSIX mDNS sockets,
 #       the same implementation used on the FreeRTOS/ESP-IDF port.
 # Note: connectivity_thread.c is the OpenThread equivalent of ipadapter.c —
 #       provides oc_connectivity_init, oc_send_buffer, etc.
 # Note: connectivity_posix.c provides connectivity over Zephyr's POSIX/BSD socket
 #       API (zsock_*), used for both Wi-Fi and Ethernet L2 backends.
-#       The shared port/dns-sd_mdns.c provides DNS-SD and mDNS, the same implementation
+#       The shared src/port/dns-sd_mdns.c provides DNS-SD and mDNS, the same implementation
 #       used on Linux and Windows.
 # Note: oc_network_interface.c enumerates the interfaces over Zephyr net_if (Wi-Fi,
 #       Ethernet, Thread with CONFIG_NET_L2_OPENTHREAD), oc_network_interface_thread.c over
@@ -245,9 +259,9 @@ if(CONFIG_KNXIOT_NETWORK_BACKEND_ETHERNET)
     endif()
 
     list(APPEND PORT_SOURCES
-        ${STACK_ROOT}/port/zephyr/connectivity_posix.c
-        ${STACK_ROOT}/port/zephyr/oc_network_interface.c
-        ${STACK_ROOT}/port/dns-sd_mdns.c
+        ${STACK_ROOT}/src/port/zephyr/connectivity_posix.c
+        ${STACK_ROOT}/src/port/zephyr/oc_network_interface.c
+        ${STACK_ROOT}/src/port/dns-sd_mdns.c
     )
 elseif(CONFIG_KNXIOT_NETWORK_BACKEND_THREAD)
     # OpenThread is needed with or without the Zephyr OpenThread L2 (native OpenThread).
@@ -258,21 +272,21 @@ elseif(CONFIG_KNXIOT_NETWORK_BACKEND_THREAD)
     endif()
 
     list(APPEND PORT_SOURCES
-        ${STACK_ROOT}/port/zephyr/connectivity_thread.c
-        ${STACK_ROOT}/port/dns-sd_srp.c
+        ${STACK_ROOT}/src/port/zephyr/connectivity_thread.c
+        ${STACK_ROOT}/src/port/dns-sd_srp.c
     )
 
     if(CONFIG_NET_L2_OPENTHREAD)
-        list(APPEND PORT_SOURCES ${STACK_ROOT}/port/zephyr/oc_network_interface.c)
+        list(APPEND PORT_SOURCES ${STACK_ROOT}/src/port/zephyr/oc_network_interface.c)
     else()
-        list(APPEND PORT_SOURCES ${STACK_ROOT}/port/zephyr/oc_network_interface_thread.c)
+        list(APPEND PORT_SOURCES ${STACK_ROOT}/src/port/zephyr/oc_network_interface_thread.c)
     endif()
 elseif(CONFIG_KNXIOT_NETWORK_BACKEND_WIFI)
     # The Wi-Fi backend selects CONFIG_WIFI itself, so there is nothing to check.
     list(APPEND PORT_SOURCES
-        ${STACK_ROOT}/port/zephyr/connectivity_posix.c
-        ${STACK_ROOT}/port/zephyr/oc_network_interface.c
-        ${STACK_ROOT}/port/dns-sd_mdns.c
+        ${STACK_ROOT}/src/port/zephyr/connectivity_posix.c
+        ${STACK_ROOT}/src/port/zephyr/oc_network_interface.c
+        ${STACK_ROOT}/src/port/dns-sd_mdns.c
     )
 else()
     message(FATAL_ERROR
@@ -284,14 +298,17 @@ endif()
 # Optional. The application enables the /test/* resources by calling
 # oc_test_control_register() under #ifdef KNX_TEST_CONTROL.
 if(CONFIG_KNXIOT_TEST_CONTROL)
-    list(APPEND API_SOURCES ${STACK_ROOT}/api/oc_test_control.c)
+    list(APPEND RI_SOURCES ${STACK_ROOT}/src/resources/ri/oc_test_control.c)
 endif()
 
 zephyr_library_named(knx_iot_stack)
 zephyr_library_sources(
-    ${API_SOURCES}
-    ${CORE_SOURCES}
+    ${RUNTIME_SOURCES}
+    ${UTIL_SOURCES}
+    ${SECURITY_SOURCES}
     ${COAP_SOURCES}
+    ${RI_SOURCES}
+    ${KNX_API_SOURCES}
     ${PORT_SOURCES}
 )
 
@@ -309,22 +326,38 @@ zephyr_library_compile_options(
 # -Wstrict-prototypes and -Wvla in the cbprintf and logging headers). The Zephyr include
 # directories become system include directories for the stack library, so the compiler
 # leaves them alone, macros defined there included, and the policy applies to the stack
-# sources only.
+# sources only. The stack's own public directories (include/, the port directory) are
+# left out, so the policy applies to the public headers as well.
+string(REGEX REPLACE "([][+.*()^$?|\\\\])" "\\\\\\1" KNX_STACK_ROOT_REGEX "${STACK_ROOT}")
 target_include_directories(knx_iot_stack SYSTEM PRIVATE
-    $<TARGET_PROPERTY:zephyr_interface,INTERFACE_INCLUDE_DIRECTORIES>
+    "$<FILTER:$<TARGET_PROPERTY:zephyr_interface,INTERFACE_INCLUDE_DIRECTORIES>,EXCLUDE,^${KNX_STACK_ROOT_REGEX}/>"
 )
 
 # ── Include directories ────────────────────────────────────────────────────────
-# Mirrors KNX_INCLUDE_DIRS from the stack's top-level CMakeLists.txt.
-# Note: some are marked TODO in the stack as not intended to be public.
+# Mirrors KNX_INCLUDE_DIRS (public, also for the application) and
+# KNX_PRIVATE_INCLUDE_DIRS (stack library only) of the stack's top-level CMakeLists.txt.
 zephyr_include_directories(
-    ${STACK_ROOT}
     ${STACK_ROOT}/include
-    ${STACK_ROOT}/port/zephyr        # provides oc_config.h for this platform
-    ${STACK_ROOT}/security           # TODO: should not be public
-    ${STACK_ROOT}/messaging/coap     # TODO: should not be public
-    ${STACK_ROOT}/api                # TODO: should not be public
-    ${STACK_ROOT}/api/c-timestamp    # TODO: should not be public
+    ${STACK_ROOT}/src/port/zephyr        # provides oc_config.h for this platform
+)
+if(CONFIG_KNXIOT_TEST_CONTROL)
+    zephyr_include_directories(${STACK_ROOT}/src/resources/ri)   # oc_test_control.h
+endif()
+# The public directories again for the stack library itself: the SYSTEM filter above
+# reads zephyr_interface's INTERFACE_INCLUDE_DIRECTORIES, after which CMake does not add
+# them a second time through the link, so the excluded stack directories would be lost.
+zephyr_library_include_directories(
+    ${STACK_ROOT}/include
+    ${STACK_ROOT}/src/port/zephyr
+    ${STACK_ROOT}/src/port/mdns
+    ${STACK_ROOT}/src
+    ${STACK_ROOT}/src/resources/knx
+    ${STACK_ROOT}/src/resources/ri
+    ${STACK_ROOT}/src/core
+    ${STACK_ROOT}/src/security
+    ${STACK_ROOT}/src/messaging/coap
+    ${STACK_ROOT}/src/util
+    ${STACK_ROOT}/src/util/c-timestamp
 )
 
 # ── Compile definitions ────────────────────────────────────────────────────────
@@ -346,7 +379,7 @@ zephyr_compile_definitions(
 
 ## Testing
 # KNX_TEST_CONTROL gates the /test/* control endpoints in the application
-# (see api/oc_test_control.c). Propagated to all targets so the app source
+# (see src/resources/ri/oc_test_control.c). Propagated to all targets so the app source
 # that calls oc_test_control_register() picks it up.
 zephyr_compile_definitions(
     $<$<BOOL:${CONFIG_KNXIOT_TEST_CONTROL}>:KNX_TEST_CONTROL>
@@ -371,21 +404,28 @@ zephyr_compile_definitions(
     KNX_MULTICAST_SCOPE=${CONFIG_KNX_MULTICAST_SCOPE}
     KNX_READ_ON_INIT_DELAY_MILLISECONDS=${CONFIG_KNX_READ_ON_INIT_DELAY_MS}
     KNX_RESPONSE_TIME_SECONDS=${CONFIG_KNX_RESET_PROCESS_TIME_S}
+    KNX_RESET_DELAY_MILLISECONDS=${CONFIG_KNX_RESET_DELAY_MS}
 )
 
 ## Security
 zephyr_compile_definitions(
     KNX_ECHO_RING_SIZE=${CONFIG_KNXIOT_ECHO_RING_SIZE}
+    COAP_MAX_OBSERVERS=${CONFIG_KNXIOT_COAP_MAX_OBSERVERS}
+    KNX_NET_MAX_RX_PENDING=${CONFIG_KNXIOT_NET_MAX_RX_PENDING}
+    COAP_MAX_OPEN_TRANSACTIONS=${CONFIG_KNXIOT_COAP_MAX_OPEN_TRANSACTIONS}
+    KNX_CBOR_MAX_DEPTH=${CONFIG_KNXIOT_CBOR_MAX_DEPTH}
 )
 
 ## Logging
 # OC_PRINT_ENABLED → OC_PRINT, OC_DEBUG_ENABLED → OC_DEBUG (internal names).
 # OC_PRINT is driven by CONFIG_KNXIOT_LOG_LEVEL (controls which Zephyr log
 # calls are compiled into the module; set to 4 to include LOG_DBG calls).
+# It also needs CONFIG_LOG: without it every log call is empty, and OC_PRINT
+# would only keep print helpers such as the CBOR-to-JSON dump in the image.
 # OC_DEBUG is driven by CONFIG_KNXIOT_DEBUG (compile-time flag that enables
 # debug code paths — independent of the runtime log level, which is controlled
 # via the Zephyr log shell: "log enable dbg <module>").
-if(CONFIG_KNXIOT_LOG_LEVEL GREATER 0)
+if(CONFIG_LOG AND CONFIG_KNXIOT_LOG_LEVEL GREATER 0)
     zephyr_compile_definitions(OC_PRINT)
 endif()
 zephyr_library_compile_definitions(

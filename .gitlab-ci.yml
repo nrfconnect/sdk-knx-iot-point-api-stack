@@ -16,9 +16,8 @@ stages:
 
 variables:
   GIT_STRATEGY: clone
-  # Shallow clone: no job here uses git history (no describe/blame/log), so a
-  # full clone (GIT_DEPTH: 0) only pays for history no job reads. Revisit if a
-  # future step needs to diff/describe against an older commit.
+  # Shallow clone: the jobs use no git history, except quality-code, which
+  # sets its own GIT_DEPTH: 0 for its diff check against the default branch.
   GIT_DEPTH: 1
   GIT_SUBMODULE_STRATEGY: none
 
@@ -39,6 +38,9 @@ default:
 #   *-memcheck         the DUT built with ASan+UBSan; pass = no sanitizer report,
 #                      the pytest tally is informational (a slower DUT may fail
 #                      timing-sensitive steps; the first local run matched gcc)
+#   *-massif           the DUT under Valgrind Massif: heap peak and its sites
+#                      (nightly; the pytest tally is informational)
+#   quality-*          code checks (complexity, format, include cycles, Cortex-M33 object sizes)
 # ==========================================================
 
 # ----------------------------------------------------------
@@ -146,6 +148,33 @@ default:
       allow_failure: true
 
 # ----------------------------------------------------------
+# lint: commit messages
+# Every non-merge commit of a branch that is not yet on the default branch
+# must follow Conventional Commits (CONTRIBUTING.md, "Commit messages").
+# With "Pipeline must succeed" a non-conforming branch cannot be merged.
+# Not run on the default branch itself, on tags or on the nightly schedule.
+# The job needs history: the default branch is fetched with the job token
+# (the clone's origin carries no credentials, see .python-deps).
+# ----------------------------------------------------------
+commit-lint:
+  stage: build
+  needs: []
+  variables:
+    GIT_DEPTH: 0
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - when: on_success
+  script:
+    - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/".insteadOf "https://${CI_SERVER_HOST}/"
+    - git fetch --no-tags origin "+refs/heads/${CI_DEFAULT_BRANCH}:refs/remotes/origin/${CI_DEFAULT_BRANCH}"
+    - python3 scripts/check_commit_messages.py --range "origin/${CI_DEFAULT_BRANCH}..HEAD"
+
+# ----------------------------------------------------------
 # build
 # ----------------------------------------------------------
 build-gcc:
@@ -158,6 +187,26 @@ build-gcc:
     paths:
       - build/linux-debug-gcc/apps
     expire_in: 1 week
+
+# The publisher-off configuration (OC_PUBLISHER_TABLE_ENABLED=OFF, "plain
+# sender") with an empty KNX_GPT_MAX_ENTRIES, as on Zephyr and ESP-IDF;
+# compile only. The unit tests run it in tests/unit/publisher_off.
+build-plain-sender:
+  stage: build
+  script:
+    - cmake --preset=linux-plain-sender-gcc
+    - cmake --build --preset=linux-plain-sender-gcc
+  dependencies: []
+
+# The CMake option OC_CLIENT_ENABLED=OFF (server only), as on Zephyr and
+# ESP-IDF with CONFIG_KNXIOT_CLIENT=n; compile only. The unit tests run the
+# stack without OC_CLIENT in tests/unit/client_off.
+build-server-only:
+  stage: build
+  script:
+    - cmake --preset=linux-server-only-gcc
+    - cmake --build --preset=linux-server-only-gcc
+  dependencies: []
 
 # ----------------------------------------------------------
 # test: unit
@@ -188,13 +237,37 @@ unit-asan:
       junit: build/linux-test-asan/report.xml
   dependencies: []
 
+# The same suite built with clang: its UBSan checks things GCC's does not (e.g.
+# arithmetic on a NULL pointer), so a defect of that kind fails here only.
+unit-asan-clang:
+  stage: test
+  script:
+    # libclang-rt-19-dev provides the asan/ubsan runtime archives the clang package lacks
+    - apt-get update -qq && apt-get install -y -qq clang libclang-rt-19-dev > /dev/null 2>&1
+    - cmake --preset=linux-test-asan-clang
+    - cmake --build --preset=linux-test-asan-clang
+    - ctest --preset=linux-test-asan-clang --output-junit report.xml
+  artifacts:
+    access: developer
+    when: always
+    reports:
+      junit: build/linux-test-asan-clang/report.xml
+  dependencies: []
+
 # ----------------------------------------------------------
 # test: unit function coverage (gcov via gcovr)
 # The same GoogleTest suite built with --coverage -O0 (ENABLE_COVERAGE). The
-# filters keep the number honest: this project's own code under api/,
-# messaging/, security/ and util/, not tests/, not the fetched dependencies,
-# not the vendored api/c-timestamp parser. The percentage shows on the job
+# filters keep the number honest: this project's own code under src/resources/,
+# src/core/, src/messaging/, src/security/ and src/util/, not tests/ or fetched dependencies,
+# not the vendored src/util/c-timestamp parser, not src/resources/ri/oc_test_control.c (the test
+# endpoints of the runtime/conformance device, built into kisTestControl only).
+# The percentage shows on the job
 # and in the merge request; the HTML report is an artifact.
+# Branch coverage says more about the error paths than lines do (an untested
+# `if (len > max) return error;` is a covered line but an untaken branch).
+# The summary prints it; --fail-under-branch is a floor just below the
+# current value (63.1 %, 2026-11-13), so a change that drops tested error
+# paths fails here. Raise the floor when the value has grown.
 # ----------------------------------------------------------
 unit-coverage-gcc:
   stage: test
@@ -207,13 +280,14 @@ unit-coverage-gcc:
     - mkdir -p build/linux-coverage-gcc/coverage-html
     - >
       gcovr --root .
-      --filter 'api/' --filter 'messaging/' --filter 'security/' --filter 'util/'
-      --exclude 'api/c-timestamp/.*'
+      --filter 'src/resources/' --filter 'src/core/' --filter 'src/messaging/' --filter 'src/security/' --filter 'src/util/'
+      --exclude 'src/util/c-timestamp/.*' --exclude 'src/resources/ri/oc_test_control[.]c'
       --cobertura build/linux-coverage-gcc/coverage.xml
       --html-medium-threshold 65
       --html-high-threshold 85
       --html-details build/linux-coverage-gcc/coverage-html/index.html
       --print-summary
+      --fail-under-branch 62
       build/linux-coverage-gcc
   # gcovr --print-summary writes "functions: 91.2% (83 out of 91)"; the
   # TOTAL line only exists in its default table report, which is not printed here.
@@ -232,6 +306,94 @@ unit-coverage-gcc:
   dependencies: []
 
 # ----------------------------------------------------------
+# test: code quality of the change (lizard, clang-format)
+# Function complexity: CCN, length and parameter count per function of the
+# stack's own C code (tests/common/tools/lizard_report.py holds the paths and
+# thresholds). The statistic fails nothing: the log lists the functions over
+# a threshold and ends with the summary line, whose Fun Rt / nloc Rt are the
+# trend to follow per release; the HTML and CSV reports are artifacts.
+# On a branch other than the default one, two checks of the lines changed
+# since the merge base then gate the job (both run, either fails it):
+# - lizard_report.py --diff: a new function over a threshold, or a changed
+#   one that got worse, fails; a touched one that got no better is a WARN.
+# - clang-format-diff.py on git diff -M: the changed lines must match .clang-format;
+#   untouched code is not checked, a moved file only on its changed lines. The diff it prints is the fix.
+# Both need the history to the merge base, hence the full clone of this job
+# only. lizard and clang-format are pinned so results stay comparable.
+# ----------------------------------------------------------
+quality-code:
+  stage: test
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - curl -sSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+    - python3 /tmp/get-pip.py --break-system-packages --quiet
+    - python3 -m pip install --break-system-packages --quiet lizard==1.26.0 jinja2 clang-format==22.1.8
+    - python3 tests/common/tools/lizard_report.py --out build/lizard
+    - |
+      if [ -n "$CI_COMMIT_BRANCH" ] && [ "$CI_COMMIT_BRANCH" != "$CI_DEFAULT_BRANCH" ]; then
+        git fetch --quiet origin "+refs/heads/$CI_DEFAULT_BRANCH:refs/remotes/origin/$CI_DEFAULT_BRANCH"
+        base=$(git merge-base "origin/$CI_DEFAULT_BRANCH" HEAD)
+        rc=0
+        python3 tests/common/tools/lizard_report.py --diff "$base" || rc=1
+        echo "clang-format of the changed lines:"
+        # git diff -M without a pathspec: a moved file is compared with its old path, so only its changed lines count
+        git diff -M -U0 --no-color "$base" | clang-format-diff.py -p1 \
+          -regex '(?!src/util/c-timestamp/|include/util/pt/|src/port/mdns/mdns\.h$)(src|include)/.*\.[ch]' || rc=1
+        exit $rc
+      fi
+  artifacts:
+    access: developer
+    when: always
+    paths:
+      - build/lizard/
+    expire_in: 4 weeks
+  dependencies: []
+  needs: []
+
+# ----------------------------------------------------------
+# test: header include cycles (clang-tidy misc-header-include-cycle)
+# A header that includes itself through other headers compiles only in one
+# include order. The preset linux-include-cycle runs clang-tidy with only that
+# check on every C file of the build; a cycle among the headers in src/ or
+# include/ fails the build.
+# ----------------------------------------------------------
+quality-include-cycle:
+  stage: test
+  script:
+    - apt-get update -qq && apt-get install -y -qq clang-tidy > /dev/null 2>&1
+    - clang-tidy --version
+    - cmake --preset=linux-include-cycle
+    - cmake --build --preset=linux-include-cycle
+  dependencies: []
+  needs: []
+
+# ----------------------------------------------------------
+# test: stack object sizes on Cortex-M33 (report, not gating)
+# The preset arm-size compiles the stack objects with arm-none-eabi-gcc
+# (-mcpu=cortex-m33 -Os, logs off, nothing linked) and writes text/data/bss per
+# object plus TOTALS to build/arm-size/size/size.txt. Object sizes include the
+# string literals and exclude Mbed TLS, TinyCBOR, the port, the heap and the
+# stacks; image totals are in docs/memory_breakdown.md.
+# ----------------------------------------------------------
+quality-size:
+  stage: test
+  script:
+    - apt-get update -qq && apt-get install -y -qq gcc-arm-none-eabi libnewlib-arm-none-eabi > /dev/null 2>&1
+    - arm-none-eabi-gcc --version | head -1
+    - cmake --preset=arm-size
+    - cmake --build --preset=arm-size
+  artifacts:
+    access: developer
+    when: always
+    paths:
+      - build/arm-size/size/
+    expire_in: 4 weeks
+  allow_failure: true
+  dependencies: []
+  needs: []
+
+# ----------------------------------------------------------
 # test: fuzz seed replay (gating) + coverage
 # Replays every generated seed exactly once (-runs=0) first: deterministic on
 # purpose, so a random mutation seed can never fail a pipeline for an
@@ -241,9 +403,9 @@ unit-coverage-gcc:
 # (FUZZ_COVERAGE_SECONDS) purely to grow line coverage - any crash found there
 # is logged and kept as an artifact but does NOT fail the job (that is what the
 # manual fuzz-explore job gates on).
-# Also reports source coverage (gcov via gcovr, clang): how much of api/,
-# messaging/, security/ and util/ the corpus plus the mutation burst reaches.
-# Excludes tests/, third-party dependencies and the vendored api/c-timestamp.
+# Also reports source coverage (gcov via gcovr, clang): how much of src/resources/,
+# src/core/, src/messaging/, src/security/ and src/util/ the corpus plus the mutation burst reaches.
+# Excludes tests/, third-party dependencies and the vendored src/util/c-timestamp.
 # ----------------------------------------------------------
 fuzz-seed-replay:
   stage: test
@@ -262,22 +424,20 @@ fuzz-seed-replay:
     - |
       status=0
       ctest --preset=linux-fuzz-coverage-clang -L fuzz --output-junit build/linux-fuzz-coverage-clang/fuzz-report.xml || status=$?
+      # every harness CMake registered (tests/fuzz/CMakeLists.txt), so a new one cannot be left out here
+      targets=$(ctest --preset=linux-fuzz-coverage-clang -N -L fuzz | sed -n 's/^ *Test *#[0-9]*: \(fuzz_.*\)_seed$/\1/p')
+      [ -n "$targets" ] || { echo "error: no fuzz targets registered in CTest"; exit 1; }
       cd build/linux-fuzz-coverage-clang/tests/fuzz
-      for t in fuzz_coap_parse fuzz_oscore_options fuzz_oc_rep fuzz_mdns \
-               fuzz_query_string fuzz_blockwise_reassembly fuzz_hex_and_base64 fuzz_timestamp \
-               fuzz_endpoint_string_parse fuzz_swu_query_params fuzz_group_object_table \
-               fuzz_oscore_context_lookup fuzz_discovery_filter fuzz_spake2plus_wire \
-               fuzz_uuid_parse fuzz_oscore_full_decrypt fuzz_replay_window fuzz_oscore_aad_nonce fuzz_oscore_echo_tx \
-               fuzz_core_res_wildcard fuzz_at_x_get_query fuzz_spake2plus_initiator \
-               fuzz_knx_lsm_post fuzz_auth_at_post; do
-        "./$t" "corpus/${t#fuzz_}" -max_total_time="$FUZZ_COVERAGE_SECONDS" -timeout=10 \
+      for t in $targets; do
+        dict=""; [ -f "dict/${t#fuzz_}.dict" ] && dict="-dict=dict/${t#fuzz_}.dict"
+        "./$t" "corpus/${t#fuzz_}" $dict -max_total_time="$FUZZ_COVERAGE_SECONDS" -timeout=10 \
           -rss_limit_mb=2048 -artifact_prefix="../../../../fuzz-coverage-crashes/${t}-" \
-          || { echo "warning: $t found a crash during the coverage mutation burst - see fuzz-coverage-crashes/"; status=1; }
+          || echo "warning: $t found a crash during the coverage mutation burst - see fuzz-coverage-crashes/ (does not fail the job)"
       done
       cd -
       if ! gcovr --root . --gcov-executable 'llvm-cov-19 gcov' \
-        --filter 'api/' --filter 'messaging/' --filter 'security/' --filter 'util/' \
-        --exclude 'api/c-timestamp/.*' \
+        --filter 'src/resources/' --filter 'src/core/' --filter 'src/messaging/' --filter 'src/security/' --filter 'src/util/' \
+        --exclude 'src/util/c-timestamp/.*' --exclude 'src/resources/ri/oc_test_control[.]c' \
         --cobertura build/linux-fuzz-coverage-clang/coverage.xml \
         --html-medium-threshold 65 \
         --html-high-threshold 85 \
@@ -325,16 +485,14 @@ fuzz-explore:
     - |
       status=0
       mkdir -p fuzz-crashes
-      for t in fuzz_coap_parse fuzz_oscore_options fuzz_oc_rep fuzz_mdns \
-               fuzz_query_string fuzz_blockwise_reassembly fuzz_hex_and_base64 fuzz_timestamp \
-               fuzz_endpoint_string_parse fuzz_swu_query_params fuzz_group_object_table \
-               fuzz_oscore_context_lookup fuzz_discovery_filter fuzz_spake2plus_wire \
-               fuzz_uuid_parse fuzz_oscore_full_decrypt fuzz_replay_window fuzz_oscore_aad_nonce fuzz_oscore_echo_tx \
-               fuzz_core_res_wildcard fuzz_at_x_get_query fuzz_spake2plus_initiator \
-               fuzz_knx_lsm_post fuzz_auth_at_post; do
+      targets=$(ctest --preset=linux-fuzz-clang -N -L fuzz | sed -n 's/^ *Test *#[0-9]*: \(fuzz_.*\)_seed$/\1/p')
+      [ -n "$targets" ] || { echo "error: no fuzz targets registered in CTest"; exit 1; }
+      for t in $targets; do
         seeds="build/linux-fuzz-clang/tests/fuzz/corpus/${t#fuzz_}"
+        d="build/linux-fuzz-clang/tests/fuzz/dict/${t#fuzz_}.dict"
+        dict=""; [ -f "$d" ] && dict="-dict=$d"
         mkdir -p "fuzz-findings/$t"
-        "build/linux-fuzz-clang/tests/fuzz/$t" "fuzz-findings/$t" "$seeds" \
+        "build/linux-fuzz-clang/tests/fuzz/$t" "fuzz-findings/$t" "$seeds" $dict \
           -max_total_time="$FUZZ_SECONDS" -timeout=10 -rss_limit_mb=2048 \
           -artifact_prefix=fuzz-crashes/ || status=1
       done
@@ -352,7 +510,7 @@ fuzz-explore:
 # device-test: runtime tier, gcc
 # The hand-written behaviour tests (hardening, observe, state machines,
 # everything KNX never wrote a TestCase for). tests/common/fixtures.py orders
-# the modules. Expected: 237 passed / 8 environment skips.
+# the modules. Expected: 253 passed / 5 environment skips.
 # allow_failure: the device tiers depend on a tagged, privileged runner; a
 # missing runner must not block the pipeline. Read the JUnit report.
 # ----------------------------------------------------------
@@ -444,7 +602,7 @@ conformance-gcc:
 #   runtime error:            UBSan
 # LeakSanitizer output is counted and printed but does not fail the job: a
 # benign 1-byte SPAKE shutdown leak remains (oc_oscore_set_auth_shared,
-# api/oc_knx_sec.c). The UBSan nonnull-attribute reports for
+# src/resources/knx/oc_knx_sec.c). The UBSan nonnull-attribute reports for
 # memcpy/memcmp/memchr with a NULL pointer and length 0 were F-025, fixed
 # (git log -p -S F-025 -- tests/FINDINGS.md).
 # The DUT's stderr reaches the log through the
@@ -496,3 +654,61 @@ conformance-asan-memcheck:
   variables:
     MEMCHECK_NAME: conformance
     MEMCHECK_COMMAND: python3 tests/iot-test-tool/run_sequences.py --dut-command "ip netns exec dut build/linux-test-asan/tests/runtime_test_server" --overrides tests/conformance
+
+# ----------------------------------------------------------
+# device-test: heap peak (nightly)
+# The DUT (the same build as runtime-gcc) under Valgrind Massif while a device
+# tier plays against it. ms_print turns each profile into <tier>.<pid>.txt:
+# the heap over time with its peak (its head goes to the log) and the
+# allocation trees of the detailed snapshots. The stack's allocation wrappers
+# are --alloc-fn, so a site in a tree is the code that asked for the memory.
+# Figures are 64-bit host values (8 B pointers): follow them as a trend, the
+# 32-bit target model is docs/memory_breakdown.md, section 7. Massif slows the
+# DUT down, so the CoAP, start-up and stop timeouts are longer than in
+# runtime-gcc; the pytest tally is informational, the job fails only without
+# a profile. Profiles and reports are artifacts.
+# Locally: run-in-docker.ps1 -Massif (run-in-docker.sh --massif).
+# ----------------------------------------------------------
+.massif:
+  extends:
+    - .device-test
+    - .nightly
+    - .knx-files
+  allow_failure: true
+  variables:
+    RUNTIME_TEST_SERVER: build/linux-test-gcc/tests/runtime_test_server
+    MASSIF: "valgrind --tool=massif --alloc-fn=oc_mmem_alloc --alloc-fn=_oc_new_string --alloc-fn=_oc_new_byte_string --alloc-fn=_oc_alloc_string --alloc-fn=_oc_new_array --alloc-fn=_oc_alloc_string_array"
+    COAP_TIMEOUT: "20"
+    SERVER_STARTUP_TIMEOUT: "120"
+    SERVER_STOP_TIMEOUT: "60"
+  script:
+    - !reference [.device-network, script]
+    - apt-get install -y -qq valgrind > /dev/null 2>&1
+    - cmake --preset=linux-test-gcc -DOC_DEBUG_ENABLED=OFF -DOC_PRINT_ENABLED=OFF -DOC_DEBUG_OSCORE_ENABLED=OFF
+    - cmake --build --preset=linux-test-gcc --target runtime_test_server
+    - !reference [.python-deps, script]
+    - !reference [.knx-files, script]
+    - mkdir -p build/massif
+    - eval "$MASSIF_COMMAND -rfE -v --tb=short --junit-xml=build/massif/${MASSIF_NAME}-report.xml" 2>&1 | tee build/massif/${MASSIF_NAME}.log || true
+    - ls build/massif/${MASSIF_NAME}.*.out
+    - for f in build/massif/${MASSIF_NAME}.*.out; do ms_print "$f" > "${f%.out}.txt"; head -n 34 "${f%.out}.txt"; done
+  artifacts:
+    access: developer
+    when: always
+    paths:
+      - build/massif/
+    reports:
+      junit: build/massif/${MASSIF_NAME}-report.xml
+    expire_in: 4 weeks
+
+runtime-massif:
+  extends: .massif
+  variables:
+    MASSIF_NAME: runtime
+    MASSIF_COMMAND: RUNTIME_TEST_SERVER_PREFIX="ip netns exec dut $MASSIF --massif-out-file=build/massif/runtime.%p.out" python3 -m pytest tests/runtime/
+
+conformance-massif:
+  extends: .massif
+  variables:
+    MASSIF_NAME: conformance
+    MASSIF_COMMAND: python3 tests/iot-test-tool/run_sequences.py --dut-command "ip netns exec dut $MASSIF --massif-out-file=build/massif/conformance.%p.out build/linux-test-gcc/tests/runtime_test_server" --overrides tests/conformance

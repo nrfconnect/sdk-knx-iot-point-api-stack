@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_server_api.c
+ * Unit tests for resources/ri/oc_server_api.c
  *
  * This file is a large collection of PUBLIC server-side helpers. Most are pure
  * logic and are unit-tested here in isolation:
@@ -30,7 +30,6 @@ extern "C" {
 #include "oc_ri.h"
 #include "oc_rep.h"
 #include "oc_helpers.h"
-#include "messaging/coap/oc_coap.h"
 #include "messaging/coap/coap.h" /* coap_method_t */
 #include "util/oc_mmem.h"
 #include <string.h>
@@ -72,8 +71,13 @@ extern "C" oc_resource_data_t *__wrap_oc_ri_alloc_resource_data(void)
 
 extern "C" void __wrap_oc_ri_add_timed_event_callback_seconds(
   void *, oc_trigger_t, uint16_t) {}
-extern "C" void __wrap_oc_ri_add_timed_event_callback_ticks(
-  void *, oc_trigger_t, oc_clock_time_t) {}
+/* ticks of the last scheduled callback */
+static oc_clock_time_t g_last_ticks;
+extern "C" bool __wrap_oc_ri_add_timed_event_callback_ticks(void*, oc_trigger_t, oc_clock_time_t ticks)
+{
+  g_last_ticks = ticks;
+  return true;
+}
 extern "C" void __wrap_oc_ri_remove_timed_event_callback(void *, oc_trigger_t) {}
 
 } // namespace
@@ -375,6 +379,16 @@ TEST_F(ServerApiResource, DelayedCallbackForwardersCallRiHooks)
   SUCCEED();
 }
 
+TEST_F(ServerApiResource, DelayedCallbackMsIsConvertedToClockTicks)
+{
+  /* the tick rate is per port (CLOCKS_PER_SEC on Linux), milliseconds are not ticks */
+  g_last_ticks = 0;
+  oc_set_delayed_callback_ms(nullptr, nullptr, 1000);
+  EXPECT_EQ(g_last_ticks, (oc_clock_time_t)OC_CLOCK_SECOND);
+  oc_set_delayed_callback_ms(nullptr, nullptr, 250);
+  EXPECT_EQ(g_last_ticks, (oc_clock_time_t)OC_CLOCK_SECOND / 4);
+}
+
 TEST_F(ServerApiResource, SeparateResponseSetupInitializesHandle)
 {
   RespCtx ctx;
@@ -537,21 +551,6 @@ TEST_F(ServerApiResource, SetFunctionalBlockData)
   EXPECT_EQ(r.fb_data, (uint32_t)((0x1234 << 16) + (0x56 << 8) + 0x78));
 }
 
-static void dummy_get_props(oc_resource_t *, oc_interface_mask_t, void *) {}
-static bool dummy_set_props(oc_resource_t *, oc_rep_t *, void *) { return true; }
-
-TEST_F(ServerApiResource, SetPropertiesCbs)
-{
-  oc_resource_t r;
-  memset(&r, 0, sizeof(r));
-  int gud = 1, sud = 2;
-  oc_resource_set_properties_cbs(&r, dummy_get_props, &gud, dummy_set_props, &sud);
-  EXPECT_EQ((void *)r.get_properties.cb.get_props, (void *)dummy_get_props);
-  EXPECT_EQ(r.get_properties.user_data, &gud);
-  EXPECT_EQ((void *)r.set_properties.cb.set_props, (void *)dummy_set_props);
-  EXPECT_EQ(r.set_properties.user_data, &sud);
-}
-
 TEST_F(ServerApiResource, BindDpt)
 {
   oc_resource_t r;
@@ -602,13 +601,10 @@ TEST_F(ServerApiResource, AllConstMutatorsAreNoops)
   oc_resource_bind_resource_type(&r, "type");
   oc_resource_bind_dpt(&r, "dpt");
   oc_resource_bind_content_type(&r, APPLICATION_CBOR, CONTENT_NONE);
-  oc_resource_set_properties_cbs(&r, dummy_get_props, nullptr,
-                                 dummy_set_props, nullptr);
 
   EXPECT_STREQ(oc_string_array_get_item(r.types, 0), "");
   EXPECT_EQ(oc_string_len(r.dpt), 0);
   EXPECT_EQ(r.content_type[0], 0);
-  EXPECT_EQ(r.get_properties.cb.get_props, nullptr);
   oc_free_string_array(&r.types);
 }
 
@@ -618,8 +614,6 @@ TEST_F(ServerApiResource, NullMutatorsAreSafe)
   oc_resource_set_properties(nullptr, (oc_resource_properties_t)0);
   oc_resource_reset_properties(nullptr, (oc_resource_properties_t)0);
   oc_resource_set_functional_block_data(nullptr, 1, 2, 3);
-  oc_resource_set_properties_cbs(nullptr, dummy_get_props, nullptr,
-                                 dummy_set_props, nullptr);
   oc_resource_set_request_handler(nullptr, COAP_GET, nullptr, nullptr,
                                   OC_ACL_NONE, OC_IF_NONE);
   oc_resource_bind_resource_type(nullptr, "type");

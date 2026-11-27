@@ -1,5 +1,5 @@
 /*
- * Unit tests for the buffer-settings API (implemented in api/oc_main.c,
+ * Unit tests for the buffer-settings API (implemented in core/oc_main.c,
  * declared in include/oc_buffer_settings.h).
  *
  * Covers:
@@ -21,7 +21,7 @@
  * Worst-case frame sizing:
  *   The pdu is the hard upper bound for anything received from the bus:
  *   OC_PDU_SIZE (port/oc_connectivity.h) is oc_get_pdu_size() in the UDP-only
- *   build, and oc_allocate_message() (api/oc_buffer.c) mallocs exactly that
+ *   build, and oc_allocate_message() (core/oc_buffer.c) mallocs exactly that
  *   many bytes for message->data. A received OSCORE message must therefore fit
  *   outer CoAP header + options, inner (plaintext) code + options, the
  *   application payload and the AEAD tag. This file measures the outer and
@@ -46,7 +46,7 @@ extern "C" {
 }
 
 /*
-  the default block size the stack initializes oc_blk_size with (api/oc_main.c),
+  the default block size the stack initializes oc_blk_size with (core/oc_main.c),
   floored to a legal RFC 7959 block size (16 << SZX, SZX 0..6) and additionally capped so a serialized
   datagram stays within the RFC 7252 clause 4.6 guidance. Derived independently of oc_main.c so a
   regression there is not mirrored here.
@@ -73,10 +73,10 @@ extern "C" {
 // smallest argument the guard accepts: both CoAP header budgets plus the smallest block (SZX 0)
 #define MINIMUM_PDU_ARG (COAP_HEADER_BUDGET + 16)
 
-// largest argument the guard accepts: the RFC 7252 clause 4.6 message size guidance (see api/oc_main.c)
+// largest argument the guard accepts: the RFC 7252 clause 4.6 message size guidance (see core/oc_main.c)
 #define MAXIMUM_PDU_ARG COAP_MAX_MESSAGE_SIZE
 
-// the block-size ceiling imposed by the RFC 7252 clause 4.6 message size guidance (see api/oc_main.c)
+// the block-size ceiling imposed by the RFC 7252 clause 4.6 message size guidance (see core/oc_main.c)
 #define ON_WIRE_BLOCK_CEILING                                                                                                                          \
   ((COAP_MAX_MESSAGE_SIZE - COAP_HEADER_BUDGET - OSCORE_AEAD_TAG_LEN) >= 1024   ? 1024                                                                 \
    : (COAP_MAX_MESSAGE_SIZE - COAP_HEADER_BUDGET - OSCORE_AEAD_TAG_LEN) >= 512  ? 512                                                                  \
@@ -205,7 +205,7 @@ static size_t worst_case_frame_size(void)
 
 TEST(PduDefaults, DefaultPduReservesTwoCoapHeaders)
 {
-  /* api/oc_main.c: oc_pdu_size = KNX_PAYLOAD_SIZE + COAP_MAX_OUTER_HEADER_SIZE + COAP_MAX_INNER_HEADER_SIZE.
+  /* core/oc_main.c: oc_pdu_size = KNX_PAYLOAD_SIZE + COAP_MAX_OUTER_HEADER_SIZE + COAP_MAX_INNER_HEADER_SIZE.
    * One budget for the outer message, one for the inner plaintext. */
   EXPECT_EQ(g_default_pdu, (uint32_t)(KNX_PAYLOAD_SIZE + COAP_HEADER_BUDGET));
 }
@@ -239,7 +239,7 @@ TEST(PduDefaults, DefaultBlockSizeIsAnEncodableRfc7959Size)
 TEST(PduDefaults, DefaultBlockSizeMatchesWhatSetPduSizeWouldDerive)
 {
   /*
-    the comment above the static initializers in api/oc_main.c claims the defaults are the
+    the comment above the static initializers in core/oc_main.c claims the defaults are the
     "same as oc_set_pdu_size() would calculate" - pin that claim, it silently broke for
     non power of two KNX_PAYLOAD_SIZE values before the initializer floored to a legal size
   */
@@ -448,7 +448,7 @@ TEST(PduWorstCaseFrame, MinimumAcceptedPduYieldsMinimumBlockSize)
 TEST(PduWorstCaseFrame, GuardAndBlockBudgetUseSameHeaderMultiple)
 {
   /*
-    api/oc_main.c must use the same header budget in the guard and in the block budget
+    core/oc_main.c must use the same header budget in the guard and in the block budget
     subtraction. Changing only one of the two breaks exactly one of the expectations below.
   */
   ASSERT_EQ(oc_set_pdu_size(MINIMUM_PDU_ARG), 0);

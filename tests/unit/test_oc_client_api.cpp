@@ -1,5 +1,5 @@
 /*
- * Unit tests for the client-side API helpers (api/oc_client_api.c).
+ * Unit tests for the client-side API helpers (resources/ri/oc_client_api.c).
  *
  * Covers the unit-testable, pure helpers:
  *   oc_lf_number_of_entries  — count RFC-6690 link-format records in a payload

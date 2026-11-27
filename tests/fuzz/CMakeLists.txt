@@ -34,34 +34,63 @@ set(KIS_FUZZ_TARGETS
     fuzz_oc_rep
     fuzz_query_string
     fuzz_blockwise_reassembly
-    fuzz_hex_and_base64
-    fuzz_timestamp
-    fuzz_endpoint_string_parse
-    fuzz_swu_query_params
-    fuzz_group_object_table
     fuzz_oscore_context_lookup
-    fuzz_discovery_filter
     fuzz_spake2plus_wire
-    fuzz_uuid_parse
-    fuzz_oscore_full_decrypt
     fuzz_replay_window
     fuzz_oscore_aad_nonce
     fuzz_oscore_echo_tx
     fuzz_core_res_wildcard
-    fuzz_at_x_get_query
-    fuzz_spake2plus_initiator
     fuzz_knx_lsm_post
-    fuzz_auth_at_post
+    fuzz_spake_post
+    fuzz_coap_inbound
+    fuzz_knx_k_post
+    fuzz_fp_table_post
+    fuzz_auth_handlers
+    fuzz_dev_put
+    fuzz_observe_register
+    fuzz_publisher
+    fuzz_storage_load
+    fuzz_swu_handlers
+    fuzz_oscore_inbound
+)
+
+# Harnesses on a fully initialised stack (fuzz_stack.h): no sockets, no mDNS,
+# outbound messages dropped, storage kept in RAM.
+set(KIS_FUZZ_STACK_TARGETS
+    fuzz_knx_lsm_post
+    fuzz_spake_post
+    fuzz_coap_inbound
+    fuzz_knx_k_post
+    fuzz_fp_table_post
+    fuzz_auth_handlers
+    fuzz_dev_put
+    fuzz_observe_register
+    fuzz_storage_load
+    fuzz_swu_handlers
+    fuzz_oscore_inbound
+)
+set(KIS_FUZZ_STACK_WRAPS
+    oc_connectivity_init
+    oc_connectivity_shutdown
+    oc_send_buffer
+    oc_send_discovery_request
+    knx_dns_sd_update_service
+    knx_dns_sd_stop
+    oc_network_refresh_endpoints
+    oc_storage_read
+    oc_storage_write
+    oc_storage_erase
 )
 
 foreach(tgt ${KIS_FUZZ_TARGETS})
     add_executable(${tgt} ${tgt}.c)
 
     target_include_directories(${tgt} PRIVATE
-        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/src
         ${PROJECT_SOURCE_DIR}/include
-        ${PROJECT_SOURCE_DIR}/port
-        ${PROJECT_SOURCE_DIR}/api
+        ${PROJECT_SOURCE_DIR}/src/port
+        ${PROJECT_SOURCE_DIR}/src/resources
+        ${KNX_PRIVATE_INCLUDE_DIRS}
     )
 
     target_link_libraries(${tgt} PRIVATE
@@ -73,13 +102,25 @@ foreach(tgt ${KIS_FUZZ_TARGETS})
     target_link_options(${tgt} PRIVATE -fsanitize=fuzzer)
 endforeach()
 
+foreach(tgt ${KIS_FUZZ_STACK_TARGETS})
+    foreach(sym ${KIS_FUZZ_STACK_WRAPS})
+        target_link_options(${tgt} PRIVATE -Wl,--wrap=${sym})
+    endforeach()
+endforeach()
+# runs the master reset synchronously instead of after 200 ms
+target_link_options(fuzz_dev_put PRIVATE -Wl,--wrap=oc_set_delayed_callback_ms)
+# clock advance and allocation failure driven by the input
+target_link_options(fuzz_observe_register PRIVATE
+    -Wl,--wrap=oc_clock_time -Wl,--wrap=malloc -Wl,--wrap=calloc
+    -Wl,--wrap=psa_generate_random)
+
 # The mDNS parser is header-only and has no dependency on the stack libraries.
 # POSIX sockets only — the harness drives mdns_socket_listen() over loopback.
 if(UNIX)
     add_executable(fuzz_mdns fuzz_mdns.c)
-    # mdns.h is vendored in port/mdns on this branch (it used to be a
+    # mdns.h is vendored in src/port/mdns on this branch (it used to be a
     # FetchContent dependency); include the vendored directory directly.
-    target_include_directories(fuzz_mdns PRIVATE ${PROJECT_SOURCE_DIR}/port/mdns)
+    target_include_directories(fuzz_mdns PRIVATE ${PROJECT_SOURCE_DIR}/src/port/mdns)
     target_compile_options(fuzz_mdns PRIVATE -fsanitize=fuzzer)
     target_link_options(fuzz_mdns PRIVATE -fsanitize=fuzzer)
     list(APPEND KIS_FUZZ_TARGETS fuzz_mdns)
@@ -92,12 +133,43 @@ endif()
 set(KIS_FUZZ_ARTIFACT_DIR ${CMAKE_CURRENT_BINARY_DIR}/artifacts)
 file(MAKE_DIRECTORY ${KIS_FUZZ_ARTIFACT_DIR})
 
+# Dictionaries are copied as dict/<corpus>.dict, the name the CI mutation loops look for.
+set(KIS_FUZZ_KNX_DICT_TARGETS
+    fuzz_coap_parse
+    fuzz_oc_rep
+    fuzz_query_string
+    fuzz_core_res_wildcard
+    fuzz_knx_lsm_post
+    fuzz_spake_post
+    fuzz_coap_inbound
+    fuzz_knx_k_post
+    fuzz_fp_table_post
+    fuzz_auth_handlers
+    fuzz_dev_put
+    fuzz_observe_register
+    fuzz_storage_load
+    fuzz_swu_handlers
+    fuzz_oscore_inbound
+)
+
 foreach(tgt ${KIS_FUZZ_TARGETS})
     string(REPLACE "fuzz_" "" corpus_name ${tgt})
+    set(dict_source "")
+    if(tgt IN_LIST KIS_FUZZ_KNX_DICT_TARGETS)
+        set(dict_source ${CMAKE_CURRENT_SOURCE_DIR}/dict/knx.dict)
+    elseif(tgt STREQUAL "fuzz_mdns")
+        set(dict_source ${CMAKE_CURRENT_SOURCE_DIR}/dict/mdns.dict)
+    endif()
+    set(dict_arg "")
+    if(dict_source)
+        set(dict_file ${CMAKE_CURRENT_BINARY_DIR}/dict/${corpus_name}.dict)
+        configure_file(${dict_source} ${dict_file} COPYONLY)
+        set(dict_arg -dict=${dict_file})
+    endif()
     add_dependencies(${tgt} fuzz_corpus)
     add_test(NAME ${tgt}_seed
              COMMAND ${tgt} ${KIS_FUZZ_CORPUS_DIR}/${corpus_name}
-                     -runs=0 -timeout=10 -rss_limit_mb=2048
+                     -runs=0 -timeout=10 -rss_limit_mb=2048 ${dict_arg}
                      -artifact_prefix=${KIS_FUZZ_ARTIFACT_DIR}/${tgt}-)
     set_tests_properties(${tgt}_seed PROPERTIES LABELS fuzz)
 endforeach()

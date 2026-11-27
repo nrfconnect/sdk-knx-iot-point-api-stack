@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_endpoint.c — pure functions only
+ * Unit tests for core/oc_endpoint.c — pure functions only
  *
  * Covers: oc_endpoint_compare, oc_endpoint_compare_address,
  *         oc_endpoint_copy, oc_ipv6_endpoint_is_link_local,

@@ -1,0 +1,1991 @@
+/*
+ * Copyright (c) 2016 Intel Corporation
+ * Copyright (c) 2021 Cascoda Ltd
+ * Copyright (c) 2024-2026 KNX Association
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * This file was created with the assistance of AI tools.
+ * Copyright 2026 KNXA (to the extent protectable under applicable law)
+ */
+
+#include <stdlib.h>
+#include <string.h>
+#ifndef _MSC_VER
+#include <strings.h>         /* strncasecmp */
+#endif
+#include "messaging/coap/constants.h"
+#include "messaging/coap/engine.h"
+#include "messaging/coap/observe.h"
+#include "oc_ri.h"
+#include "util/oc_etimer.h"
+#include "util/oc_list.h"
+#include "util/oc_process.h"
+
+#include "oc_api.h"
+#include "oc_buffer.h"
+#include "oc_core_res.h"
+#include "oc_events.h"
+#include "oc_knx_sec_internal.h"
+#include "oc_main.h"
+#include "oc_network_events.h"
+#include "oc_ri_internal.h"
+#include "port/oc_random.h"
+#include "resources/knx/oc_knx_observe.h"
+
+#include "oc_blockwise.h"
+
+#include "security/oc_oscore.h"
+
+#ifdef OC_SERVER
+OC_LIST(app_resources);                // list root node for application endpoint resources (not stack), used e.g. for datapoints with /p/lsab/...
+OC_LIST(observe_callbacks);            // list root node for callback handlers
+
+static void remove_periodic_observe_callback(const oc_resource_t* resource);
+#endif
+
+#ifdef OC_CLIENT
+#include "oc_client_state.h"
+OC_LIST(client_cbs);
+#endif
+
+OC_LIST(timed_callbacks);
+
+OC_PROCESS(timed_callback_events, "OC timed callbacks");
+
+static int oc_coap_status_codes[NUMBER_OF_OC_STATUS_CODES] =
+{
+  CONTENT_2_05,                        // mapped from OC_STATUS_OK
+  CREATED_2_01,                        // mapped from OC_STATUS_CREATED
+  CHANGED_2_04,                        // mapped from OC_STATUS_CHANGED
+  DELETED_2_02,                        // mapped from OC_STATUS_DELETED
+  VALID_2_03,                          // mapped from OC_STATUS_NOT_MODIFIED
+  BAD_REQUEST_4_00,                    // mapped from OC_STATUS_BAD_REQUEST
+  UNAUTHORIZED_4_01,                   // mapped from OC_STATUS_UNAUTHORIZED
+  BAD_OPTION_4_02,                     // mapped from OC_STATUS_BAD_OPTION
+  FORBIDDEN_4_03,                      // mapped from OC_STATUS_FORBIDDEN
+  NOT_FOUND_4_04,                      // mapped from OC_STATUS_NOT_FOUND
+  METHOD_NOT_ALLOWED_4_05,             // mapped from OC_STATUS_METHOD_NOT_ALLOWED
+  NOT_ACCEPTABLE_4_06,                 // mapped from OC_STATUS_NOT_ACCEPTABLE
+  REQUEST_ENTITY_TOO_LARGE_4_13,       // mapped from OC_STATUS_REQUEST_ENTITY_TOO_LARGE
+  UNSUPPORTED_MEDIA_TYPE_4_15,         // mapped from OC_STATUS_UNSUPPORTED_MEDIA_TYPE
+  INTERNAL_SERVER_ERROR_5_00,          // mapped from OC_STATUS_INTERNAL_SERVER_ERROR
+  NOT_IMPLEMENTED_5_01,                // mapped from OC_STATUS_NOT_IMPLEMENTED
+  BAD_GATEWAY_5_02,                    // mapped from OC_STATUS_BAD_GATEWAY
+  SERVICE_UNAVAILABLE_5_03,            // mapped from OC_STATUS_SERVICE_UNAVAILABLE
+  GATEWAY_TIMEOUT_5_04,                // mapped from OC_STATUS_GATEWAY_TIMEOUT
+  PROXYING_NOT_SUPPORTED_5_05          // mapped from OC_STATUS_PROXYING_NOT_SUPPORTED
+};
+
+oc_process_event_t oc_events[NUM_OC_EVENT_TYPES];
+
+static const char* scope_string_name[NUM_ACL_SCOPES] =
+{
+  // starts with OC_ACL_NONE, names are shared between scopes and interfaces AND MUST be in the same order
+  "",
+  "if.i",
+  "if.o",
+  "if.g.s",
+  "if.c",
+  "if.p",
+  "if.d",
+  "if.a",
+  "if.s",
+  "",
+  "",
+  "if.sec",
+  "if.swu",
+  "",
+  "",
+  "<ga>"
+};
+
+static const char* interface_string_short_urn[NUM_INTERFACES] =
+{
+  // starts with OC_IF_NONE, urns are shared between scopes and interfaces AND MUST be in the same order
+  "",
+  ":if.i",
+  ":if.o",
+  ":if.g.s",
+  ":if.c",
+  ":if.p",
+  ":if.d",
+  ":if.a",
+  ":if.s",
+  ":if.ll",
+  ":if.b",
+  ":if.sec",
+  ":if.swu",
+  ":if.pm",
+  ":if.m.x"
+};
+
+static const char* interface_string_full_urn[NUM_INTERFACES] =
+{
+  // starts with OC_IF_NONE, urns are shared between scopes and interfaces AND MUST be in the same order
+  "",
+  "urn:knx:if.i",
+  "urn:knx:if.o",
+  "urn:knx:if.g.s",
+  "urn:knx:if.c",
+  "urn:knx:if.p",
+  "urn:knx:if.d",
+  "urn:knx:if.a",
+  "urn:knx:if.s",
+  "urn:knx:if.ll",
+  "urn:knx:if.b",
+  "urn:knx:if.sec",
+  "urn:knx:if.swu",
+  "urn:knx:if.pm",
+  "urn:knx:if.m.x"
+};
+
+const char* get_interface_string_full_urn(int index)
+{
+  /*
+    32-bit if.swu = 0b00000000 00000000 00010000 00000000 = bit 12
+    32-bit if.i   = 0b00000000 00000000 00000000 00000010 = bit 2
+    32-bit if.none= 0b00000000 00000000 00000000 00000000 = 0
+  */
+
+  return interface_string_full_urn[index];
+}
+
+oc_status_t get_oc_status_code_from_coap_code(const int coap_code)
+{
+  for (oc_status_t i = OC_STATUS_OK; i < NUMBER_OF_OC_STATUS_CODES; i++)
+  {
+    // number 0...n (19) of array is needed, not the actual coap code
+    if (oc_coap_status_codes[i] == coap_code)
+    {
+      return i;
+    }
+  }
+
+  // fallback if not found
+  return OC_IGNORE;
+}
+
+unsigned int oc_count_total_scopes_in_mask(oc_acl_mask_t scopes)
+{
+  unsigned int total_masks = 0;
+  unsigned int mask = (unsigned int)scopes;
+
+  while (mask)
+  {
+    total_masks += mask & 1;  // add the LSB (=0/1)
+    mask >>= 1;               // right shift
+  }
+
+  return total_masks;
+}
+
+unsigned int oc_count_total_interfaces_in_mask(oc_interface_mask_t interfaces)
+{
+  unsigned int total_masks = 0;
+  unsigned int mask = (unsigned int)interfaces;
+
+  while (mask)
+  {
+    total_masks += mask & 1;  // add the LSB (=0/1)
+    mask >>= 1;               // right shift
+  }
+
+  return total_masks;
+}
+
+void oc_put_all_access_scope_names_from_a_mask_in_string_array(oc_acl_mask_t scopes, oc_string_array_t scopes_array)
+{
+  /*
+    32-bit if.swu = 0b00000000 00000000 00010000 00000000 = bit 12
+    32-bit if.i   = 0b00000000 00000000 00000000 00000010 = bit 2
+    32-bit if.none= 0b00000000 00000000 00000000 00000000 = 0
+  */
+
+  unsigned int mask = (unsigned int)scopes;
+  for (int i = 0; i <= MAX_ACL_SCOPE_BIT; i++, mask >>= 1)
+  {
+    if (mask & 1)
+    {
+      // returning the pure scope type names
+      oc_string_array_add_item(scopes_array, scope_string_name[i]);
+    }
+  }
+}
+
+void oc_put_all_interface_short_urns_from_a_mask_in_string_array(oc_interface_mask_t interfaces, oc_string_array_t scopes_array)
+{
+  /*
+    32-bit if.swu = 0b00000000 00000000 00010000 00000000 = bit 12
+    32-bit if.i   = 0b00000000 00000000 00000000 00000010 = bit 2
+    32-bit if.none= 0b00000000 00000000 00000000 00000000 = 0
+  */
+
+  unsigned int mask = (unsigned int)interfaces;
+  for (int i = 0; i <= MAX_INTERFACE_BIT; i++, mask >>= 1)
+  {
+    if (mask & 1)
+    {
+      // returning the pure interface type names, not the short URN format
+      oc_string_array_add_item(scopes_array, interface_string_short_urn[i]);
+    }
+  }
+}
+
+int oc_frame_interfaces_mask_in_response(oc_interface_mask_t interfaces, bool truncate)
+{
+  /*
+    32-bit if.swu = 0b00000000 00000000 00010000 00000000 = bit 12
+    32-bit if.i   = 0b00000000 00000000 00000000 00000010 = bit 2
+    32-bit if.none= 0b00000000 00000000 00000000 00000000 = 0
+  */
+
+  // used to check if something was framed
+  int total_size = 0;
+  size_t n;
+
+  for (int i = 0; i <= MAX_INTERFACE_BIT; i++, interfaces >>= 1)
+  {
+    if (interfaces & 1)
+    {
+      if (total_size > 0)
+      {
+        // if not the first one, add a space before the next ...
+        oc_rep_encode_raw((uint8_t*)" ", 1);
+        total_size++;
+      }
+
+      if (truncate)
+      {
+        // returning the short interface type names
+        n = strlen(interface_string_short_urn[i]);
+        oc_rep_encode_raw((const uint8_t*)interface_string_short_urn[i], n);
+      }
+      else
+      {
+        // returning the full interface type names
+        n = strlen(interface_string_full_urn[i]);
+        oc_rep_encode_raw((const uint8_t*)interface_string_full_urn[i], n);
+      }
+
+      total_size += (int)n;
+    }
+  }
+
+  return total_size;
+}
+
+oc_acl_mask_t oc_ri_get_scope_mask(const char* acl_scope_name, size_t acl_scope_name_len)
+{
+  /*
+    32-bit if.swu = 0b00000000 00000000 00010000 00000000 = bit 12
+    32-bit if.i   = 0b00000000 00000000 00000000 00000010 = bit 2
+    32-bit if.none= 0b00000000 00000000 00000000 00000000 = 0
+  */
+
+  /*
+    get name from FULL array, index 0 (OC_ACL_NONE) and the gaps (interfaces that are not a scope, such as
+    if.ll) hold an empty name and must never match, otherwise an empty input name would return an undefined
+    scope bit instead of OC_ACL_NONE
+  */
+  for (int i = 1; i <= MAX_ACL_SCOPE_BIT; i++)
+  {
+    // scope = if.i; i = 1; 1 << 1 = 2 -- scope = if.swu; i = 11; 1 << 11 = 4096
+
+    const char* n = scope_string_name[i];
+    const size_t n_len = strlen(n);
+
+    if (n_len > 0 && acl_scope_name_len == n_len && strncmp(acl_scope_name, n, acl_scope_name_len) == 0)
+    {
+      // on a hit return immediately
+      return (oc_acl_mask_t)(1 << i);
+    }
+  }
+
+  return OC_ACL_NONE;
+}
+
+void oc_print_acl_scopes(oc_acl_mask_t scope)
+{
+  #ifdef OC_PRINT
+  for (unsigned int i = 0; i <= MAX_ACL_SCOPE_BIT; i++, scope >>= 1)
+  {
+    if (scope & 1)
+    {
+      PRINTF("%s ", scope_string_name[i]);
+    }
+  }
+  #else
+  (void)scope;
+  #endif
+}
+
+void oc_ri_new_request_from_inbound_request(oc_request_t* new_request,
+                                            const oc_request_t* inbound_request,
+                                            oc_response_buffer_t* response_buffer,
+                                            oc_response_t* response_obj)
+{
+  // shallow copy inbound request content to new request content
+  memcpy(new_request, inbound_request, sizeof(oc_request_t));
+
+  // init response buffer, buffer + size are 'taken over' from inbound request (same buffer is used as allocated for org. request)
+  response_buffer->buffer = new_request->response->response_buffer->buffer;
+  response_buffer->buffer_size = new_request->response->response_buffer->buffer_size;
+
+  // init response object (sets all data)
+  response_obj->separate_response = NULL;
+  response_obj->response_buffer = response_buffer;
+
+  // link new response object
+  new_request->response = response_obj;
+}
+
+#ifdef OC_SERVER
+oc_resource_t* oc_ri_get_app_resources(void)
+{
+  return (oc_resource_t*)oc_list_head(app_resources);
+}
+
+const oc_resource_t* oc_ri_get_app_resource_by_resource_path(const char* resource_path, size_t resource_path_len)
+{
+  if (!resource_path || resource_path_len == 0)
+  {
+    return NULL;
+  }
+
+  // to distinguish /p/x or p/x; tolerate a product application resource definition of 'href' w/wo a '/'
+  const int skip = resource_path[0] != '/' ? 1 : 0;
+
+  // never NULL, except no application resources at all
+  const oc_resource_t* res = oc_ri_get_app_resources();
+  while (res)
+  {
+    if (oc_string_len(res->uri) == resource_path_len + skip &&
+      strncmp(resource_path, oc_string(res->uri) + skip, resource_path_len) == 0)
+    {
+      return res;
+    }
+
+    res = res->next;
+  }
+
+  // here res is NULL
+  return NULL;
+}
+
+// deletes all application resources, used during device shutdown, so no double call of freeing the same resource here
+static void oc_ri_delete_all_application_resources(void)
+{
+  oc_resource_t* res;
+
+  /*
+    runs until list is NULL, which is the end of the list, which means all application resources have been deleted
+    - application resources cant be const
+    - used during device shutdown(so no double call of freeing the same resource here)
+  */
+  while ((res = oc_ri_get_app_resources()))
+  {
+    oc_ri_delete_resource(res);
+  }
+}
+#endif
+
+bool oc_accept_header_is_ok(const oc_request_t* request, oc_content_format_t accept)
+{
+  if (request && (request->accept == accept || request->accept == CONTENT_NONE))
+  {
+    // CONTENT_NONE, see header note
+    return true;
+  }
+
+  // prepare response as bad request (request NULL is checked inside ...)
+  oc_prepare_no_format_response_no_payload(request, OC_STATUS_BAD_REQUEST);
+  return false;
+}
+
+int oc_status_code(oc_status_t key)
+{
+  return oc_coap_status_codes[key];
+}
+
+int oc_ri_get_query_nth_key_value(const char* query, size_t query_len, const char** key, size_t* key_len, const char** value, size_t* value_len, size_t n)
+{
+  int next_pos = -1;
+
+  if (query == NULL || query_len == 0 || n == 0)
+  {
+    return -1;
+  }
+
+  // number of scanned independent query fragments with '&'
+  size_t i = 0;
+
+  const char* start = query;
+  const char* end = query + query_len;
+  const char* current = start;
+
+  while (i < n - 1 && current)
+  {
+    current = (char*)memchr(start, '&', end - start);
+    if (current == NULL)
+    {
+      // no n-th query fragment present as part of uri
+      return -1;
+    }
+
+    // next fragment
+    i++;
+    // first char after '&'
+    start = current + 1;
+  }
+
+  // find '=' after the '&'
+  current = (char*)memchr(start, '=', end - start);
+  const char* next_query_fragment = (char*)memchr(start, '&', end - start);
+
+  if (next_query_fragment)
+  {
+    if (next_query_fragment < current)
+    {
+      // the key does not have '='
+      current = NULL;
+    }
+  }
+
+  if (current)
+  {
+    *key_len = current - start;
+    *key = start;
+    *value = current + 1;
+
+    current = (char*)memchr(*value, '&', end - *value);
+
+    if (current == NULL)
+    {
+      // last query fragment does not have a next '&'
+      *value_len = end - *value;
+    }
+    else
+    {
+      *value_len = current - *value;
+    }
+
+    next_pos = (int)(*value + *value_len - query + 1);
+  }
+  else
+  {
+    current = memchr(start, '&', end - start);
+    if (current == NULL)
+    {
+      current = end;
+      *key_len = 0;
+    }
+    else
+    {
+      // there is no value
+      *key = start;
+      *key_len = current - start;
+    }
+  }
+
+  return next_pos;
+}
+
+int oc_ri_get_query_value(const char* query, size_t query_len, const char* key, const char** value)
+{
+  int next_pos = 0, found = -1;
+  size_t kl, vl, pos = 0;
+  const char* k;
+
+  while (pos < query_len)
+  {
+    next_pos = oc_ri_get_query_nth_key_value(query + pos, query_len - pos, &k, &kl, value, &vl, 1u);
+    if (next_pos == -1)
+    {
+      return -1;
+    }
+
+    if (kl == strlen(key) && strncasecmp(key, k, kl) == 0)
+    {
+      found = (int)vl;
+      break;
+    }
+
+    pos += next_pos;
+  }
+
+  return found;
+}
+
+int oc_ri_query_nth_key_exists(const char* query, size_t query_len, const char** key, size_t* key_len, size_t n)
+{
+  int next_pos = -1;
+  size_t i = 0;
+
+  const char *start = query, *end = query + query_len;
+  const char* current = start;
+
+  while (i < n - 1 && current)
+  {
+    // loop until requested n-th key by search for '&'
+    current = (char*)memchr(start, '&', end - start);
+    if (!current)
+    {
+      return -1;
+    }
+
+    i++;
+    start = current + 1;
+  }
+
+  // find key value separator '='
+  current = (char*)memchr(start, '=', end - start);
+
+  const char* current2 = (char*)memchr(start, '&', end - start);
+
+  if (current2)
+  {
+    if (current2 < current)
+    {
+      // the key does not have a '='
+      current = NULL;
+    }
+  }
+
+  if (current)
+  {
+    // there is a value
+    size_t value_len;
+
+    *key_len = current - start;
+    *key = start;
+
+    const char* value = current + 1;
+    current = (char*)memchr(value, '&', end - value);
+
+    if (current == NULL)
+    {
+      value_len = (end - value);
+    }
+    else
+    {
+      value_len = current - value;
+    }
+
+    next_pos = (int)(value + value_len - query + 1);
+  }
+  else
+  {
+    current = (char*)memchr(start, '&', end - start);
+    if (current == NULL)
+    {
+      current = end;
+    }
+
+    // there is no value
+    *key = start;
+    *key_len = current - start;
+    next_pos = (int)(*key_len + 1);
+  }
+
+  return next_pos;
+}
+
+int oc_ri_query_exists(const char* query, size_t query_len, const char* key)
+{
+  int next_pos = 0, found = -1;
+  size_t kl, pos = 0;
+  const char* k;
+
+  while (pos < query_len)
+  {
+    next_pos = oc_ri_query_nth_key_exists(query + pos, query_len - pos, &k, &kl, 1u);
+    if (next_pos == -1)
+    {
+      return -1;
+    }
+
+    if (kl == strlen(key) && strncasecmp(key, k, kl) == 0)
+    {
+      found = 1;
+      break;
+    }
+
+    if (next_pos == 0)
+    {
+      return -1;
+    }
+
+    pos += next_pos;
+  }
+
+  return found;
+}
+
+void allocate_events(void)
+{
+  for (int i = 0; i < NUM_OC_EVENT_TYPES; i++)
+  {
+    oc_events[i] = oc_process_alloc_event();
+  }
+}
+
+static void start_processes(void)
+{
+  allocate_events();
+  oc_process_start(&oc_etimer_process, NULL);
+  oc_process_start(&timed_callback_events, NULL);
+  oc_process_start(&coap_engine, NULL);
+  oc_process_start(&message_buffer_handler, NULL);
+
+  oc_process_start(&oc_oscore_handler, NULL);
+
+  oc_process_start(&oc_network_events, NULL);
+}
+
+static void stop_processes(void)
+{
+  oc_process_exit(&oc_network_events);
+  oc_process_exit(&oc_etimer_process);
+  oc_process_exit(&timed_callback_events);
+  oc_process_exit(&coap_engine);
+  oc_process_exit(&oc_oscore_handler);
+  oc_process_exit(&message_buffer_handler);
+}
+
+void oc_ri_init(void)
+{
+  oc_random_init();
+  oc_clock_init();
+
+  #ifdef OC_SERVER
+  oc_list_init(app_resources);
+  oc_list_init(observe_callbacks);
+  #endif
+
+  #ifdef OC_CLIENT
+  oc_list_init(client_cbs);
+  #endif
+
+  oc_list_init(timed_callbacks);
+
+  oc_process_init();
+  start_processes();
+}
+
+#ifdef OC_SERVER
+oc_resource_t* oc_ri_alloc_resource(void)
+{
+  return calloc(1, sizeof(oc_resource_t));
+}
+
+oc_resource_data_t* oc_ri_alloc_resource_data(void)
+{
+  return calloc(1, sizeof(oc_resource_data_t));
+}
+
+/**
+  Removes a resource from the list and deletes the resource (deallocation).
+
+  @param[in] resource the resource to delete
+
+  @note 
+  - Any resource observers will automatically be removed.
+  - The memory associated with the resource will be freed.
+  - The list of resources will be updated to reflect the deletion.
+  
+  @return
+   - true: when the resource has been deleted and memory freed.
+   - false: there was an issue deleting the resource.
+*/
+bool oc_ri_delete_resource(oc_resource_t* resource)
+{
+  if (!resource)
+  {
+    return false;
+  }
+
+  if (resource->is_const)
+  {
+    OC_ERR("oc_ri_delete_resource: resource is const!");
+    return false;
+  }
+
+  oc_list_remove(app_resources, resource);
+
+  /*
+     Here wa are on a (dynamically allocated) application resource, frees in one go at the end
+     of device SHUT DOWN (so no double call of freeing the same resource here)
+
+     - properties (static)
+       In 'oc_resource_set_properties' method simply assigned.
+
+     - handler (static)
+       In 'oc_resource_set_request_handler' method simply assigned.
+
+     - uri (static)
+       In 'oc_new_resource' method simply assigned by adding the (handed over) pointer to
+       the oc_string.ptr, hence the actual (handed over) resource MUST be already present.
+       No need to free it with oc_free_string(&(resource->uri)) -> The application caller must do that if it was
+       heap allocated.
+
+     Must be deallocated in stack code (see below).
+     - runtime_data (allocated)
+     - DPA types (allocated)
+     - DPT types (allocated)
+
+   */
+
+  // present observers must be removed first
+  if (resource->runtime_data && resource->runtime_data->num_observers > 0)
+  {
+    coap_remove_observer_by_resource(resource);
+  }
+
+  // the periodic observe callback holds the resource as its data -> it must not fire on the freed resource
+  remove_periodic_observe_callback(resource);
+
+  // dpa types (allocated), can handle NULL
+  oc_free_string_array(&resource->types);
+
+  // dpt types (allocated), can handle NULL
+  oc_free_string(&resource->dpt);
+  
+  // runtime_data (allocated), can handle NULL
+  free(resource->runtime_data);
+
+  // free resource as such, can handle NULL 
+  free(resource);
+
+  return true;
+}
+
+bool oc_ri_add_resource(oc_resource_t* resource)
+{
+  if (!resource)
+  {
+    return false;
+  }
+
+  if (resource->is_const)
+  {
+    OC_ERR("oc_ri_add_resource: resource is const!");
+    return false;
+  }
+
+  bool valid = true;
+
+  if (!resource->get_handler.cb && !resource->put_handler.cb && !resource->post_handler.cb && !resource->delete_handler.cb)
+  {
+    // there must at least one method, short circuit check
+    valid = false;
+  }
+
+  if (resource->properties & OC_PERIODIC && resource->observe_period_seconds == 0)
+  {
+    valid = false;
+  }
+
+  /*
+    the interface mask is stored per method handler, so the point identity is the union of all handlers,
+    only handlers with a callback are considered, a mask without a callback is not an exposed interface
+  */
+  oc_interface_mask_t resource_interfaces = OC_IF_NONE;
+
+  resource_interfaces |= resource->get_handler.cb    ? resource->get_handler.interface_mask    : OC_IF_NONE;
+  resource_interfaces |= resource->put_handler.cb    ? resource->put_handler.interface_mask    : OC_IF_NONE;
+  resource_interfaces |= resource->post_handler.cb   ? resource->post_handler.interface_mask   : OC_IF_NONE;
+  resource_interfaces |= resource->delete_handler.cb ? resource->delete_handler.interface_mask : OC_IF_NONE;
+
+  // a point is either a logical input or a logical output, never both (see 2.5.3.5 / 2.5.3.6)
+  if (resource_interfaces & OC_IF_I && resource_interfaces & OC_IF_O)
+  {
+    OC_ERR("resource '%s' declares both if.i and if.o, this is not allowed", oc_string_checked(resource->uri));
+    valid = false;
+  }
+
+  if (valid)
+  {
+    oc_list_add(app_resources, resource);
+  }
+
+  return valid;
+}
+
+#endif
+
+/*
+  The timed event callback that poll_event_callback_timers() runs at the moment, NULL between runs.
+
+  A callback may remove its own entry while it runs, directly or through a function it calls, to
+  cancel itself or to arm itself again with another delay. oc_ri_remove_timed_event_callback() then
+  takes the entry out of the list at once and leaves the free to poll_event_callback_timers(), which
+  still uses the entry after the callback has returned.
+*/
+
+void oc_ri_remove_timed_event_callback(void* cb_data, oc_trigger_t event_callback)
+{
+  oc_event_callback_t* event_cb = (oc_event_callback_t*)oc_list_head(timed_callbacks);
+
+  while (event_cb)
+  {
+    if (event_cb->data == cb_data && event_cb->callback == event_callback)
+    {
+      OC_PROCESS_CONTEXT_BEGIN(&timed_callback_events);
+      oc_etimer_stop(&event_cb->timer);
+      OC_PROCESS_CONTEXT_END(&timed_callback_events);
+      oc_list_remove(timed_callbacks, event_cb);
+
+      /*
+        toggle: callback_active is true only while the entry's own callback executes (set by the poll loop)
+        - now true  -> 0 xor 1 = 1, callback NOT running, free here
+        - now false -> 1 xor 1 = 0, callback IS running, frees NOT here
+      */
+      event_cb->callback_active ^= true;
+
+      if (event_cb->callback_active)
+      {
+        free(event_cb);
+      }
+      break;
+    }
+
+    event_cb = event_cb->next;
+  }
+}
+
+bool oc_ri_add_timed_event_callback_ticks(void* cb_data, oc_trigger_t event_callback, oc_clock_time_t ticks)
+{
+  oc_event_callback_t* event_cb = calloc(1, sizeof(oc_event_callback_t));
+
+  if (!event_cb)
+  {
+    OC_WRN("insufficient memory to add timed event callback");
+    return false;
+  }
+
+  event_cb->data = cb_data;
+  event_cb->callback = event_callback;
+  OC_PROCESS_CONTEXT_BEGIN(&timed_callback_events);
+  oc_etimer_set(&event_cb->timer, ticks);
+  OC_PROCESS_CONTEXT_END(&timed_callback_events);
+  oc_list_add(timed_callbacks, event_cb);
+
+  /* Wake the event loop so ports that sleep until signaled (e.g. Zephyr)
+   * re-evaluate their next wakeup and service this new timer on time.
+   * Without this, a timed callback scheduled from another context (e.g. a
+   * button press) can be missed until an unrelated event wakes the loop. */
+  _oc_signal_event_loop();
+  return true;
+}
+
+static void poll_event_callback_timers(oc_list_t list)
+{
+  oc_event_callback_t* event_cb = (oc_event_callback_t*)oc_list_head(list);
+
+  while (event_cb)
+  {
+    // tmp copy
+    oc_event_callback_t* next = event_cb->next;
+
+    if (oc_etimer_expired(&event_cb->timer))
+    {
+      /*
+        set true before the callback, toggled after it; a callback may remove itself (same as on remove observe callback)
+        - now false -> 1 xor 1       = 0 -> not removed by the callback -> DONE / CONTINUE below
+        - now true  -> 1 xor 1 xor 1 = 1 -> the callback removed itself (toggled it in between, unlinked, timer stopped) -> free here
+      */
+      event_cb->callback_active = true;
+      const oc_event_callback_retval_t retval = event_cb->callback(event_cb->data);
+      event_cb->callback_active ^= true;
+
+      if (event_cb->callback_active)
+      {
+        free(event_cb);
+        event_cb = (oc_event_callback_t*)oc_list_head(list);
+        continue;
+      }
+
+      if (retval == OC_EVENT_DONE)
+      {
+        // remove callback
+        oc_list_remove(list, event_cb);
+        free(event_cb);
+        event_cb = (oc_event_callback_t*)oc_list_head(list);
+        continue;
+      }
+
+      // keep callback, restart timer
+      OC_PROCESS_CONTEXT_BEGIN(&timed_callback_events);
+      oc_etimer_restart(&event_cb->timer);
+      OC_PROCESS_CONTEXT_END(&timed_callback_events);
+      event_cb = (oc_event_callback_t*)oc_list_head(list);
+      continue;
+    }
+
+    event_cb = next;
+  }
+}
+
+static void check_event_callbacks(void)
+{
+  #ifdef OC_SERVER
+  poll_event_callback_timers(observe_callbacks);
+  #endif
+  poll_event_callback_timers(timed_callbacks);
+}
+
+#ifdef OC_SERVER
+
+static oc_event_callback_retval_t periodic_observe_handler(void* data)
+{
+  const oc_resource_t* resource = (oc_resource_t*)data;
+
+  if (oc_notify_observers(resource))
+  {
+    return OC_EVENT_CONTINUE;
+  }
+
+  return OC_EVENT_DONE;
+}
+
+static oc_event_callback_t* get_periodic_observe_callback(const oc_resource_t* resource)
+{
+  oc_event_callback_t* event_cb;
+  bool found = false;
+
+  for (event_cb = (oc_event_callback_t*)oc_list_head(observe_callbacks);
+       event_cb; event_cb = event_cb->next)
+  {
+    if (resource == event_cb->data)
+    {
+      found = true;
+      break;
+    }
+  }
+
+  if (found)
+  {
+    return event_cb;
+  }
+
+  return NULL;
+}
+
+static void remove_periodic_observe_callback(const oc_resource_t* resource)
+{
+  oc_event_callback_t* event_cb = get_periodic_observe_callback(resource);
+
+  if (event_cb)
+  {
+    oc_etimer_stop(&event_cb->timer);
+    oc_list_remove(observe_callbacks, event_cb);
+
+    /*
+        set true before the callback, toggled after it; a callback may remove itself (same as on remove event callback)
+        - now false -> 1 xor 1       = 0 -> not removed by the callback -> DONE / CONTINUE below
+        - now true  -> 1 xor 1 xor 1 = 1 -> the callback removed itself (toggled it in between, unlinked, timer stopped) -> free here
+    */
+    event_cb->callback_active ^= true;
+
+    if (event_cb->callback_active)
+    {
+      free(event_cb);
+    }
+  }
+}
+
+static bool add_periodic_observe_callback(const oc_resource_t* resource)
+{
+  oc_event_callback_t* event_cb = get_periodic_observe_callback(resource);
+
+  if (!event_cb)
+  {
+    event_cb = calloc(1, sizeof(oc_event_callback_t));
+
+    if (!event_cb)
+    {
+      OC_WRN("insufficient memory to add periodic observe callback");
+      return false;
+    }
+
+    event_cb->data = (void*)resource;
+    event_cb->callback = periodic_observe_handler;
+    OC_PROCESS_CONTEXT_BEGIN(&timed_callback_events);
+    oc_etimer_set(&event_cb->timer,(uint64_t)resource->observe_period_seconds * OC_CLOCK_SECOND);
+    OC_PROCESS_CONTEXT_END(&timed_callback_events);
+    oc_list_add(observe_callbacks, event_cb);
+  }
+
+  return true;
+}
+#endif
+
+// frees all event timers (observers, timed)
+static void free_all_event_timers(void)
+{
+  #ifdef OC_SERVER
+
+  oc_event_callback_t* obs_cb =(oc_event_callback_t*)oc_list_pop(observe_callbacks);
+  while (obs_cb)
+  {
+    oc_etimer_stop(&obs_cb->timer);
+    oc_list_remove(observe_callbacks, obs_cb);
+    free(obs_cb);
+    obs_cb = (oc_event_callback_t*)oc_list_pop(observe_callbacks);
+  }
+  #endif
+
+  oc_event_callback_t* event_cb =(oc_event_callback_t*)oc_list_pop(timed_callbacks);
+  while (event_cb)
+  {
+    oc_etimer_stop(&event_cb->timer);
+    oc_list_remove(timed_callbacks, event_cb);
+    free(event_cb);
+    event_cb = (oc_event_callback_t*)oc_list_pop(timed_callbacks);
+  }
+}
+
+/*
+  Parses a CBOR (or OSCORE-decrypted CBOR) request payload with tinyCBOR via the oc_rep helper functions into a tree
+  of oc_rep_t nodes (calloc inside oc_parse_rep) reflecting the payload's schema; other content formats are not parsed.
+  A parse failure is an erroneous request (4.00), an unexpected end means the payload was cut (too large, 4.13).
+*/
+static oc_status_t oc_ri_parse_request_payload(const uint8_t* payload, uint32_t payload_len, oc_content_format_t content_format, oc_rep_t** rep)
+{
+  if (content_format != APPLICATION_CBOR && content_format != APPLICATION_OSCORE)
+  {
+    return OC_STATUS_OK;
+  }
+
+  const int parse_error = oc_parse_rep(payload, (int)payload_len, rep);
+  if (parse_error == 0)
+  {
+    return OC_STATUS_OK;
+  }
+
+  OC_WRN("error parsing request payload; tinyCBOR error code:  %d", parse_error);
+  return parse_error == CborErrorUnexpectedEOF ? OC_STATUS_REQUEST_ENTITY_TOO_LARGE : OC_STATUS_BAD_REQUEST;
+}
+
+/*
+  the encoder is shared: a function that encodes into a buffer of its own from inside a handler (table store,
+  s-mode send) hands it back with oc_rep_restore_encoder(); one that does not leaves the response measured
+  against the wrong buffer
+*/
+static void oc_ri_check_encoder_handed_back(const oc_resource_t* resource, const uint8_t* response_buffer)
+{
+  if (oc_rep_get_encoder_buf() != response_buffer)
+  {
+    OC_ERR("encoder left on another buffer by the handler of %s, the response payload is not valid", oc_string(resource->uri));
+  }
+}
+
+bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
+                                      oc_blockwise_state_t** request_state,
+                                      oc_blockwise_state_t** response_state,
+                                      uint16_t block2_size, oc_endpoint_t* endpoint, bool* clear_transaction)
+{
+  /*
+    error response of this request, OC_STATUS_OK = no error so far
+    - stages: resource lookup -> access scope -> payload parse -> response state allocation -> access check -> method handler
+    - the first error wins, every later stage runs only while it is still OC_STATUS_OK
+    -> set once at the end as the response code (4.00, 4.13, 4.04, 4.03, 4.01, 4.05)
+  */
+  oc_status_t error = OC_STATUS_OK;
+
+  // parsed CoAP PDU structure
+  const coap_packet_t* const packet = (coap_packet_t*)request;
+
+  // This function is a server-side entry point solely for requests. Hence, "code" contains the CoAP method code.
+  const coap_method_t method = (coap_method_t)packet->code;
+
+  #ifndef OC_SERVER
+  (void)block2_size;
+  #endif
+
+  // request uri, query (none: NULL/0), Content-Format (default CBOR) and Accept (default none) from the CoAP packet
+  const char* uri_path = NULL;
+  const size_t uri_path_len = coap_get_header_uri_path(request, &uri_path);
+  
+  const char* uri_query = NULL;
+  const size_t uri_query_len = coap_get_header_uri_query(request, &uri_query);
+  
+  oc_content_format_t content_format = APPLICATION_CBOR;
+  coap_get_header_content_format(request, &content_format);
+  
+  oc_content_format_t accept = CONTENT_NONE;
+  coap_get_header_accept(request, &accept);
+
+  // serialized payload: the (block-wise assembled) request state, none without it
+  const uint8_t* const payload = *request_state ? (*request_state)->buffer : NULL;
+  const uint32_t payload_len = *request_state ? (*request_state)->payload_size : 0;
+
+  /*
+    objects handed to the handler, all members not listed are 0
+    - response_buffer: filled by the handler (code, payload); its buffer is assigned once the response state exists
+    - response_obj   : points to the response buffer, gets the separate response handle if the handler defers
+    - new_request    : the handler's view of the request, the matching resource is set by the lookup below
+    - the response state is allocated only after oc_parse_rep() to keep the peak memory low
+  */
+  oc_response_buffer_t response_buffer = {0};
+  oc_response_t response_obj = {.separate_response = NULL, .response_buffer = &response_buffer};
+  oc_request_t new_request =
+  {
+    .origin = endpoint,
+    .query = uri_query_len > 0 ? uri_query : NULL,
+    .query_len = uri_query_len,
+    .uri_path = uri_path,
+    .uri_path_len = uri_path_len,
+    ._payload = payload,
+    ._payload_len = payload_len,
+    .content_format = content_format,
+    .accept = accept,
+    .response = &response_obj,
+    .request_method = method
+  };
+
+  // default, no matching resource found
+  const oc_resource_t* matching_resource = NULL;
+
+  /*
+    Locate the core/application resource first: a request to an unknown path is answered with 4.04
+    without parsing its payload.
+  */
+  if (error == OC_STATUS_OK)
+  {
+    // check all core resources (from 0...n, the registry in oc_core_res.c, a core resource's 'next' stays NULL)
+    for (int i = 0; i < OC_NUM_CORE_RESOURCES; i++)
+    {
+      const oc_resource_t* tmp_core_res = oc_core_get_core_resource_by_index(i);
+      const size_t tmp_core_res_len = oc_string_len(tmp_core_res->uri);
+
+      /*
+        required guard, do not remove: every core resource uri is '/' plus at least one char (see the
+        core resource definitions), a shorter one can not match and is skipped. The matching below
+        depends on it:
+        - length 0 or 1: 'tmp_core_res_len - 2' wraps to a huge strncmp bound
+        - length 0: 'uri[tmp_core_res_len - 1]' reads in front of the string, and the exact match
+          'uri_path_len + 1 == 0' needs uri_path_len == SIZE_MAX (strncmp bound SIZE_MAX)
+        The compiler can not see the invariant: without this guard gcc 14 -O3 (MinGW cross build)
+        stops with -Werror=stringop-overread on both strncmp calls.
+      */
+      if (tmp_core_res_len < 2)
+      {
+        continue;
+      }
+
+      /*
+        incoming URL fits to a core resource by len and content, such as:
+        request  : uri_path = '.well-known/core'  without '/' (uri path len = 16, no string end char)
+        resource : res path = '/.well-known/core' with '/' (string size = 18, res path len = 17)
+        see core resource definitions!
+      */
+
+      // exact match, same length: 'dev/sn' + 1 == '/dev/sn' -> 7 == 7
+      if (uri_path_len + 1 == tmp_core_res_len &&
+        // start compare from 'dev/sn' (omit '/') with 'dev/sn' by compare len of 'dev/sn' = 6
+        strncmp((const char*)oc_string(tmp_core_res->uri) + 1, uri_path, uri_path_len) == 0)
+      {
+        // update request (with matching resource)
+        new_request.resource = matching_resource = tmp_core_res;
+        break;
+      }
+
+      /*
+        wildcard resource ('*' as last char): incoming URL should be equal or larger than the one with the wildcard,
+        comparison should match to what ever is in front of the last char
+        request  : uri_path = 'fp/r/25'  without '/' (uri path len = 7, no string end char)
+        resource : res path = '/fp/r/\*' with '/' (string size = 8, res path len = 7)
+        see core resource definitions!
+        - the cheap length check first: most resources are skipped without reading their uri
+        - the last char is read with the known length (>= 1: every core resource is defined in code with a uri starting with '/')
+      */
+      if (uri_path_len + 1 >= tmp_core_res_len &&
+        // need at least one identifier after, 'fp/r/2' + 1 >= '/fp/r/*' -> 7 >= 7
+        oc_string(tmp_core_res->uri)[tmp_core_res_len - 1] == '*' &&
+        // start compare from 'fp/r/*' (omit '/') with 'fp/r/2' by compare only len of 'fp/r/' = 5 (with the '/', 'fp/rx' does not match)
+        strncmp((const char*)oc_string(tmp_core_res->uri) + 1, uri_path, tmp_core_res_len - 2) == 0)
+      {
+        // found core resource, update request (with matching resource)
+        new_request.resource = matching_resource = tmp_core_res;
+        break;
+      }
+    }
+
+    #ifdef OC_SERVER
+    if (!matching_resource)
+    {
+      // no hit to core resource, check all application resources
+      new_request.resource = matching_resource = oc_ri_get_app_resource_by_resource_path(uri_path, uri_path_len);
+    }
+    #endif
+
+    if (!matching_resource)
+    {
+      OC_WRN("could not find resource in core and application");
+      error = OC_STATUS_NOT_FOUND;
+    }
+  }
+
+  /*
+    Scope check without the payload: a request without access is answered 4.01/4.03/4.05 without parsing its
+    payload. The payload-dependent part (group addresses of a <ga> token) follows in oc_knx_sec_check_acl().
+  */
+  if (error == OC_STATUS_OK)
+  {
+    error = oc_knx_sec_check_acl_scope(method, matching_resource, endpoint);
+  }
+
+  if (error == OC_STATUS_OK && payload_len > 0)
+  {
+    error = oc_ri_parse_request_payload(payload, payload_len, content_format, &new_request.request_payload);
+  }
+
+  // alloc response_state, it also affects response_buffer (OC_STATUS_OK here: a resource was found)
+  if (error == OC_STATUS_OK)
+  {
+    // either core/application resource was found
+    if (!*response_state)
+    {
+      OC_DBG("creating new block-wise response state");
+
+      // the Content-Format of the buffer is set after the handler ran, from the format the handler set (see below)
+      *response_state = oc_blockwise_alloc_response_buffer(uri_path, uri_path_len, endpoint, method, OC_BLOCKWISE_SERVER,
+                                                           CONTENT_NONE);
+
+      if (!*response_state)
+      {
+        OC_ERR("failure to alloc response state");
+        error = OC_STATUS_BAD_REQUEST;
+      }
+      else
+      {
+        if (uri_query_len > 0)
+        {
+          oc_new_string(&(*response_state)->uri_query, uri_query, uri_query_len);
+        }
+
+        // here the response buffer is assigned
+        response_buffer.buffer = (*response_state)->buffer;
+        response_buffer.buffer_size = OC_MAX_APP_DATA_SIZE;
+      }
+    }
+  }
+
+  if (error == OC_STATUS_OK)
+  {
+    // core/application resource found, process request
+
+    /*
+      - Init CBOR response buffer, core or application callback handler will fill this buffer
+        with 'oc_rep_i_set_boolean' or similar calls.
+      - The buffer points to (local call stack) memory, allocated for the "CoAP Transaction"
+        to service this request.
+    */
+    oc_rep_new(response_buffer.buffer, (int)response_buffer.buffer_size);
+
+    // check access (the CBOR payload is needed for a <ga> scope): 4.01 not decrypted, 4.03 scope not covered, 4.05 no method slot
+    error = oc_knx_sec_check_acl(method, matching_resource, endpoint, new_request.request_payload);
+    if (error == OC_STATUS_OK)
+    {
+      // check ok, invoke core or application callback handler, otherwise, return a 4.05 (method not allowed) response
+
+
+      if (method == COAP_GET && matching_resource->get_handler.cb)
+      {
+        // entry point, such as for GET /k
+        matching_resource->get_handler.cb(&new_request,
+                                          matching_resource->get_handler.interface_mask,
+                                          matching_resource->get_handler.user_data);
+      }
+      else if (method == COAP_POST && matching_resource->post_handler.cb)
+      {
+        // entry point, such as for POST /p with a collection or POST /k with an item
+        matching_resource->post_handler.cb(&new_request,
+                                           matching_resource->post_handler.interface_mask,
+                                           matching_resource->post_handler.user_data);
+      }
+      else if (method == COAP_PUT && matching_resource->put_handler.cb)
+      {
+        // entry point, such as for PUT /p/{property-path} with an item
+        matching_resource->put_handler.cb(&new_request,
+                                          matching_resource->put_handler.interface_mask,
+                                          matching_resource->put_handler.user_data);
+      }
+      else if (method == COAP_DELETE && matching_resource->delete_handler.cb)
+      {
+        matching_resource->delete_handler.cb(&new_request,
+                                             matching_resource->delete_handler.interface_mask,
+                                             matching_resource->delete_handler.user_data);
+      }
+      else
+      {
+        error = OC_STATUS_METHOD_NOT_ALLOWED;
+      }
+
+      oc_ri_check_encoder_handed_back(matching_resource, response_buffer.buffer);
+    }
+  }
+
+  /*
+     caller (coap_receive) still reads/dereferences request_buffer and response_buffer after this function returns
+     - so scrubbing here (with any ref_count==0 buffer) would free-and-use them
+     - coap_receive performs its own scrub pass once it is done with them -> coap_receive(), at the end
+
+     oc_blockwise_scrub_buffers(false);
+  */
+
+  if (new_request.request_payload)
+  {
+    // to the extent that the request payload was parsed, free the payload structure (and return its memory to the pool).
+    oc_free_rep(new_request.request_payload);
+  }
+
+  /*
+    one place for every error response
+    - 4.03 forbidden: the requestor (subject) has no access granted via an access control entry (Table 40, KNX spec)
+    - 4.01, 4.13, 4.00, 4.04, 4.05: see where 'error' is set above
+  */
+  const bool success = error == OC_STATUS_OK;
+  if (!success)
+  {
+    OC_WRN("request rejected with %d", oc_status_code(error));
+    response_buffer.response_length = 0;
+    response_buffer.code = oc_status_code(error);
+  }
+
+  #ifdef OC_SERVER
+  // if a GET request was successfully processed, then check its observe option
+
+  // init with a default value that indicates no observe option present
+  uint32_t observe_value_by_client = OC_OBSERVE_NOT_APPLICABLE;
+
+  if (success && response_buffer.code < oc_status_code(OC_STATUS_BAD_REQUEST) && coap_get_header_observe(request, &observe_value_by_client))
+  {
+    // process all < 4.00 and observe option is set, check if the resource is OBSERVABLE
+    if (matching_resource->properties & OC_OBSERVABLE)
+    {
+      if (observe_value_by_client == OC_OBSERVE_REGISTER)
+      {
+        /*
+          Register: attempt to add the requesting client as an observer.
+          'oc_knx_observe_handler' below checks the "lt", "non" and "u" query parameters
+          (KNX 2.5.9.3/4 + 2.5.11.6 -- applies to ALL KNX IoT observe registrations, not just /k).
+
+          (a) COAP_OBSERVE_REJECTED if 'lt' is missing or not in range, or 'u' is not a boolean (nothing registered)
+          (b) COAP_OBSERVE_FAILED on invalid request/response codes or a full observer list (observer is not added)
+          (c) COAP_OBSERVE_ADDED on adding a NEW observe
+          (d) COAP_OBSERVE_REPLACED on a REFRESHED observe (an existing observe of the client was replaced)
+        */
+
+        int observe_result = oc_knx_observe_handler(request, response, matching_resource, block2_size, endpoint);
+
+        if (observe_result == COAP_OBSERVE_REJECTED)
+        { // (a)
+          response_buffer.response_length = 0;
+          response_buffer.content_format = CONTENT_NONE;
+          response_buffer.code = oc_status_code(OC_STATUS_BAD_REQUEST);
+        }
+        else if (observe_result >= COAP_OBSERVE_ADDED)
+        { // (c) or (d) added new or refreshed observer
+
+          /*
+             - set observe option + value in response to the observer's
+             - assigned current sequence number that assigned to the observer
+               (the registration response is the first notification, RFC 7641 Section 4.2 - not ness. a '0' must be the first value)
+          */
+          coap_set_header_observe(response, get_observe_counter());
+
+          /*
+            If the resource is marked as periodic observable it means it must be polled internally for updates
+            (which would lead to notifications being sent). If so, add the resource to a list of periodic GET
+            callbacks to utilize the framework's internal polling mechanism.
+          */
+          if (matching_resource->properties & OC_PERIODIC)
+          {
+            if (!add_periodic_observe_callback(matching_resource))
+            {
+              // error adding periodic observe callback, so remove observer
+              coap_remove_observer_by_token(endpoint, packet->token, packet->token_len);
+            }
+          }
+        }
+      }
+      else 
+      if (observe_value_by_client == OC_OBSERVE_DEREGISTER)
+      {
+        /*
+          If the observe option is set to deregister (OC_OBSERVE_DEREGISTER), make an attempt to remove the
+          requesting client from the list of observers. In addition, remove the resource from the list periodic
+          GET callbacks if it is periodic observable.
+
+          (e) COAP_OBSERVE_REPLACED (1) on removed PRESENT observe
+
+        */
+
+        if (oc_knx_observe_handler(request, response, matching_resource, block2_size, endpoint) > 0)
+        { // (e)
+
+          /*
+            the periodic callback exists ONCE per resource, not per observer
+            - oc_knx_observe_handler() above removed only THIS client's observer (same endpoint + token, RFC 7641), and
+              decreased num_observers
+            - each periodic tick notifies every observer still in the list: the deregistered client gets nothing more,
+              the other observers keep their notifications
+            -> the callback is removed only when the LAST observer has left (num_observers == 0)
+          */
+          if (matching_resource->properties & OC_PERIODIC && matching_resource->runtime_data->num_observers == 0)
+          {
+            remove_periodic_observe_callback(matching_resource);
+          }
+        }
+      }
+    }
+  }
+  #endif
+
+  if (new_request.origin && new_request.origin->flags & MULTICAST && response_buffer.code >= oc_status_code(OC_STATUS_BAD_REQUEST))
+  {
+    // on multicast ignore all > 4.00
+    response_buffer.code = OC_IGNORE;
+  }
+
+  #ifdef OC_SERVER
+  // the presence of a separate response handle here indicates a successful handling of the request by a slow resource
+  if (response_obj.separate_response)
+  {
+    /*
+      Attempt to register a client request to the separate response tracker and pass in the observe option
+      (if present) or the value 2 (OC_OBSERVE_NOT_APPLICABLE) as determined by the code block above. 
+
+      Values 0 (OC_OBSERVE_REGISTER) and 1 (OC_OBSERVE_DEREGISTER) result in their
+      expected behaviors whereas 2 (OC_OBSERVE_NOT_APPLICABLE) indicates an absence of an observe option 
+      and hence a one-off request (answered later with a response without any expressed observe option/ value 
+      e.g; treated as a normal response on a normal GET request w/o observe option).
+      
+      Following a successful registration, the separate response tracker is flagged as "active". In this way,
+      the function that later executes out-of-band upon availability of the resource state knows it must send
+      out a response with it.
+    */
+
+    /*
+      separate response accepted or not
+      - accepted: coap_separate_accept() sent the empty ACK (CON), the response follows later -> the request's own
+        transaction is cleared, no piggybacked reply now
+      - not accepted (no memory for the store, empty ACK not sent): the request is answered now with 5.03 Service
+        Unavailable, the client may retry later (a multicast request with OC_IGNORE stays without reply)
+    */
+    // note, observe value may also be 'invalid'
+    if (coap_separate_accept(request, response_obj.separate_response, endpoint, observe_value_by_client, block2_size) == 1)
+    {
+      response_obj.separate_response->active = true;
+      *clear_transaction = true;
+    }
+    else if (response_buffer.code == OC_IGNORE)
+    {
+      *clear_transaction = true;
+    }
+    else
+    {
+      coap_set_status_code(response, oc_status_code(OC_STATUS_SERVICE_UNAVAILABLE));
+    }
+  }
+  else
+  #endif
+    if (response_buffer.code == OC_IGNORE)
+    {
+      /*
+        - freeing the CoAP transaction associated with the request
+        - preferred for multicast requests, since it avoids unnecessary CoAP traffic on the network
+      */
+      *clear_transaction = true;
+    }
+    else
+    {
+      #ifdef OC_SERVER
+      if (matching_resource && (method == COAP_PUT || method == COAP_POST) && response_buffer.code < oc_status_code(OC_STATUS_BAD_REQUEST))
+      {
+        /*
+
+          1. /k and /p resources are observable, so if 'change' request was successfully handled,
+             then the resource state may have changed
+
+          2. /k has a mandatory OBSERVE with if.g.s, it may be unicast or multicast,
+             both with POST, the actual service type is part of the s-mode payload (st='r/w/a')
+
+             - multicast ->  calls 'oc_ignore_request' which sets OC_IGNORE, not processed here
+                             (consequently only on self-triggered request a notification is sent,
+                              see 'oc_knx_notify_k_observers')
+
+             - unicast   ->  calls below 'oc_notify_observers' which sends a notification to all observers of the resource,
+                             no delay (it was a unicast, hence no other devices firing notifications based on this request)
+
+          3. /p has an optional (OBSERVE) with if.p (Table 6, IoT Specification), unicast and mandatory PUT
+          4. /p has a mandatory OBSERVE with if.o (Table 6, IoT Specification), unicast and optional POST
+             (the POST is handled as an alias via /k above)
+
+
+        */
+        oc_notify_observers(matching_resource);
+      }
+      #endif
+
+      if (response_buffer.response_length > 0)
+      {
+        (*response_state)->payload_size = (uint32_t)response_buffer.response_length;
+
+        /*
+          RFC 7959 2.4: the follow-up blocks (served from this buffer) carry the same Content-Format as the first one
+          - the buffer was allocated BEFORE the handler ran, the format was not known then
+          - the first block below goes out with the format the handler set -> the buffer takes the same one
+        */
+        (*response_state)->return_content_type = response_buffer.content_format;
+
+        if (response_buffer.content_format > 0)
+        {
+          // with payload, set response header format from request 1:1 in response if it is > 0 (means initialized)
+          coap_set_header_content_format(response, response_buffer.content_format);
+        }
+      }
+      else
+      {
+        // for EITT test 5.1.1.4 & 5.2.3.1b -> for an empty payload we mirror the inbound content (CBOR/LINK) format back to the response
+        if (response_buffer.content_format == APPLICATION_LINK_FORMAT || response_buffer.content_format == APPLICATION_CBOR)
+        {
+          // sets header format in cases LINK/CBOR
+          coap_set_header_content_format(response, response_buffer.content_format);
+        }
+      }
+
+      // value 0 means no caching, hence explicit caching for response expected 
+      if (response_buffer.max_age > 0)
+      {
+        coap_set_header_max_age(response, response_buffer.max_age);
+      }
+
+      if (response_buffer.code == oc_status_code(OC_STATUS_REQUEST_ENTITY_TOO_LARGE))
+      {
+        coap_set_header_size1(response, OC_BLOCK_SIZE);
+      }
+
+      // response_buffer.code at this point contains a valid CoAP status code
+      coap_set_status_code(response, response_buffer.code);
+    }
+
+  return success;
+}
+
+#ifdef OC_CLIENT
+static void free_client_cb(oc_client_cb_t* cb)
+{
+  oc_list_remove(client_cbs, cb);
+  oc_blockwise_scrub_buffers_for_client_cb(cb);
+  oc_free_string(&cb->uri);
+  oc_free_string(&cb->query);
+  free(cb);
+}
+
+oc_event_callback_retval_t oc_ri_remove_client_cb(void* data)
+{
+  OC_DBG("removing client %p", data);
+  free_client_cb(data);
+  return OC_EVENT_DONE;
+}
+
+static void notify_client_cb_503(oc_client_cb_t* cb)
+{
+  oc_ri_remove_timed_event_callback(cb, &oc_ri_remove_client_cb);
+
+  oc_client_response_t client_response = 
+  {
+    .client_cb = cb, 
+    .endpoint = &cb->endpoint, 
+    .observe_option = OC_OBSERVE_NOT_INITIALIZED,
+    .user_data = cb->user_data,
+    .code = OC_STATUS_SERVICE_UNAVAILABLE
+  };
+
+  const oc_response_handler_t handler = cb->handler.response;
+  if (handler)
+  {
+    handler(&client_response);
+  }
+
+  free_client_cb(cb);
+}
+
+void oc_ri_free_client_cbs_by_mid(uint16_t mid)
+{
+  oc_client_cb_t* cb = (oc_client_cb_t*)oc_list_head(client_cbs);
+  while (cb)
+  {
+    oc_client_cb_t* next = cb->next;
+    if (cb->ref_count == 0 && cb->mid == mid)
+    {
+      cb->ref_count = 1;
+      notify_client_cb_503(cb);
+      cb = (oc_client_cb_t*)oc_list_head(client_cbs);
+      continue;
+    }
+
+    cb = next;
+  }
+}
+
+void oc_ri_free_client_cbs_by_endpoint(oc_endpoint_t* endpoint)
+{
+  oc_client_cb_t* cb = (oc_client_cb_t*)oc_list_head(client_cbs);
+  while (cb)
+  {
+    oc_client_cb_t* next = cb->next;
+    if (cb->ref_count == 0 && oc_endpoint_compare(&cb->endpoint, endpoint) == 0)
+    {
+      cb->ref_count = 1;
+      notify_client_cb_503(cb);
+      cb = (oc_client_cb_t*)oc_list_head(client_cbs);
+      continue;
+    }
+
+    cb = next;
+  }
+}
+
+oc_client_cb_t* oc_ri_find_client_cb_by_mid(uint16_t mid)
+{
+  oc_client_cb_t* cb = (oc_client_cb_t*)oc_list_head(client_cbs);
+  while (cb)
+  {
+    if (cb->mid == mid)
+    {
+      break;
+    }
+
+    cb = cb->next;
+  }
+
+  return cb;
+}
+
+oc_client_cb_t* oc_ri_find_client_cb_by_token(uint8_t* token, uint8_t token_len)
+{
+  oc_client_cb_t* cb = (oc_client_cb_t*)oc_list_head(client_cbs);
+  while (cb)
+  {
+    if (cb->token_len == token_len && memcmp(cb->token, token, token_len) == 0)
+    {
+      break;
+    }
+
+    cb = cb->next;
+  }
+
+  return cb;
+}
+
+bool oc_ri_is_client_cb_valid(oc_client_cb_t* client_cb)
+{
+  const oc_client_cb_t* cb = (oc_client_cb_t*)oc_list_head(client_cbs);
+  while (cb)
+  {
+    if (cb == client_cb)
+    {
+      return true;
+    }
+
+    cb = cb->next;
+  }
+
+  return false;
+}
+
+bool oc_ri_invoke_client_cb(void* response, oc_blockwise_state_t** response_state, oc_client_cb_t* cb, oc_endpoint_t* endpoint)
+{
+  
+  // set as default = CBOR and read the actual content format from the response, if present
+  oc_content_format_t cf = APPLICATION_CBOR;
+  coap_get_header_content_format(response, &cf);
+
+  // set cb 'in use'
+  cb->ref_count = 1;
+
+  const uint8_t* payload = NULL;
+  int payload_len = 0;
+  coap_packet_t* const pkt = (coap_packet_t*)response;
+
+  // clear and set only those data which are not '0'
+  oc_client_response_t client_response = 
+  {
+    .client_cb = cb,
+    .endpoint = endpoint,
+    .observe_option = OC_OBSERVE_NOT_INITIALIZED,
+    .content_format = cf,
+    .user_data = cb->user_data,
+    .code = get_oc_status_code_from_coap_code(pkt->code)
+  };
+
+  if (response_state)
+  {
+    /* 
+       casting from generic blockwise state to response state,
+       works only since the calloc spans over the entire 'response state' and observe option sits after the 'state' struct 
+
+    */
+    const oc_blockwise_response_state_t* bwt_response_state = (const oc_blockwise_response_state_t*)*response_state;
+    client_response.observe_option = bwt_response_state->observe_seq;
+    
+    payload = (*response_state)->buffer;
+    payload_len = (*response_state)->payload_size;
+  }
+
+  /* 
+     > de-register, = inbound notification (response) to a non-observe request, 
+     so check if the notification number is newer than the one in the client callback
+  */
+  if (client_response.observe_option > OC_OBSERVE_DEREGISTER)
+  {
+    /* 
+      Client Side: 
+
+      use PIV/SSN as observe notification number, 
+      as the server may not support observe sequence numbers (RFC 8613, 4.1.3.5)
+    */
+    /*
+      PIV length not checked here: the OSCORE option parser (coap_parse_inner_oscore_option, oscore.c) already rejects
+      piv_len > OSCORE_SSN_PIV_LEN_MAX before the PIV is copied into endpoint->piv (oc_oscore_engine.c)
+
+      -> here not tested again
+    */
+    const uint32_t notification_num = oscore_piv_to_ssn(endpoint->piv, endpoint->piv_len);
+
+    if (notification_num < cb->notification_num)
+    {
+      // an old notification, ignore it
+      return true;
+    }
+
+    // update the notification number in the client callback, so that the next notification can be checked against it
+    cb->notification_num = notification_num;
+  }
+
+  bool separate = false;
+  client_response._payload = payload;
+  client_response._payload_len = (size_t)payload_len;
+
+  if (payload_len)
+  {
+    int err = 0;
+
+    if (cf == APPLICATION_CBOR)
+    {// parse only on CBOR 
+
+      // oc_rep_t nodes are allocated via calloc inside oc_parse_rep
+      err = oc_parse_rep(payload, payload_len, &client_response.payload);
+    }
+
+    if (err == 0)
+    {// call only on no error (on CBOR), on no CBOR parse what you got ...
+
+      const oc_response_handler_t handler = cb->handler.response;
+      if (handler)
+      { // call handler with inbound payload 
+        handler(&client_response);
+      }
+    }
+    else
+    {
+      OC_WRN("Error parsing payload!");
+    }
+
+    if (client_response.payload)
+    { /* 
+         free payload on error and on successful handler call, 
+         since the handler is not expected to free it 
+         (was created by oc_parse_rep and alloc is not part of the client callback)
+      */
+      oc_free_rep(client_response.payload);
+    }
+  }
+  else
+  {
+    if (pkt->type == COAP_TYPE_ACK && pkt->code == EMPTY_0_00)
+    { // don't call handler on empty ack only 
+      separate = true;
+      cb->separate = 1;
+    }
+    else
+    {
+      const oc_response_handler_t handler = cb->handler.response;
+      if (handler)
+      { // call handler without inbound payload 
+        handler(&client_response);
+      }
+    }
+  }
+
+  if (!oc_ri_is_client_cb_valid(cb))
+  {
+    return true;
+  }
+
+  cb->ref_count = 0;
+
+  if (client_response.observe_option == OC_OBSERVE_NOT_INITIALIZED && !separate)
+  { // no observe option, no separate response, so free the client callback
+    
+    oc_ri_remove_timed_event_callback(cb, &oc_ri_remove_client_cb);
+    free_client_cb(cb);
+
+    *response_state = NULL;
+  }
+  else
+  { 
+    // update the observe sequence number in the client callback
+    cb->observe_seq = client_response.observe_option;
+
+    /* 
+       drop old observe callback and keep the last one 
+       TODO why 
+    */
+    if (cb->observe_seq == 0)
+    {
+      oc_client_cb_t* dup_cb = (oc_client_cb_t*)oc_list_head(client_cbs);
+      const size_t uri_len = oc_string_len(cb->uri);
+
+      while (dup_cb)
+      {
+        if (dup_cb != cb 
+            && dup_cb->observe_seq != OC_OBSERVE_NOT_INITIALIZED 
+            && dup_cb->token_len == cb->token_len 
+            && memcmp(dup_cb->token, cb->token, cb->token_len) == 0 
+            && oc_string_len(dup_cb->uri) == uri_len 
+            && strncmp(oc_string(dup_cb->uri), oc_string(cb->uri), uri_len) == 0 
+            && oc_endpoint_compare(&dup_cb->endpoint, endpoint) == 0)
+        {
+          OC_DBG("Freeing cb %s, token 0x%02X%02X", oc_string_checked(dup_cb->uri), dup_cb->token[0], dup_cb->token[1]);
+
+          oc_ri_remove_timed_event_callback(dup_cb, &oc_ri_remove_client_cb);
+          free_client_cb(dup_cb);
+          break;
+        }
+
+        dup_cb = dup_cb->next;
+      }
+    }
+  }
+
+  return true;
+}
+
+oc_client_cb_t* oc_ri_get_client_cb(const char* uri, oc_endpoint_t* endpoint, coap_method_t method)
+{
+  oc_client_cb_t* cb = (oc_client_cb_t*)oc_list_head(client_cbs);
+
+  while (cb)
+  {
+    if (oc_string_len(cb->uri) == strlen(uri)
+      && strncmp(oc_string(cb->uri), uri, strlen(uri)) == 0
+      && oc_endpoint_compare(&cb->endpoint, endpoint) == 0
+      && cb->method == method)
+    {
+      return cb;
+    }
+
+    cb = cb->next;
+  }
+
+  return cb;
+}
+
+static void free_all_client_cbs(void)
+{
+  oc_client_cb_t* cb;
+  while ((cb = (oc_client_cb_t*)oc_list_pop(client_cbs)))
+  {
+    free_client_cb(cb);
+  }
+}
+
+oc_client_cb_t* oc_ri_alloc_client_cb(const char* uri, oc_endpoint_t* endpoint, coap_method_t method, const char* query,
+                                      oc_client_handler_t handler, oc_qos_t qos, void* user_data)
+{
+  oc_client_cb_t* cb = calloc(1, sizeof(oc_client_cb_t));
+  if (!cb)
+  {
+    OC_WRN("insufficient memory to add client callback");
+    return cb;
+  }
+
+  // note that token/mid of a created callback  must be filled later in the corresponding (outbound) message
+  cb->mid = coap_get_next_mid();
+
+  // set here fix COAP_TOKEN_LEN byte token len
+  cb->token_len = COAP_TOKEN_LEN;
+  const uint32_t a = oc_random_value(); memcpy(cb->token + 0, &a, sizeof(a));
+  const uint32_t b = oc_random_value(); memcpy(cb->token + 4, &b, sizeof(b));
+
+  oc_new_string(&cb->uri, uri, strlen(uri));
+  cb->method = method;
+  cb->qos = qos;
+  cb->handler = handler;
+  cb->user_data = user_data;
+  cb->timestamp = oc_clock_time();
+  cb->observe_seq = OC_OBSERVE_NOT_INITIALIZED;
+  oc_endpoint_copy(&cb->endpoint, endpoint);
+
+  if (query && strlen(query) > 0)
+  {
+    oc_new_string(&cb->query, query, strlen(query));
+  }
+
+  oc_list_add(client_cbs, cb);
+
+  return cb;
+}
+#endif
+
+void oc_ri_shutdown(void)
+{
+  #ifdef OC_SERVER
+  coap_free_all_observers();
+  #endif
+
+  coap_free_all_transactions();
+  free_all_event_timers();
+
+  #ifdef OC_CLIENT
+  free_all_client_cbs();
+  #endif
+
+  oc_blockwise_scrub_buffers(true);
+
+  // wait until no event is pending anymore
+  while (oc_main_poll())
+  {
+  }
+
+  stop_processes();
+  oc_process_shutdown();
+
+  #ifdef OC_SERVER
+  oc_ri_delete_all_application_resources();
+  #endif
+
+  oc_random_destroy();
+}
+
+OC_PROCESS_THREAD(timed_callback_events, ev, data)
+{
+  (void)data;
+  OC_PROCESS_BEGIN();
+    while (1)
+    {
+      OC_PROCESS_YIELD();
+      if (ev == OC_PROCESS_EVENT_TIMER)
+      {
+        check_event_callbacks();
+      }
+    }
+
+  OC_PROCESS_END();
+}

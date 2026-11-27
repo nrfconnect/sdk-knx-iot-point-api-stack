@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Unit tests for api/oc_main.c
+ * Unit tests for core/oc_main.c
  * Scope note
  * ----------
  * The MTU / block-size / max-app-data accessors of this file are already
@@ -20,7 +20,7 @@
  */
 
 extern "C" {
-#include "api/oc_main.h"
+#include "oc_main.h"
 }
 
 #include "gtest/gtest.h"

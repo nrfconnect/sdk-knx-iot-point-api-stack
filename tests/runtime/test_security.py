@@ -437,6 +437,60 @@ class TestWriteAccessToken:
 
 
 # ===========================================================================
+# Entry limit of one POST /auth/at request (stack limit, not in the template)
+# ===========================================================================
+
+# entries the device checks in one POST /auth/at request (KNX_POST_MAX_ENTRIES in src/resources/knx/oc_knx_helpers.h)
+AT_POST_MAX_ENTRIES = 10
+# CoAP block size of the device: a request without Block1 above it gets 4.13 from the engine already
+AT_POST_BLOCK_SIZE = 512
+
+
+class TestWriteAccessTokenEntryLimit:
+    """POST /auth/at with more than 10 access tokens -> 4.13, nothing is stored.
+
+    The device checks all entries of a request into copies before it commits any (atomic), at most 10 per
+    request; more -> 4.13 Request Entity Too Large (spec 2.6.3.3.2, RFC 7252 5.9.2.9), the client resends
+    them in smaller requests. The payloads stay below one block, so the 4.13 comes from the handler and not
+    from the block size check of the engine.
+    """
+
+    @staticmethod
+    def _tokens(count, prefix):
+        return [{"token_id": f"{prefix}{i}", "scope": [i + 1], "sender_id": bytes([0x70, i]),
+                 "master_secret": os.urandom(16)} for i in range(count)]
+
+    def _exists(self, coap, oscore_ctx, token_id):
+        resp = coap.oscore_get(oscore_ctx, f"/auth/at/{token_id}", accept=APPLICATION_CBOR)
+        assert resp is not None, f"GET /auth/at/{token_id} timed out"
+        return resp.is_successful
+
+    def test_more_than_ten_tokens_in_one_post_returns_413(self, coap, oscore_ctx):
+        tokens = self._tokens(AT_POST_MAX_ENTRIES + 1, "Lim")
+        payload = _make_multi_at_payload(tokens)
+        assert len(payload) < AT_POST_BLOCK_SIZE, f"payload of {len(payload)} bytes must stay below one block"
+
+        resp = coap.oscore_post(oscore_ctx, "/auth/at", payload=payload)
+        assert resp is not None, "POST /auth/at (11 tokens) timed out"
+        assert resp.code == "4.13", f"POST /auth/at with 11 tokens should return 4.13, got {resp.code}"
+
+        stored = [t["token_id"] for t in tokens if self._exists(coap, oscore_ctx, t["token_id"])]
+        assert stored == [], f"a rejected request must store no token, stored: {stored}"
+
+    def test_ten_tokens_in_one_post_are_accepted(self, coap, oscore_ctx):
+        tokens = self._tokens(AT_POST_MAX_ENTRIES, "Max")
+        payload = _make_multi_at_payload(tokens)
+        assert len(payload) < AT_POST_BLOCK_SIZE, f"payload of {len(payload)} bytes must stay below one block"
+
+        resp = coap.oscore_post(oscore_ctx, "/auth/at", payload=payload)
+        assert resp is not None, "POST /auth/at (10 tokens) timed out"
+        assert resp.is_successful, f"POST /auth/at with 10 tokens failed: {resp.code}"
+
+        missing = [t["token_id"] for t in tokens if not self._exists(coap, oscore_ctx, t["token_id"])]
+        assert missing == [], f"all 10 tokens must be stored, missing: {missing}"
+
+
+# ===========================================================================
 # 5.3.8.7 - Mandatory properties and id-only handling of POST /auth/at
 # ===========================================================================
 
@@ -2814,7 +2868,7 @@ class TestSpake2PlusProtocol:
 
     @pytest.mark.eitt_overlap("5.3.1.1")
     def test_spake_full_handshake(self, coap):
-        """SPAKE2+ full handshake succeeds, temp key works."""
+        """Overlaps EITT 5.3.1.1: exact codes, CBOR parameters and usable key."""
         spake = Spake2PlusClient(
             password=DEVICE_PASSWORD, sender_id="TmpTok")
 
@@ -2822,24 +2876,54 @@ class TestSpake2PlusProtocol:
         req1 = cbor2.dumps(spake.create_parameter_request())
         resp1 = coap.post("/.well-known/knx/spake", payload=req1,
                           content_format=APPLICATION_CBOR, timeout=30)
-        assert resp1 is not None and resp1.is_successful, (
-            f"SPAKE2+ step 1 failed: {resp1.code if resp1 else 'timeout'}")
-        spake.process_parameter_response(cbor2.loads(resp1.payload))
+        assert resp1 is not None, "SPAKE2+ step 1 timed out"
+        assert resp1.code == "2.04", (
+            f"SPAKE2+ step 1 expected 2.04, got {resp1.code}")
+        params_response = cbor2.loads(resp1.payload)
+        assert isinstance(params_response, dict), (
+            f"SPAKE2+ step 1 expected CBOR map, got {params_response!r}")
+        server_rnd = params_response.get(15)
+        assert isinstance(server_rnd, bytes) and len(server_rnd) == 32, (
+            f"SPAKE2+ server rnd expected 32-byte string, got {server_rnd!r}")
+        pbkdf2 = params_response.get(12)
+        assert isinstance(pbkdf2, dict), (
+            f"SPAKE2+ expected PBKDF2 map, got {pbkdf2!r}")
+        salt = pbkdf2.get(5)
+        assert isinstance(salt, bytes) and salt == bytes(range(32)), (
+            f"SPAKE2+ expected provisioned salt 00..1f, got {salt!r}")
+        iterations = pbkdf2.get(16)
+        assert type(iterations) is int and iterations == 50_000, (
+            f"SPAKE2+ expected 50000 PBKDF2 iterations, got {iterations!r}")
+        spake.process_parameter_response(params_response)
 
         # Step 2: Key exchange
         req2 = cbor2.dumps(spake.create_key_exchange_request())
         resp2 = coap.post("/.well-known/knx/spake", payload=req2,
                           content_format=APPLICATION_CBOR, timeout=30)
-        assert resp2 is not None and resp2.is_successful, (
-            f"SPAKE2+ step 2 failed: {resp2.code if resp2 else 'timeout'}")
-        spake.process_key_exchange_response(cbor2.loads(resp2.payload))
+        assert resp2 is not None, "SPAKE2+ step 2 timed out"
+        assert resp2.code == "2.04", (
+            f"SPAKE2+ step 2 expected 2.04, got {resp2.code}")
+        key_response = cbor2.loads(resp2.payload)
+        assert isinstance(key_response, dict), (
+            f"SPAKE2+ step 2 expected CBOR map, got {key_response!r}")
+        share_v = key_response.get(11)
+        assert (isinstance(share_v, bytes) and len(share_v) == 65
+                and share_v[0] == 0x04), (
+            f"SPAKE2+ expected uncompressed P-256 shareV, got {share_v!r}")
+        confirm_v = key_response.get(13)
+        assert isinstance(confirm_v, bytes) and len(confirm_v) == 32, (
+            f"SPAKE2+ confirmV expected 32-byte string, got {confirm_v!r}")
+        spake.process_key_exchange_response(key_response)
 
         # Step 3: Send confirmP
         req3 = cbor2.dumps(spake.create_confirmation_request())
         resp3 = coap.post("/.well-known/knx/spake", payload=req3,
                           content_format=APPLICATION_CBOR, timeout=10)
-        assert resp3 is not None and resp3.is_successful, (
-            f"SPAKE2+ step 3 failed: {resp3.code if resp3 else 'timeout'}")
+        assert resp3 is not None, "SPAKE2+ step 3 timed out"
+        assert resp3.code == "2.04", (
+            f"SPAKE2+ step 3 expected 2.04, got {resp3.code}")
+        assert resp3.payload == b"", (
+            f"SPAKE2+ step 3 expected empty payload, got {resp3.payload!r}")
 
         # Step 4: Use temp key for secure GET /.well-known/knx
         pase_ctx = OscoreContext(

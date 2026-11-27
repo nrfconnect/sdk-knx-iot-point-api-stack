@@ -5,7 +5,7 @@
  */
 
 /*
- * Unit tests for api/oc_knx_swu.c (software update protocol).
+ * Unit tests for resources/knx/oc_knx_swu.c (software update protocol).
  *
  * Coverage strategy
  * -----------------
@@ -54,7 +54,6 @@ extern "C" {
 #include "oc_ri.h"
 #include "oc_rep.h"
 #include "oc_helpers.h"
-#include "messaging/coap/oc_coap.h"
 #include "util/oc_mmem.h"
 #include "port/oc_storage.h"
 #include <string.h>
@@ -82,7 +81,7 @@ void* __real_malloc(size_t size);
 void __real_free(void* ptr);
 const oc_resource_t* __real_oc_core_get_core_resource_by_index(int index);
 
-// pass-through counter: each lookup by index walks the core resource chain from the start
+// pass-through counter of the core resource lookups by index
 static int g_core_by_index_calls;
 
 const oc_resource_t* __wrap_oc_core_get_core_resource_by_index(int index)
@@ -1053,7 +1052,7 @@ TEST_F(KnxSwuABlock, CallbackFastPathReturnsChanged)
 
 // ===========================================================================
 // /a/swu PUT handler: download state machine, see the (A)/(B) blocks in the
-// header of api/oc_knx_swu.c
+// header of resources/knx/oc_knx_swu.c
 // ===========================================================================
 class KnxSwuABlockStateMachine : public KnxSwuBase {
 protected:
@@ -1489,11 +1488,10 @@ TEST_F(KnxSwuList, InvalidPageSizeBadRequest)
 }
 
 /*
-  GET /swu lists the swu sub resources (link format), the core resource chain is walked once
-  - one lookup by index (the first entry), then 'next' for the following entries
-  - a lookup per entry walks the chain from the start every time
+  GET /swu lists the swu sub resources (link format), each entry is looked up once by index
+  - core resources are not chained ('next' is NULL), the lookup by index is a table access
 */
-TEST_F(KnxSwuList, ListWalksTheCoreChainOnce)
+TEST_F(KnxSwuList, ListLooksUpEachEntryByIndex)
 {
   RespCtx ctx;
   g_core_by_index_calls = 0;
@@ -1501,7 +1499,12 @@ TEST_F(KnxSwuList, ListWalksTheCoreChainOnce)
   EXPECT_EQ(ctx.code(), oc_status_code(OC_STATUS_OK));
   EXPECT_TRUE(payload_contains(ctx, "/swu/protocol"));
   EXPECT_TRUE(payload_contains(ctx, "/swu/pkgbytes"));
-  EXPECT_EQ(g_core_by_index_calls, 1);
+  int entries = 0;
+  for (int i = 0; i < ctx.response_buffer.response_length; i++)
+  {
+    entries += (ctx.buf[i] == '<');
+  }
+  EXPECT_EQ(g_core_by_index_calls, entries);
 }
 
 TEST_F(KnxSwuList, InvalidPageNumberBadRequest)

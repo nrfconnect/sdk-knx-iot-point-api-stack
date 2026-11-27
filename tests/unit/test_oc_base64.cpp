@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Unit tests for api/oc_base64.c
+ * Unit tests for util/oc_base64.c
  */
 
 #include <gtest/gtest.h>

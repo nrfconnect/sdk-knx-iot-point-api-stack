@@ -16,7 +16,7 @@ This document defines the **runtime (wire-behaviour) layer** for CoAP Observe.
 The tests are implemented in `tests/runtime/test_observe.py`. The stack
 gained / reworked the observe path:
 
-- `coap_notify_k_observers()` ΓÇö S-Mode `/k` notification fan-out
+- `oc_knx_notify_k_observers()` ΓÇö S-Mode `/k` notification fan-out
 - `coap_notify_observers()` ΓÇö `/p` and core-resource notifications
 - observe register / deregister refactor (lifetime `lt`, non-confirmable `non`)
 - OSCORE AAD-for-observe fix (notification AAD must include the Observe option)
@@ -144,7 +144,7 @@ behaviour-only (response codes, payload shape, CON/NON, encryption).
 - **Stimulus:** Register observe with `non=true`; trigger a change.
 - **Expected:** Notification arrives as **NON** (no ACK expected).
 
-### Group D ΓÇö `/k` S-Mode notifications (drives `coap_notify_k_observers`)
+### Group D ΓÇö `/k` S-Mode notifications (drives `oc_knx_notify_k_observers`)
 
 #### OBS-D1 ┬╖ First `/k` notification carries only `sia`
 - **Implemented by:** `test_observe_first_k_notification_sia_only`

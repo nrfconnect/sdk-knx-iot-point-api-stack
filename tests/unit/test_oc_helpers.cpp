@@ -1,5 +1,5 @@
 /*
- * Unit tests for api/oc_helpers.c
+ * Unit tests for util/oc_helpers.c
  *
  * Tests cover:
  * - uint64 to decimal/hex string conversion

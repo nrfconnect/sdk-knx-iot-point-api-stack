@@ -1,5 +1,5 @@
 /*
- * libFuzzer harness for oc_blockwise_handle_block() (api/oc_blockwise.c).
+ * libFuzzer harness for oc_blockwise_handle_block() (messaging/coap/oc_blockwise.c).
  *
  * Every CoAP Block1/Block2 fragment received during a block-wise transfer
  * (firmware upload payloads, large CBOR bodies) is written into the

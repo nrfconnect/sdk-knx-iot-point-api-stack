@@ -1,15 +1,15 @@
 # KNX IoT Point API Stack - Test Catalog
 
-> **1913 unit tests** on `linux-test-asan` (63 files in `tests/unit/`, counted by CTest on 2026-11-09, including the
-> `test_dns_sd_mdns.cpp` cases registered under `if(UNIX)` only) and **293 runtime tests** (20 files in `tests/runtime/`, collected
-> on 2026-11-09).
+> **2140 unit tests** on `linux-test-asan-clang` (67 files in `tests/unit/`, counted by CTest on 2026-11-14, including the
+> `test_dns_sd_mdns.cpp` cases registered under `if(UNIX)` only) and **297 runtime tests** (20 files in `tests/runtime/`, collected
+> on 2026-11-11).
 > The conformance tier is not listed here: the test tool
 > (`tests/iot-test-tool/`) generates it from KNX's conformance-test template,
 > one item per template sequence, with this stack's override files in
-> `tests/conformance/`. All three tiers share `tests/common/`; the map is
+> `tests/conformance/`. All three tiers share `tests/common/`, the map is
 > [`README.md`](README.md).
 >
-> Unit (2026-11-09): 1913/1913 passed on `linux-test-asan` (Docker).
+> Unit (2026-11-12): 2136/2136 passed on `linux-test-asan-clang` and `linux-test-gcc` (Docker), 2087/2087 on `windows-test-gcc`.
 > Runtime and conformance: see "Last runtime run status" below.
 
 ## Contents
@@ -44,13 +44,25 @@ No stack C code was changed to make a test pass.
 <a id="unit-tests"></a>
 ## Part 1: Unit Tests (Google Test / C++)
 
-Built with GCC, run via CTest. 55 `.cpp` files in `tests/unit/`.
+Built with GCC, run via CTest. 69 `.cpp` files in `tests/unit/`.
+
+---
+
+### test_oc_knx_hooks.cpp — KNX Hooks of the Lower Layers (3 tests)
+
+**Source:** `src/resources/knx/oc_knx_hooks.c` (`src/messaging/coap/coap_knx_hooks.h`). The CTest `LayeringCheck.LowerLayersUseOnlyTheirKnxHooks` (`cmake/check_layering.cmake`, no `.cpp`) fails when `src/messaging/`, `src/security/` or `src/port/` include an `oc_knx*.h` or call `oc_knx_*()` / `oc_core_*()` instead of their hooks header.
+
+| Test | What it verifies |
+|------|-----------------|
+| `SModeUnicastResult.ThreeMissingResponsesKeepTheAddress` | Three s-mode unicast requests without a response: the recipient stays resolved, count 3 |
+| `SModeUnicastResult.FourthMissingResponseResolvesTheAddressAgain` | The fourth one sets the recipient back to unresolved and resets the count |
+| `SModeUnicastResult.AResponseResetsTheMissingCount` | A 2.04 resets the count, three further misses keep the address |
 
 ---
 
 ### test_oc_base64.cpp — Base64 Encoding (14 tests)
 
-**Source:** `api/oc_base64.c`
+**Source:** `src/util/oc_base64.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -73,7 +85,7 @@ Built with GCC, run via CTest. 55 `.cpp` files in `tests/unit/`.
 
 ### test_oc_uuid.cpp — UUID Handling (19 tests)
 
-**Source:** `api/oc_uuid.c`
+**Source:** `src/util/oc_uuid.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -101,7 +113,7 @@ Built with GCC, run via CTest. 55 `.cpp` files in `tests/unit/`.
 
 ### test_oc_list.cpp — Linked List (27 tests)
 
-**Source:** `util/oc_list.c`
+**Source:** `src/util/oc_list.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -137,7 +149,7 @@ Built with GCC, run via CTest. 55 `.cpp` files in `tests/unit/`.
 
 ### test_oc_mmem.cpp — Managed Memory (9 tests)
 
-**Source:** `util/oc_mmem.c`
+**Source:** `src/util/oc_mmem.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -155,7 +167,7 @@ Built with GCC, run via CTest. 55 `.cpp` files in `tests/unit/`.
 
 ### test_oc_helpers_alloc_fail.cpp — Allocation Failure in the String Layer (8 tests)
 
-**Source:** `util/oc_mmem.c`, `api/oc_helpers.c`; linked with `-Wl,--wrap=malloc`, `__wrap_malloc()` fails the next call once a test arms it, and `-Wl,--wrap=free`, `__wrap_free()` overwrites the first byte of one armed block with 'X' before it is released
+**Source:** `src/util/oc_mmem.c`, `src/util/oc_helpers.c`; linked with `-Wl,--wrap=malloc`, `__wrap_malloc()` fails the next call once a test arms it, and `-Wl,--wrap=free`, `__wrap_free()` overwrites the first byte of one armed block with 'X' before it is released
 
 | Test | What it verifies |
 |------|-----------------|
@@ -170,9 +182,9 @@ Built with GCC, run via CTest. 55 `.cpp` files in `tests/unit/`.
 
 ---
 
-### test_oc_helpers.cpp — String & Hex Utilities (96 tests)
+### test_oc_helpers.cpp — String & Hex Utilities (99 tests)
 
-**Source:** `api/oc_helpers.c`
+**Source:** `src/util/oc_helpers.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -195,7 +207,7 @@ Built with GCC, run via CTest. 55 `.cpp` files in `tests/unit/`.
 
 ### test_c_timestamp.cpp — Timestamp Parsing (28 tests)
 
-**Source:** `api/c-timestamp/`
+**Source:** `src/util/c-timestamp/`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -208,9 +220,9 @@ Built with GCC, run via CTest. 55 `.cpp` files in `tests/unit/`.
 
 ---
 
-### test_oc_rep.cpp — CBOR Representation (73 tests)
+### test_oc_rep.cpp — CBOR Representation (91 tests)
 
-**Source:** `api/oc_rep.c`
+**Source:** `src/resources/ri/oc_rep.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -223,7 +235,7 @@ Built with GCC, run via CTest. 55 `.cpp` files in `tests/unit/`.
 | `MultipleValues` | 1 | Mixed types in single map |
 | `Arrays` | 3 | Int/bool/double arrays |
 | `StringArray/ByteStringArray truncation` | 5 | Text/byte string array items at exactly the 32-byte slot limit round-trip unmodified; oversized items are truncated (not left as heap-uninitialized garbage) and never overflow the fixed-size slot (F-021 follow-up) |
-| `ToJson` | 18 | JSON serialization: compact/pretty/size-query (3, pre-existing) plus per-type coverage of `oc_rep_to_json_format`'s switch: bool-false, double, text string, base64-encoded byte string, nested object, int/float/double/bool/string arrays (compact + pretty for string array), byte-string array (compact + pretty), object array (compact + pretty) |
+| `ToJson` | 19 | JSON serialization: compact/pretty/size-query (3, pre-existing) plus per-type coverage of `oc_rep_to_json_format`'s switch: bool-false, double, text string, base64-encoded byte string, nested object, int/float/double/bool/string arrays (compact + pretty for string array), byte-string array (compact + pretty), object array (compact + pretty); the size query `(NULL, 0)` on a byte string returns exactly the written length without arithmetic on the NULL buffer |
 | `AddLineToBuffer` | 3 | Buffer append helpers |
 | `EncodeRaw` | 1 | Raw CBOR append |
 | `FreeRep/Parse` | 2 | Cleanup and empty-map parse |
@@ -233,12 +245,13 @@ Built with GCC, run via CTest. 55 `.cpp` files in `tests/unit/`.
 | `EncodeRawEncoder` | 1 | `oc_rep_encode_raw_encoder()` writes bytes and advances |
 | `GetObject/Array` | 7 | Nested object + object-array getters (text/int keys, wrong key, absent mixed array) |
 | `Parse empty array vs null` | 6 | `[]` -> `OC_REP_NIL`, null/undefined -> `OC_REP_NULL`, half float/simple value -> `OC_REP_UNSUPPORTED`, JSON `null` for the new types |
+| `ParseRep nesting depth` | 7 | `KNX_CBOR_MAX_DEPTH`: arrays at the limit and siblings at the limit are accepted; one level deeper (arrays, also 400 nested arrays in one datagram, maps, behind a top-level tag, in the second item of an array that the type scan skips) is rejected with `CborErrorNestingTooDeep` and no tree; a truncated nested payload still reports `CborErrorUnexpectedEOF` (4.13) |
 
 ---
 
 ### test_oc_rep_alloc_fail.cpp — Allocation Failure in the CBOR Parser (8 tests)
 
-**Source:** `api/oc_rep.c` (`oc_parse_rep`); linked with `-Wl,--wrap=malloc`, `__wrap_malloc()` fails the next call once a test arms it (rep nodes come from `calloc`, so it hits the first string/array buffer)
+**Source:** `src/resources/ri/oc_rep.c` (`oc_parse_rep`); linked with `-Wl,--wrap=malloc`, `__wrap_malloc()` fails the next call once a test arms it (rep nodes come from `calloc`, so it hits the first string/array buffer)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -253,9 +266,9 @@ Built with GCC, run via CTest. 55 `.cpp` files in `tests/unit/`.
 
 ---
 
-CoAP Parser/Serializer (100 tests)
+### test_coap.cpp — CoAP Parser/Serializer (114 tests)
 
-**Source:** `messaging/coap/coap.c`
+**Source:** `src/messaging/coap/coap.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -263,13 +276,13 @@ CoAP Parser/Serializer (100 tests)
 | `Token` | 3 | 4-byte, 8-byte, truncation at 8 |
 | `ContentFormat` | 4 | Set/get, not-set default, and the `CONTENT_NONE` marker clearing the option instead of being stored - including a serialize/parse round trip proving it never reaches the wire (F-019) |
 | `Accept` | 3 | Set/get, not-set default (caller supplied default survives), `CONTENT_NONE` clears the option (F-019) |
-| `MaxAge` | 2 | Set/get, default value |
+| `MaxAge` | 9 | Set/get, default value; option class: plain CoAP carries Max-Age, the OSCORE plaintext carries it (30 and 0xFFFFFFFF; 0 as empty value), the outer OSCORE message never does (30 and 0xFFFFFFFF, also not on an observe notification), an unset Max-Age is serialized in no mode, an outer Max-Age from a peer is still parsed |
 | `ETag` | 2 | Set/get, not-set |
 | `Observe` | 2 | Set/get option 7 |
 | `UriPath` | 3 | Set/get, leading slash strip, not-set |
 | `Block1/Block2` | 13 | Block options: set/get, invalid size/num, not-set; reserved SZX 7 size and non-power-of-two sizes rejected, every valid SZX size accepted (Block1 and Block2) |
 | `Size1/Size2` | 3 | Size options |
-| `Echo` | 2 | Echo option for freshness |
+| `Echo` | 6 | Set/get and not-set; OSCORE outer Echo ignored on requests and responses, inner Echo parsed, and an oversized inner Echo rejected with 4.02 |
 | `Payload` | 2 | Set/get payload |
 | `SetStatusCode` | 2 | Valid codes, overflow protection |
 | `OptionHeader` | 4 | Delta encoding (small, 1-byte ext, 2-byte ext, count-only) |
@@ -291,7 +304,7 @@ CoAP Parser/Serializer (100 tests)
 
 OSCORE Option (48 tests)
 
-**Source:** `messaging/coap/oscore.c`
+**Source:** `src/messaging/coap/oscore.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -307,7 +320,7 @@ OSCORE Option (48 tests)
 
 ### test_oc_oscore_crypto.cpp — OSCORE Crypto (15 tests)
 
-**Source:** `security/oc_oscore_crypto.c`
+**Source:** `src/security/oc_oscore_crypto.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -318,22 +331,22 @@ OSCORE Option (48 tests)
 
 ---
 
-### test_oc_oscore_context.cpp — OSCORE Context (39 tests)
+### test_oc_oscore_context.cpp — OSCORE Context (40 tests)
 
-**Source:** `security/oc_oscore_context.c`
+**Source:** `src/security/oc_oscore_context.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
 | `ContextDeriveParam` | 4 | HKDF key derivation (sender key, IV, with context, uniqueness) |
 | `OscoreContextTest` | 16 | Add/find/free contexts, bad params, kid_context, find-by-group-address (sender/recipient), LRU recipient eviction, free-by-AT-id, and the recipient/sender context builders that take their ID from the access token |
-| `OscoreContextByToken` | 5 | `oc_oscore_find_context_by_token_mid`: match by token (returns the request PIV), MID fallback, optional out-parameters, unknown transaction → NULL, transaction without an access token → NULL |
+| `OscoreContextByToken` | 6 | `oc_oscore_find_context_by_token_mid`: match by token (returns the request PIV), MID fallback, optional out-parameters, unknown transaction → NULL, transaction without an access token → NULL; the response to an own request is matched to the SENDER context of the token (fixture: a sender context), also when a cached recipient context of the token comes first in the list |
 | Access token and multicast lookup | 3 | multicast lookup skips the `at` of a unicast recipient (spec 6.3.2.1); `oc_oscore_find_context_by_access_token` with `sender_only` true/false; NULL or unknown token -> NULL |
 
 ---
 
-### test_oc_knx_sec.cpp — Security Credentials (99 tests)
+### test_oc_knx_sec.cpp — Security Credentials (116 tests)
 
-**Source:** `api/oc_knx_sec.c`; linked with `-Wl,--wrap=oc_core_get_core_resource_by_index` (counts the lookups of the list GETs, pass through)
+**Source:** `src/resources/knx/oc_knx_sec.c`; linked with `-Wl,--wrap=oc_core_get_core_resource_by_index` (counts the lookups of the list GETs, pass through)
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -343,16 +356,17 @@ OSCORE Option (48 tests)
 | `GetAtIndex` | 2 | Entry pointer → slot index (NULL → -1) |
 | `AtTable` | 6 | Items-used count, find-by-osc-id, delete entry, delete NULL, find-and-remove PASE token; deleting a token removes the observers subscribed with it (`DeleteEntryRemovesTheObserversOfThatToken`, token rotation spec 3.5.4.1) |
 | `AtSsnStorage` | 2 | SSN persistence round-trip; entry outside the table is skipped |
-| `SecHandlers` | 24 | CoAP handlers of `/auth`, `/auth/o`, `/auth/o/osndelay`, `/auth/o/replwdo`, `/auth/at`, `/auth/at/*`: `DELETE /auth/at/{id}` ends the token's `/k` subscriptions (`AtEntryDeleteRemovesTheTokensObservers`); wrong-Accept rejection, invalid paging (`ps=0`, `pn=-1`), CBOR GET payloads, OSN-delay PUT (no payload → 4.00, valid → 4.04 CHANGED), AT-table DELETE, wildcard entry lookup (missing/unknown token → 4.00); the `/auth/o` and `/auth` list GETs (`AuthOListWalksTheCoreChainOnce`, `AuthListWalksTheCoreChainOnce`) answer 2.05 with their first entry and the one after it and walk the core resource chain once (one lookup by index) |
+| `SecHandlers` | 24 | CoAP handlers of `/auth`, `/auth/o`, `/auth/o/osndelay`, `/auth/o/replwdo`, `/auth/at`, `/auth/at/*`: `DELETE /auth/at/{id}` ends the token's `/k` subscriptions (`AtEntryDeleteRemovesTheTokensObservers`); wrong-Accept rejection, invalid paging (`ps=0`, `pn=-1`), CBOR GET payloads, OSN-delay PUT (no payload → 4.00, valid → 4.04 CHANGED), AT-table DELETE, wildcard entry lookup (missing/unknown token → 4.00); the `/auth/o` and `/auth` list GETs (`AuthOListLooksUpEachEntryByIndex`, `AuthListLooksUpEachEntryByIndex`) answer 2.05 with their first entry and the one after it, one lookup by index per listed entry |
 | `SecAcl` | 29 | `oc_knx_sec_check_acl`, the authorization gate, each case with its exact status (`OC_STATUS_OK`, 4.01 `UNAUTHORIZED` not decrypted, 4.03 `FORBIDDEN` scope / ga not covered, 4.05 `METHOD_NOT_ALLOWED` no handler slot): NULL resource and unsupported method → 4.05; per-method handler scope resolution (GET/POST/PUT/DELETE); OSCORE requirement (`OSCORE` alone and `OSCORE_DECRYPTED` alone both denied); scope matching (disjoint → deny, partial overlap → allow, missing access token → deny); `<ga>` per-group-address authorization incl. empty/NULL ga list, absent ga in payload, non-object payload, first/last list entry, broadcast address, and the F-026 regression (a foreign ga anywhere in the payload denies, in either order) |
-| `SecAtPost` | 20 | `/auth/at` rejects incomplete or malformed credentials: id + one scope, repeated mandatory property, short/all-zero master secret, and sender ID longer than the OSCORE limit; `cnf:osc:alg` 10 creates the token, any other value is rejected and not stored; a rejected scope update (`["if.unknown"]`) leaves an existing `<ga>` token unchanged; a `<ga>`-only update (2.04) keeps the OSCORE contexts (same context, SSN unchanged); an id-only delete in a scope-only request frees the deleted token's context; a profile + scope update re-initializes the contexts; deleting an entry (device reset path) frees its sender and recipient contexts; an update rejected after a valid `<ga>` scope or a valid master secret leaves the token unchanged; a repeated master secret in a full-token overwrite keeps the last one; a repeated scope `<ga>` then string frees both ga arrays (request and live); a full-token overwrite with a new master secret frees the token's cached recipient context, one with the same key keeps it (the response of a request protected with this token still gets encrypted); a partial update carrying `cnf` is rejected with 4.00 (spec 2.6.7.3) and keeps the old key and context; a scope-only update keeps the cached recipient context |
+| `SecAcl` notify | 8 | `oc_knx_sec_check_notify_acl`, the access check per `/k` notification (the full scope matrix; `CoapObserveKAccess` only shows it runs per observer): unsecured resource allowed without OSCORE, NULL resource and secured resource without OSCORE (`OSCORE` alone, or no OSCORE and no token) denied, deleted token and disjoint scope denied, `OC_ACL_G` allows any group address, `<ga>` scope allows only listed group addresses, empty list denies |
+| `SecAtPost` | 29 | `/auth/at` rejects incomplete or malformed credentials: id + one scope, repeated mandatory property, short/all-zero master secret, and sender ID longer than the OSCORE limit; `cnf:osc:alg` 10 creates the token, any other value is rejected and not stored; a rejected scope update (`["if.unknown"]`) leaves an existing `<ga>` token unchanged; a `<ga>`-only update (2.04) keeps the OSCORE contexts (same context, SSN unchanged); an id-only delete in a scope-only request frees the deleted token's context; a profile + scope update re-initializes the contexts; deleting an entry (device reset path) frees its sender and recipient contexts; an update rejected after a valid `<ga>` scope or a valid master secret leaves the token unchanged; a repeated master secret in a full-token overwrite keeps the last one; a repeated scope `<ga>` then string frees both ga arrays (request and live); a full-token overwrite with a new master secret frees the token's cached recipient context, one with the same key keeps it (the response of a request protected with this token still gets encrypted); a partial update carrying `cnf` is rejected with 4.00 (spec 2.6.7.3) and keeps the old key and context; a scope-only update keeps the cached recipient context; a collection is atomic: one rejected later entry leaves the earlier token, its key and its sender context unchanged; more than 10 entries -> 4.13 (spec 2.6.3.3.2), 10 new tokens in one request land in 10 slots; the same id twice in one request (also delete and re-create) -> 4.00, nothing changed (spec 2.6.7.2, 3.5.4.1); a full token re-POSTed without salt and contextId leaves both empty, not the old values (spec 2.6.7.3, 3.6.2); a member of an unexpected type (CBOR null) or an empty scope array on an existing token -> 4.00, the token stays (only the id alone deletes, spec 2.6.7.2 / 3.5.4.2); an update carrying only an optional member (`sub`) is not "id only", 2.04 and the token stays |
 | `AtTable` access token lookup | 2 | `oc_core_find_at_entry_by_access_token`: match, miss, prefix/longer id; empty or NULL id never matches an unused slot |
 
 ---
 
 Replay Protection (14 tests)
 
-**Source:** `api/oc_replay.c`
+**Source:** `src/security/oc_replay.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -374,9 +388,9 @@ Replay Protection (14 tests)
 ---
 
 
-OSCORE Engine Security (65 tests)
+### test_oc_oscore_echo_tx.cpp — OSCORE Engine Security (69 tests)
 
-**Source:** `security/oc_oscore_engine.c` (unified anchor/seen-responder echo ring and inbound OSCORE process path)
+**Source:** `src/security/oc_oscore_engine.c` (unified anchor/seen-responder echo ring and inbound OSCORE process path)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -424,7 +438,10 @@ OSCORE Engine Security (65 tests)
 | `InnerOscoreOptionReceivesSecuredBadOption` | OSCORE option in authenticated inner options receives secured 4.02 |
 | `OutboundUnicastRequestIsEncryptedAndSent` | Sender context encrypts a unicast request, advances SSN and dispatches the OSCORE frame |
 | `OutboundMulticastRequestIsEncryptedAndSent` | Sender context encrypts a multicast NON request, advances SSN and dispatches the OSCORE frame |
+| `OutboundUnicastToFullQueueReleasesEncryptedCopy` | A CON request is encrypted into a copy; the copy that finds the event queue full is released, not leaked (ASan) |
 | `OutboundResponseIsEncryptedAndSent` | Recipient context encrypts a normal response without consuming a sender SSN |
+| `OutboundObserveResponseCarriesMaxAgeEncrypted` | Protected observe notification: without Max-Age no outer Max-Age (0) is added; with Max-Age 30, Observe and OSCORE are outer, no outer Max-Age, and the protected frame is exactly 2 bytes longer (Max-Age in the ciphertext). The serializer cases are `test_coap.cpp` `MaxAge_*` |
+| `ResponseToARequestThatReKeyedItsOwnTokenIsDropped` | A POST /auth/at that changes the key of the token protecting it is applied but gets no 2.04: its contexts freed, only the sender context rebuilt, no recipient context for the response (RFC 8613 8.3); key rotation per spec 3.5.4.1 uses a new token |
 | `EmptyDecryptedPayloadReceivesBadRequest` | Authenticated request with an empty inner plaintext receives 4.00 |
 | `OutboundAckRequestIsDropped` | ACK carrying a request code is dropped on the outbound path |
 | `OutboundMulticastWithoutSModeFlagIsDropped` | Multicast message without the S-mode flag is dropped |
@@ -438,7 +455,8 @@ OSCORE Engine Security (65 tests)
 | `OutboundResponseNotSharedIsEncryptedInPlace` | Response with `ref_count` 1 is encrypted in place and sent |
 | `OutboundUnicastConRequestSharedIsClonedAndStaysPlaintext` | Shared unicast CON request (`ref_count` 2, the CON transaction) is cloned; the original stays plaintext, only the engine's reference is released |
 | `OutboundMulticastRequestSharedIsClonedAndStaysPlaintext` | Shared multicast request is cloned; the original stays plaintext |
-| `MulticastRequestWithTokenWithoutGroupAddressIsSilentlyDropped` | A multicast OSCORE request whose token has no group addresses is discarded before decryption and context creation, no reply (spec 2.6.9.1 + 2.5.9.6) |
+| `MulticastRequestWithTokenWithoutGroupAddressIsSilentlyDropped` | A multicast OSCORE request whose token has no group rights (an `if.p` token: no group addresses, no `if.g.s`) is discarded before decryption and context creation, no reply (spec 2.6.9.1 + 2.5.9.6) |
+| `MulticastRequestWithIfGsTokenIsDecrypted` | A multicast OSCORE request with an `if.g.s` token (no group address list, but all group addresses, spec 3.5.3) is decrypted and queued for RI, no echo; the `/k` ACL decides |
 | `MulticastEchoResponseEncryptFailureFreesTheTemporaryContext` | An encrypt error frees the temporary 'Response Sender Context' of a multicast caused echo response (`--wrap=oc_oscore_encrypt`) |
 | `InboundRequestWithFullQueueReleasesTheMessage` | decrypted inbound request, the hand-over to the CoAP engine is rejected (queue full): the message is released |
 | `OutboundMulticastWithFullQueueReleasesTheMessage` | outbound multicast (encrypted in place), the hand-over for sending is rejected: handed to `oc_message_post` and released there (`--wrap=oc_message_post`) |
@@ -450,7 +468,7 @@ OSCORE Engine Security (65 tests)
 
 ### test_smode_refcount.cpp — S-Mode Message Ref-Count Lifecycle (8 tests)
 
-**Source:** `security/oc_oscore_engine.c`, `messaging/coap/transactions.c` (manual replay of add_ref/unref primitives)
+**Source:** `src/security/oc_oscore_engine.c`, `src/messaging/coap/transactions.c` (manual replay of add_ref/unref primitives)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -467,7 +485,7 @@ OSCORE Engine Security (65 tests)
 
 ### test_smode_send_refcount.cpp — S-Mode Ref-Count via Real `coap_send_transaction()` (8 tests)
 
-**Source:** `messaging/coap/transactions.c`, exercised through the production `coap_send_transaction()` path with linker `--wrap` stubs for `oc_main_initialized`, `coap_send_message`, and `oc_etimer_restart`
+**Source:** `src/messaging/coap/transactions.c`, exercised through the production `coap_send_transaction()` path with linker `--wrap` stubs for `oc_main_initialized`, `coap_send_message`, and `oc_etimer_restart`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -484,7 +502,7 @@ OSCORE Engine Security (65 tests)
 
 ### test_oc_knx_helpers.cpp - KNX Helpers (35 tests)
 
-**Source:** `api/oc_knx_helpers.c`
+**Source:** `src/resources/knx/oc_knx_helpers.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -502,11 +520,11 @@ OSCORE Engine Security (65 tests)
 
 ### test_oc_endpoint.cpp — Endpoint Handling (42 tests)
 
-**Source:** `api/oc_endpoint.c`
+**Source:** `src/core/oc_endpoint.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
-| `EndpointCompare` | 5 | Full compare (same, different port/addr, multicast, NULL) |
+| `EndpointCompare` | 5 | Full compare (same, different src/port/addr, multicast, NULL) |
 | `EndpointCompareAddress` | 3 | Address-only compare (ignores port) |
 | `EndpointCopy` | 3 | Deep copy, NULL src/dst safety |
 | `IsLinkLocal` | 5 | fe80:: detection, global, loopback, NULL, non-IPv6 |
@@ -522,9 +540,9 @@ OSCORE Engine Security (65 tests)
 
 ---
 
-### test_oc_knx_fp.cpp — Group Object & FP Tables (89 tests)
+### test_oc_knx_fp.cpp — Group Object & FP Tables (112 tests)
 
-**Source:** `api/oc_knx_fp.c`
+**Source:** `src/resources/knx/oc_knx_fp.c`. The file runs a second time without `OC_PUBLISHER_TABLE`, see `PublisherOff` below; the publisher tests are left out there.
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -534,18 +552,19 @@ OSCORE Engine Security (65 tests)
 | `GoTableSearch` | 17 | GO-table size/bounds, find-first/next by GA (incl. negative-index underflow guard, commit b677b04f), empty-slot search, cflags/ga-len getters |
 | `FpTableSizes` | 5 | Recipient/publisher table size + entry bounds, no-IID default |
 | `FpFindIdFromPayload` | 5 | id-from-payload lookup (in-range, above-range, negative, no-match, NULL) |
-| `GoTableHref` | 7 | href getter + find-first/next by href, sending-GA lookup |
+| `GoTableHref` | 8 | href getter + find-first/next by href, sending-GA lookup; storing an entry from inside a handler hands the encoder back to the handler's response buffer |
 | `RecipientTable` | 1 | Recipient index-from-id match/miss |
-| `BelongsHref` | 3 | href ownership check, non-discoverable skipped |
-| `FpHandlers` | 30 | CoAP handlers of `/fp/g`, `/fp/p`, `/fp/r` and their `/*` entry resources: wrong-Accept rejection, empty table → 2.05, invalid paging (`ps`/`pn`) → 4.00, populated link-format listing incl. comma separator and next-page indicator, entry GET (unknown id → 4.04, known id → 2.05 CBOR), entry DELETE outside loading state → 4.00; POST (loading state) with a repeated ga key keeps the last one: `/fp/p` and `/fp/r` `[1]` then `[]` → empty ga, `/fp/g` `[1]` then `[2]` → `[2]` |
+| `BelongsHref` | 4 | href ownership check, non-discoverable skipped, an entry without href (NULL) belongs to no resource |
+| `FpHandlers` | 50 | CoAP handlers of `/fp/g`, `/fp/p`, `/fp/r` and their `/*` entry resources: a device-scope token may GET `/fp/g/*` (spec 1.1.0, F-080), wrong-Accept rejection, empty table → 2.05, invalid paging (`ps`/`pn`) → 4.00, populated link-format listing incl. comma separator and next-page indicator, entry GET (unknown id → 4.04, known id → 2.05 CBOR), entry DELETE outside loading state → 4.00; POST (loading state) with a repeated ga key keeps the last one: `/fp/p` and `/fp/r` `[1]` then `[]` → empty ga, `/fp/g` `[1]` then `[2]` → `[2]`; an empty array on a key other than ga (`{0: 1, 11: []}`) on an existing entry → 4.00, the entry unchanged, in all three tables (only the id alone deletes, spec 2.5.7.4.1); an update carrying only an unknown member (`{0: 1, 99: 5}`) is not "id only", 2.04 and the entry stays, in all three tables; `/fp/p` and `/fp/r`: `ia` and `grpid` in one request → 4.00 (a1), an update with only `ia` on a multicast entry switches it to unicast (`grpid` cleared), only `grpid` on a unicast entry switches it to multicast (`ia` and the stale `at` cleared, spec 2.5.7.4.2 Table 21, 6.3.2.1); a collection is atomic: one rejected later entry stores nothing, in all three tables; more than 10 entries (`KNX_POST_MAX_ENTRIES`, shared with `/auth/at`) → 4.13, with `/fp/g` and `/fp/p` confirming no entries were stored (spec 2.6.3.3.2); the same id twice in one request → 4.00; two new entries in one request land in two slots |
 | `GroupTableStorage` | 7 | Recipient/publisher entry encode-decode round-trip (NON flag as boolean, empty/multiple GA arrays, absent-NON default) |
 | `RecipientAccessToken` | 5 | `oc_is_unicast_recipient_access_token`: unicast entry naming the token -> true; multicast entry with `at`, unused slot, other/prefix/longer id, empty or NULL id -> false |
+| `GroupMulticasts` | 1 | `oc_register_group_multicasts`: a writable group object whose ga has a publisher entry with `grpid` joins that group (`oc_connectivity_subscribe_mcast_ipv6` wrapped and counted) |
 
 ---
 
 ### test_oc_buffer_settings.cpp — Buffer/PDU Settings (44 tests)
 
-**Source:** `api/oc_main.c` (declared in `include/oc_buffer_settings.h`)
+**Source:** `src/core/oc_main.c` (declared in `include/oc_buffer_settings.h`)
 
 Contract under test (D-001, a deliberate design change; `git log -p -S D-001 -- tests/FINDINGS.md` shows the note): the argument of
 `oc_set_pdu_size()` is the **total CoAP PDU size**, i.e. payload plus the CoAP
@@ -622,7 +641,7 @@ default PDU 1036, `COAP_MAX_MESSAGE_SIZE` 1152, default block 512.
 
 **Serialization modes (`CoapSerializationModes`, 4 tests)**
 
-Pins the three thin wrappers in `messaging/coap/oscore.c` to the mode triple they
+Pins the three thin wrappers in `src/messaging/coap/oscore.c` to the mode triple they
 must forward. Verified non-vacuous: transposing one argument in
 `oscore_serialize_plaintext()` makes `PlaintextWrapperUsesInnerOnlyMode` fail.
 
@@ -645,13 +664,13 @@ must forward. Verified non-vacuous: transposing one argument in
 
 Core Resources & Device Info (57 tests)
 
-**Source:** `api/oc_core_res.c`
+**Source:** `src/resources/ri/oc_core_res.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
 | `DeviceHostname` | 12 | Set stores the label (store first), overwrite; NULL, empty, over-`HNAME_MAX_SIZE` and with-domain (`.`) rejected (previous name kept); load uses the stored name, no or an invalid (old `.local`) stored name gives the default `knx-<serial>` and stores it; `oc_core_reset_device_hostname_to_default` sets and stores the default (returns 0); a failed store returns -1 and RAM still holds the default, at reset and at load without storage |
 | `DeviceInfo` | 29 | Firmware/hardware/app version (hwv stored by reference), manufacturer/model/manufacturing-date setters, ia/iid/fid set-and-store range validation; set-and-store of ia/iid/fid/fwv/apv writes the value to storage, and a failed store keeps the new value in RAM |
-| `CoreResourceByIndex` | 6 | Resource-by-index bounds (negative, out-of-range, first); every `oc_core_resource_t` value names the resource at that position in the linked list (URI per index, with and without `OC_PUBLISHER_TABLE`), the table covers all `OC_NUM_CORE_RESOURCES`, the list ends after `/.well-known/core` |
+| `CoreResourceByIndex` | 6 | Resource-by-index bounds (negative, out-of-range, first); every `oc_core_resource_t` value names the resource at that position in the registry (URI per index, with and without `OC_PUBLISHER_TABLE`), the table covers all `OC_NUM_CORE_RESOURCES`, no core resource is linked through `next` (the registry orders them) |
 | `CheckUrnKnxQuery` | 2 | `urn:knx` query-value prefix match |
 | `CheckResourceByRt` | 4 | Resource type match (exact, wildcard, mismatch, no-rt default) |
 | `CheckResourceByIf` | 4 | Interface match (exact, wildcard, mismatch, no-if default) |
@@ -660,7 +679,7 @@ Core Resources & Device Info (57 tests)
 
 ### test_oc_knx_dev.cpp — Device Programming Mode & Resource Handlers (57 tests)
 
-**Source:** `api/oc_knx_dev.c`; linked with `-Wl,--wrap=oc_main_initialized`, `-Wl,--wrap=knx_dns_sd_update_service` and `-Wl,--wrap=oc_core_get_core_resource_by_index` (counts the lookups of the list GETs, pass through)
+**Source:** `src/resources/knx/oc_knx_dev.c`; linked with `-Wl,--wrap=oc_main_initialized`, `-Wl,--wrap=knx_dns_sd_update_service` and `-Wl,--wrap=oc_core_get_core_resource_by_index` (counts the lookups of the list GETs, pass through)
 
 **Programming mode (`KnxDeviceProgrammingMode`, 6 tests)**
 
@@ -681,8 +700,8 @@ device resources (`/dev/sn`, `/dev/hwv`, `/dev/fwv`, `/dev/hwt`, `/dev/model`,
 `/dev/port`, `/dev/mport`, `/dev/ap/pv`, `/dev/mid`, `/dev/ipv6`, dev/ap lists)
 exercised directly at handler level: wrong-Accept → bad request, happy-path
 content, empty-payload PUT → bad request, and array-size validation. The `/dev` and the app list GET
-(`DevListWalksTheCoreChainOnce`, `ApListWalksTheCoreChainOnce`) answer 2.05 with their first entry and the one
-after it and walk the core resource chain once (one lookup by index).
+(`DevListLooksUpEachEntryByIndex`, `ApListLooksUpEachEntryByIndex`) answer 2.05 with their first entry and the one
+at the next index and look up each listed entry once by index (core resources are not chained).
 `/dev/hname`, `/dev/iid` and `/dev/fid` are read-only (PUT is optional in the
 specification; IID and FID are written via `/.well-known/knx/ia`), so only their
 GET handlers are tested plus a check that no PUT handler is registered.
@@ -696,7 +715,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_oc_clock.cpp — RFC3339 Clock Helpers (12 tests)
 
-**Source:** `api/oc_clock.c`
+**Source:** `src/util/oc_clock.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -717,7 +736,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_oc_knx.cpp — KNX Core (34 tests)
 
-**Source:** `api/oc_knx.c`
+**Source:** `src/resources/knx/oc_knx.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -731,22 +750,22 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ---
 
-### test_oc_knx_fb.cpp — Functional Block Helpers (18 tests)
+### test_oc_knx_fb.cpp — Functional Block Helpers (22 tests)
 
-**Source:** `api/oc_knx_fb.c`
+**Source:** `src/resources/knx/oc_knx_fb.c`
 
-**Functional-block discovery (18 tests)**
+**Functional-block discovery (21 tests)**
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
 | `CheckIfFunctionalBlocksNeedToAdd` | 7 | rt/if query + wildcard matching against `urn:knx:fb`/`ll` |
-| `CountFunctionalBlocks` | 11 | Distinct FB counting, page-full behavior, `/f` listing, and `/f/{id}` datapoint pagination and unknown-block handling |
+| `CountFunctionalBlocks` | 15 | Distinct FB counting, page-full behavior, `/f` listing, and `/f/{id}` datapoint pagination and unknown-block handling; without `ps` a `/f/{id}` page of long datapoint links holds as many as fit the buffer and `l=ps` reports that size (F-078) (handlers called with a bounded encoder, `test_helpers_guarded_get.h`); a GET with Observe 0 on `/f` and `/f/{fb}` (through `oc_ri_invoke_coap_entity_handler`) gets 2.05 without an Observe option and registers no observer |
 
 ---
 
 ### test_oc_timer.cpp — Timer Operations (7 tests)
 
-**Source:** `util/oc_timer.c`
+**Source:** `src/util/oc_timer.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -760,9 +779,9 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ---
 
-### test_coap_receive_payload.cpp — Request Payload Size Limits and Reject Replies (14 tests)
+### test_coap_receive_payload.cpp — Payload Limits, Client Transfers and Reject Replies (17 tests)
 
-**Source:** `messaging/coap/engine.c` (`coap_receive`, called directly with a plain request; network faked with `--wrap` of `oc_main_initialized`, `coap_send_message`, `oc_etimer_restart`)
+**Source:** `src/messaging/coap/engine.c` (`coap_receive`, called directly with a plain request; network faked with `--wrap` of `oc_main_initialized`, `coap_send_message`, `oc_etimer_restart`)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -770,6 +789,8 @@ init / DNS-SD re-register) and are covered by the runtime suite
 | `CoapReceivePayload.NonRequestAboveOneBlockGets413WithSize1` | NON request, payload one block + 1 B: NON 4.13 with Size1 = block size |
 | `CoapReceivePayload.RequestOfExactlyOneBlockIsNotRejectedForItsSize` | exactly one block: processed further, no RST and no 4.13 |
 | `CoapReceivePayload.ClientResponseAboveOneBlockReachesTheCallbackComplete` | client side: ACK 2.05 without Block2 with 513 and 767 payload bytes reaches the client callback complete (not cut at one block); the one-shot callback is released, nothing is sent |
+| `CoapReceivePayload.ClientBlock2RequestsTheNextBlockAndDeliversTheCompleteBody` | a CON Block2 response (64 B, M=1) triggers an empty ACK and a CON GET for block 1 with the same token, URI and query; the final ACK block contributes the last 36 bytes, invokes the callback once with all 100 bytes, and releases callback, transaction and response buffer |
+| `CoapReceivePayload.EmptyAckKeepsTheCallbackUntilTheSeparateResponse` | a tokenless empty ACK clears the request transaction without invoking or removing the callback; a later CON response with its own MID delivers the payload once, releases the callback and gets exactly one four-byte empty ACK |
 | `CoapReceivePayload.ClientResponseOfMaxAppDataSizeIsRejectedBeforeTheCallback` | client side: a response of exactly 768 bytes fails in the parser (4.13), the callback is not called and stays registered; the rejected ACK is not answered (nothing sent) |
 | `CoapReceivePayload.RejectedConSeparateResponseGetsAnEmptyReset` | client side: a CON separate response of 768 bytes (4.13) is answered with exactly one empty RST: code 0.00, the response's MID, no token (RFC 7252 4.2); the callback is not called and stays registered |
 | `CoapReceivePayload.RejectedResetIsIgnored` | a RST whose parse fails (oversized payload, 4.13) gets no reply |
@@ -780,12 +801,13 @@ init / DNS-SD re-register) and are covered by the runtime suite
 | `CoapReceivePayload.ConMessageWithUnknownVersionIsIgnored` | a CON with version 2 gets no reply, not even a RST (RFC 7252 3) |
 | `CoapReceivePayload.MessageShorterThanTheHeaderIsIgnored` | a 3-byte datagram gets no reply (no MID to reset) |
 | `CoapReceivePayload.ConRequestWithUnknownCriticalOptionGetsAck402` | a well formed CON GET with an unknown critical option (9) keeps the error reply: ACK 4.02 Bad Option, same MID (RFC 7252 5.4.1) |
+| `CoapReceivePayload.NonRequestWithUnknownCriticalOptionGetsNon402AndKeepsTheToken` | a NON GET with an unknown critical option gets NON 4.02 with the next locally generated MID, the complete eight-byte token and no payload |
 
 ---
 
 ### test_coap_receive_notify.cpp — Separate Responses and Notifications in coap_receive (3 tests)
 
-**Source:** `messaging/coap/engine.c` (`coap_receive`), `api/oc_ri.c` (separate response branch, `oc_notify_observers()` after a PUT), `messaging/coap/separate.c`; app resource `/p/1` (observable, GET answers with a separate response, PUT answers 2.04); linked with `-Wl,--wrap=oc_main_initialized`, `-Wl,--wrap=oc_etimer_restart`, `-Wl,--wrap=coap_send_message` (records each sent message) and `-Wl,--wrap=calloc` (fails one armed allocation of a separate response store)
+**Source:** `src/messaging/coap/engine.c` (`coap_receive`), `src/resources/ri/oc_ri.c` (separate response branch, `oc_notify_observers()` after a PUT), `src/messaging/coap/separate.c`; app resource `/p/1` (observable, GET answers with a separate response, PUT answers 2.04); linked with `-Wl,--wrap=oc_main_initialized`, `-Wl,--wrap=oc_etimer_restart`, `-Wl,--wrap=coap_send_message` (records each sent message) and `-Wl,--wrap=calloc` (fails one armed allocation of a separate response store)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -795,24 +817,75 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ---
 
-### test_coap_blockwise_server.cpp — Server Side Block-wise Transfer (6 tests)
+### test_coap_receive_oscore_admission.cpp — Server Side OSCORE Replay and Echo Admission (12 tests) — fixture
 
-**Source:** `messaging/coap/engine.c` (`coap_receive()`, Block1/Block2 server path), `api/oc_ri.c` (response buffer); app resource `/p/1` (GET 100 bytes CBOR, POST records the body); linked with `-Wl,--wrap=oc_main_initialized`, `-Wl,--wrap=oc_etimer_restart`, `-Wl,--wrap=coap_send_message`
+**Source:** `src/messaging/coap/engine.c` (`coap_receive()` replay/Echo admission of `OSCORE_DECRYPTED` requests, `coap_send_response_with_empty_application_payload[_with_delay]()`, `coap_send_delayed_echo_response()`), `src/security/oc_replay.c`; app resource `/p/1` (GET, no scope); the request is plain CoAP with kid and PIV on the endpoint (no decryption); linked with `-Wl,--wrap=oc_main_initialized`, `-Wl,--wrap=oc_etimer_restart`, `-Wl,--wrap=coap_send_message` (records bytes and endpoint flags), `-Wl,--wrap=oc_set_delayed_callback_ms` (records the delayed Echo response, fired by the test), `-Wl,--wrap=coap_knx_echo_max_delay_ms`, `-Wl,--wrap=oc_clock_time` (fixed clock) and `-Wl,--wrap=malloc` (fails the armed allocation)
+
+| Test | What it verifies |
+|------|-----------------|
+| `UnknownUnicastClientIsChallengedWithADelayedEchoResponse` | CON from a client without a replay record: nothing sent at once, one delayed callback with 0 ms; firing it sends ACK 4.01 with the request MID and token, an 8-byte Echo equal to the clock, flag `ECHO_CAUSED_BY_UC_SRC`; handler not called, no transaction, no record |
+| `UnknownMulticastClientGetsAUnicastEchoResponseWithARandomDelay` | 8 multicast NON requests with maximum 50 ms: each delay is below 50; the replies are unicast NON 4.01 with the request token, Echo and `ECHO_CAUSED_BY_MC_SRC` |
+| `MulticastEchoResponseIsNotDelayedWithoutAMaximum` | maximum 0 (`osn_delay`): a multicast challenge is scheduled with 0 ms |
+| `EchoResponseIsSentAtOnceWhenTheDelayedContextCannotBeAllocated` | the delayed context allocation fails: ACK 4.01 with Echo is sent at once, no delayed callback |
+| `ReplayedSsnGetsAnImmediate401WithoutEcho` | the SSN of the replay record again: immediate ACK 4.01 with the token, no Echo and no Echo source flag; handler not called |
+| `ReplayedMulticastRequestIsDroppedSilently` | F-079 (skipped, open): a replayed multicast NON gets no reply, no delayed callback, handler not called; fails today with a unicast 4.01 |
+| `SynchronisedClientReachesTheHandler` | the next SSN of a known client: no challenge, the handler answers ACK 2.05 |
+| `EchoOfTheWrongLengthGets402` | a 4-byte Echo: ACK 4.02 with the token, no Echo; handler not called, no record |
+| `EchoAtTheFreshnessLimitAdmitsTheClient` | an Echo exactly 10 s old is accepted: the handler answers 2.05, the next SSN passes without a challenge, the admitted SSN is then a replay |
+| `StaleEchoGets401WithANewEcho` | an Echo one tick older than 10 s: immediate ACK 4.01 with a new Echo equal to the clock; handler not called, no record |
+| `EchoFromTheFutureIsTreatedAsStale` | an Echo later than the clock: the unsigned difference exceeds the limit, 4.01 with Echo |
+| `FreshEchoResynchronisesAClientLeftOfTheWindow` | a record at SSN 1000 and a fresh Echo with SSN 3: the handler runs, the record restarts at 3 (4 synced, 3 replayed) |
+
+Open finding: F-079 (a replayed multicast request gets a unicast 4.01 instead of being dropped); `ReplayedMulticastRequestIsDroppedSilently` is skipped until it is fixed.
+
+---
+
+### test_coap_blockwise_server.cpp — Server Side Block-wise Transfer (11 tests)
+
+**Source:** `src/messaging/coap/engine.c` (`coap_receive()`, Block1/Block2 server path), `src/resources/ri/oc_ri.c` (response buffer); app resource `/p/1` (GET 100 bytes CBOR, POST records the body); linked with `-Wl,--wrap=oc_main_initialized`, `-Wl,--wrap=oc_etimer_restart`, `-Wl,--wrap=coap_send_message`
 
 | Test | What it verifies |
 |------|-----------------|
 | `Block1RequestIsReassembledAndHandledOnce` | POST in two blocks (64 + 36): block 0 -> 2.31 Continue (Block1 num 0), handler not called; block 1 -> handler called once with all 100 bytes, 2.04 with Block1 num 1 |
 | `Block1RepeatedBlockDoesNotDoubleThePayload` | a repeated block 0 (new MID) does not double the body, the handler gets exactly 100 bytes |
 | `Block1GapIsRejectedAndNotHandled` | block 0 then block 2 (gap): not taken, the handler is never called |
+| `Block1FollowUpWithADifferentQueryDoesNotConsumeTheOriginalTransfer` | block 1 with a different query gets RST 0.00 and never calls POST; retrying with the original query completes the original body once and preserves its query |
+| `UnblockedPostReplacesAnIncompleteBlock1Body` | an ordinary POST replacing an incomplete Block1 upload delivers only the fresh body, once, and gets ACK 2.04 with its own MID |
+| `InitialBlock2PostDeliversItsBodyAndQuery` | a POST starting a Block2 exchange still delivers its complete request body and query to the handler, once, and gets ACK 2.04 |
 | `Block2FollowUpWithTheSameQueryIsServedFromTheBuffer` | GET `/p/1?x=1`, block size 64: block 0 (M=1, ETag, CBOR); follow-up block 1 with the same query from the buffer: last 36 bytes, M=0, same ETag and Content-Format CBOR, handler called once |
 | `Block2FollowUpCarriesTheHandlersContentFormat` | resource default octet-stream, the GET handler answers CBOR: block 0 and the follow-up block 1 both carry CBOR (the buffer takes the handler's format) |
 | `Block2FollowUpWithoutTheQueryIsNotServedFromTheBuffer` | the response buffer is keyed by the query too: block 1 without the query is not served from it, handler not called again |
+| `UnblockedGetReplacesAnIncompleteBlock2Response` | an ordinary GET replacing an unfinished Block2 download calls GET again and returns its complete 100-byte response, without a stale Block2 option |
+| `DuplicateConRequestDoesNotInvokeTheHandlerTwice` | receiving the same plain CON twice invokes GET once and leaves no transaction; with the send wrapper not populating the response cache, no second response is sent |
+
+**Engine coverage checkpoint:** eight characterization tests added against baseline
+`a8b432feba580c61181120f6c67635061f5ada77`, without production changes.
+Measured with `linux-coverage-gcc` and gcovr 8.8 over the full unit suite;
+coverage counters cleared before the final run.
+
+| `src/messaging/coap/engine.c` | Before | After | + OSCORE admission |
+|-------------------------|--------|-------|--------------------|
+| Lines | 346/601 (57.6%) | 391/601 (65.1%) | 450/601 (74.9%) |
+| Branches | 235/560 (42.0%) | 270/560 (48.2%) | 306/560 (54.6%) |
+| Functions | 11/13 (84.6%) | 11/13 (84.6%) | 13/13 (100%) |
+
+The third column adds `test_coap_receive_oscore_admission.cpp` (11 tests,
+base `7033e6ba`): full suite 2176/2176 passed, the new suite passed under GCC
+and Clang ASan/UBSan (shuffled, repeat 3); the admission block is fully
+covered in lines and branches.
+
+Validation in Docker: full GCC coverage suite 2165/2165 passed (including
+`LayeringCheck`); the two changed suites passed 28/28 under both GCC and
+Clang ASan/LSan/UBSan. Runtime and conformance were not rerun: only unit tests
+and this catalog changed. This is a first coverage increment, not complete
+refactoring coverage: client Echo re-request, client Block1 recovery and
+allocation/serialization failures remain follow-up areas.
 
 ---
 
-### test_coap_engine.cpp — Duplicate Detection + Response Cache (12 tests)
+### test_coap_engine.cpp — Duplicate Detection + Response Cache (13 tests)
 
-**Source:** `messaging/coap/engine.c`
+**Source:** `src/messaging/coap/engine.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -824,16 +897,17 @@ init / DNS-SD re-register) and are covered by the runtime suite
 | `DuplicateDetection.HistoryWrapsAround` | Circular buffer evicts oldest entries |
 | `ClearRequestHistory.WipedMessageBecomesFreshAgain` | `oc_coap_clear_request_history()` makes a prior MID fresh again |
 | `ClearResponseHistory.SafeOnEmptyCache` | `oc_coap_clear_response_history()` is safe on an empty cache |
-| `ResponseCacheStore.PiggybackedAckIsCached` | Piggybacked ACK response is cached |
-| `ResponseCacheStore.EmptyAckIsNotCached` | Empty ACK is not cached |
-| `ResponseCacheStore.NonAckIsNotCached` | Non-ACK message is not cached |
-| `ResponseCacheStore.ShortMessageIsNotCached` | Too-short message is not cached |
+| `ResponseCacheStore.PiggybackedAckIsCachedAndShrunk` | A piggybacked ACK is cached (the cache holds a reference) and its full PDU allocation is cut to the message bytes (`malloc_usable_size` < PDU size, glibc); after the caller's unref, a duplicate of the request re-sends the identical bytes (`oc_send_buffer` wrapped) |
+| `ResponseCacheStore.EmptyAckIsNotCached` | Empty ACK is not cached (a duplicate re-sends nothing) |
+| `ResponseCacheStore.NonAckIsNotCached` | Non-ACK message is not cached (a duplicate re-sends nothing) |
+| `ResponseCacheStore.ShortMessageIsNotCached` | Too-short message is not cached (a duplicate re-sends nothing) |
+| `ResponseCacheStore.OverwrittenSlotFreesItsMessage` | `2 * OC_RESPONSE_CACHE_SIZE + 1` responses: a cached message keeps the cache's reference until store number `OC_RESPONSE_CACHE_SIZE + 1` reuses its slot, then the reference is released; no message leaks (LeakSanitizer) |
 
 ---
 
-### test_coap_transactions.cpp — Transaction Lifecycle (20 tests)
+### test_coap_transactions.cpp — Transaction Lifecycle (21 tests)
 
-**Source:** `messaging/coap/transactions.c`
+**Source:** `src/messaging/coap/transactions.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -852,17 +926,18 @@ init / DNS-SD re-register) and are covered by the runtime suite
 | `FreeAllClearsEverything` | Empties entire list |
 | `FreeByEndpointSelectiveRemoval` | Only removes matching endpoint |
 | `MultipleTransactionsCoexist` | Multiple tracked simultaneously |
-| `ZeroLengthTokenMatch` | Both token_len==0 matches correctly |
+| `ZeroLengthTokenNeverMatches` | A tokenless packet never matches a tokenless transaction (zero length compare guard) |
 | `NewTransactionWithMessageAdoptsTheMessage` | `coap_new_transaction_with_message()` adopts the caller's message (no copy, ref_count stays 1), mid/token/endpoint set |
 | `NewTransactionWithMessageRegistersInList` | The adopting transaction is registered in the list |
 | `RegisterAsTransactionHandlerIsCallable` | Transaction-handler registration is callable |
 | `InitEngineRegistersHandler` | Engine init registers the transaction handler |
+| `NewTransactionBeyondLimitReturnsNullUntilOneIsCleared` | `COAP_MAX_OPEN_TRANSACTIONS` transactions are created, the next returns NULL and is not listed, creation works again after one is cleared |
 
 ---
 
-### test_coap_observe.cpp — Observer Management + Notify (31 tests)
+### test_coap_observe.cpp — Observer Management + Notify (57 tests)
 
-**Source:** `messaging/coap/observe.c`
+**Source:** `src/messaging/coap/observe.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -883,7 +958,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 | `RegistrationAcceptsNonTrue` | Accepts `non=true` observe registration |
 | `NotifyObserverCanFilterByEndpoint` | Endpoint-filtered notification does not notify another endpoint |
 | `NotifyObserverBuildsAndSendsNotification` | Builds and sends a notification for a matching observer |
-| `NotifyKObserversNullPayloadIsSafe` | `coap_notify_k_observers(NULL, …)` is a no-op |
+| `NotifyKObserversNullPayloadIsSafe` | `oc_knx_notify_k_observers(NULL, …)` is a no-op |
 | `NotifyKObserversZeroLengthIsSafe` | Zero-length payload is a no-op |
 | `NotifyKObserversNoObserversIsSafe` | Empty /k observer list completes safely |
 | `NewTokenInTheFreedSlotDoesNotReachTheOldSubscriber` | Token A (`<ga>` [1]) deleted, token B (`if.g.s`) in the same table slot: the old subscriber of A gets no `/k` event with B's rights |
@@ -891,18 +966,42 @@ init / DNS-SD re-register) and are covered by the runtime suite
 | `TokenUpdatedInPlaceKeepingTheGroupAddressStillNotifies` | `<ga>` [1] updated to [1, 3]: events for GA 1 and GA 3 both reach the subscriber |
 | `NotifyObserversAboveTheBlockSizeSendsTheFirstBlockAndKeepsTheRest` | observer with Block2 64, 100 B value: CON notification with Block2 0/M=1/64, Size2 100, ETag, Observe; GET block 1 returns the last 36 B with M=0, the same ETag and Content-Format application/cbor from the buffer (handler not called again), buffer freed after |
 | `NotifyObserversAboveTheBlockSizeTwiceReplacesTheUnfinishedBuffer` | two notifications above the block size (value changes per call), block 1 of the first not fetched: both calls return, each goes out as block 0 of its own value with its own ETag; GET block 1 returns the last 36 B of the NEW value with the NEW ETag and M=0 (handler not called again); old buffer freed, none left after the last block |
-| `RemoveObserversByAccessTokenRemovesOnlyThatTokensObservers` | `coap_remove_observers_by_access_token`: removes every observer of that token (any client/port), keeps the others; NULL → 0 |
-| `NotifyKObserversOnlyToSubscribersWithTheGroupAddressInScope` | `/k` events only to observers whose subscription token covers the GA (spec 3.5.4.1, 2.6.9.3): `if.g.s` → all, `<ga>` list → only listed GAs, no token → none |
+| `RemoveObserversByAccessTokenRemovesOnlyThatTokensObservers` | `oc_knx_remove_observers_of_access_token`: removes every observer of that token (any client/port), keeps the others |
 | `NotifyObserversNullResourceReturnsZero` | NULL resource → returns 0 |
 | `NotifyObserversNoObserversReturnsZero` | Zero observers short-circuits → 0 |
 | `GetObserveCounterIsAtLeastFirstNotificationValue` | Observe counter ≥ first-notification value |
 | `GetObserveCounterIsStableWithoutNotifications` | Counter stable when no notifications sent |
+| `RegistrationRejectedWhenObserverListIsFull` | With `COAP_MAX_OBSERVERS` unsecured observers registered, a new registration (also from the same address on a new port: no identity beyond the port) returns -1 and the count stays at the limit |
+| `RefreshAcceptedWhenObserverListIsFull` | At the limit, a re-registration from an existing endpoint still succeeds (returns 1) |
+| `ExpiredObserverFreesSlotWhenListIsFull` | At the limit, an observer whose lifetime elapsed is removed to make room for the new registration |
+| `SameClientFromNewPortReclaimsItsSlotWhenListIsFull` | At the limit, the same OSCORE client (address, kid, kid context) on a new port takes over its oldest registration of the resource |
+| `OtherClientDoesNotReclaimWhenListIsFull` | At the limit, a client with another kid is rejected and no observer is removed |
+| `SameClientFromOtherAddressDoesNotReclaimWhenListIsFull` | At the limit, the same kid from another address is rejected |
+| `SameClientOtherResourceDoesNotReclaimWhenListIsFull` | At the limit, the same client registering another resource is rejected |
+| `SameClientTwoPortsAreTwoObserversBelowLimit` | Below the limit, the same client on two ports keeps two observers |
+| `RegistrationRejectsNegativeLifetime` | `lt=-5` is rejected (-2), no observer |
+| `BareNonKeepsConfirmableNotifications` | Only `non=true` selects NON notifications, a bare `non` keeps CON |
+| `RejectedReregistrationKeepsExistingObservation` | An invalid re-registration (`lt=0`) is rejected and leaves the running observation |
+| `ExpiredObserverRemovedOnNextRegistration` | Any registration drops expired observers, not only one into a full list |
+| `RegistrationNeedsNoHeap` | Observers come from a static pool: a registration succeeds with every heap allocation failing |
+| `RemovalByTokenReadsOnlyTheTokenLength` | Removal by token reads only `token_len` bytes of the given token (ASan) |
+| `RegistrationRejectsNonBooleanUpdateOnlyOnK` | A non-boolean `u` is rejected on `/k` (`u=false` starts no update timer), any other resource ignores `u` |
+| `NotifyDispatchedCountsQueuedNotification` | `coap_notify_observers_dispatched()` counts a queued notification |
+| `BlockwiseHrefAllocationFailureSkipsOnlyThatObserver` | A failed href copy of the blockwise buffer skips only that observer, no write through NULL |
+| `NotifyDispatchedIsZeroForNonMatchingEndpoint` | Endpoint filter without a match → 0 dispatched |
+| `NotifyDispatchedIsZeroWhenBufferAllocationFails` | Notification buffer allocation fails → 0 dispatched |
+| `NotifyDispatchedIsZeroWhenGetIsIgnored` | GET handler ignores the request → 0 dispatched |
+| `CoapObserveKAccess.TwoGaTokensEachGetOnlyTheirGroupAddresses` | The access check runs per observer: tokens {1,2,3} and {3,4}, notifications for 1..5: each observer gets only its own group addresses, 3 reaches both, 5 neither (the scope matrix is `SecAcl.Notify*` in `test_oc_knx_sec.cpp`) |
+| `CoapObserveKAccess.TokenNarrowedAfterRegistrationGetsOnlyNewGroupAddresses` | The check reads the token at notification time: narrowed from `OC_ACL_G` to `<ga>` {7} after the registration → only 7 is notified |
+| `CoapObserveKUpdate.BareUSendsEachTransmittingGroupObjectOnce` | `/k` registration with a bare `u`: the update timer sends one notification per transmitting group object, one per run |
+| `CoapObserveKUpdate.UpdateOnlySendsGroupAddressesOfTheToken` | The first update sends only the group addresses in the observer's `<ga>` token scope |
+| `CoapObserveKUpdate.NoUpdateWithoutU` | Without `u` no update timer is started |
 
 ---
 
-### test_oc_ri.cpp — Resource Interface (114 tests)
+### test_oc_ri.cpp — Resource Interface (118 tests)
 
-**Source:** `api/oc_ri.c`
+**Source:** `src/resources/ri/oc_ri.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -929,25 +1028,28 @@ init / DNS-SD re-register) and are covered by the runtime suite
 | `RiResourceLookup` | 1 | NULL and empty application-resource paths |
 | `RiClientCb` | 9 | Client-callback find-by-mid/token, list traversal, validity, get-by-uri/endpoint/method |
 | `RiEntityHandlerBlockwiseLifetime` | 2 | `oc_ri_invoke_coap_entity_handler`'s own internal blockwise scrub must not free the current request's buffer before the caller (`coap_receive`) is done with it |
-| `RiEntityHandlerPaths` | 13 | Registered-resource GET, PUT, POST, DELETE, malformed payload, and unsupported-method paths; every error code of the handler: 4.00 invalid CBOR, 4.13 truncated CBOR, 4.04 unknown path, 4.01 scoped handler without OSCORE, 4.03 decrypted request outside the token scope, 4.05 unsupported method and FETCH (the handler is not called on an error); deleting a periodic observed resource stops its periodic callback; the core resource lookup takes one lookup by index and walks the chain (`--wrap=oc_core_get_core_resource_by_index` counts them), the chain has `OC_NUM_CORE_RESOURCES` entries and ends with `/.well-known/core`, next NULL |
+| `RiEntityHandlerPaths` | 14 | Registered-resource GET, PUT, POST, DELETE, malformed CBOR, non-CBOR payload passed to the handler, and unsupported-method paths; every error code of the handler: 4.00 invalid CBOR, 4.13 truncated CBOR, 4.04 unknown path, 4.01 scoped handler without OSCORE, 4.03 decrypted request outside the token scope, 4.05 unsupported method and FETCH (the handler is not called on an error); deleting a periodic observed resource stops its periodic callback; the core resource lookup is one lookup by index per core resource, no walk over `next` (`CoreLookupIsByIndex`, `--wrap=oc_core_get_core_resource_by_index` counts them) |
+| `RiEntityHandlerOrder` | 3 | Resource lookup and the payload-free scope check come before the payload is parsed: a malformed payload to an unknown path gets 4.04, to a secured method without OSCORE 4.01 (handler not called); a payload deeper than `KNX_CBOR_MAX_DEPTH` gets 4.00 and the handler is not called |
 
 ---
 
-### test_oc_ri_timed_callbacks.cpp — RI Timed-Event List (3 tests)
+### test_oc_ri_timed_callbacks.cpp — RI Timed-Event List (5 tests)
 
-**Source:** `api/oc_ri.c` (timed-event list, `poll_event_callback_timers`) via `oc_set_delayed_callback` / `oc_remove_delayed_callback`; linked with `-Wl,--wrap=oc_clock_time`, `oc_main_poll()` drives the list
+**Source:** `src/resources/ri/oc_ri.c` (timed-event list, `poll_event_callback_timers`) via `oc_ri_add_timed_event_callback_ticks` / `oc_ri_remove_timed_event_callback`; linked with `-Wl,--wrap=oc_clock_time`, `oc_main_poll()` drives the list
 
 | Test | What it verifies |
 |------|-----------------|
-| `SelfRemovingCallbackReturningDoneRunsOnce` | a callback that removes itself and returns `OC_EVENT_DONE` runs once and is freed once (no double free) |
-| `SelfRemovingCallbackReturningContinueRunsOnce` | same with `OC_EVENT_CONTINUE`: the removed entry is not restarted, it never fires again |
-| `ContinueRepeatsUntilRemovedFromOutside` | normal path: `OC_EVENT_CONTINUE` repeats, a removal from outside stops it |
+| `CallbackThatRemovesItselfAndReturnsDoneRunsOnce` | a callback that removes itself and returns `OC_EVENT_DONE` runs once and is freed once (no double free) |
+| `CallbackThatRemovesItselfAndReturnsContinueRunsOnce` | same with `OC_EVENT_CONTINUE`: the removed entry is not restarted, it never fires again |
+| `CallbackThatArmsItselfAgainRunsAfterTheNewDelay` | a callback that removes itself and arms itself again with 2 s runs again 2 s later, not earlier |
+| `CallbackThatRemovesAnotherCallbackStopsIt` | a callback that removes another pending callback keeps that one from running |
+| `CallbackReturningContinueRepeatsUntilRemovedFromOutside` | normal path: `OC_EVENT_CONTINUE` repeats, a removal from outside stops it |
 
 ---
 
 ### test_oc_ri_periodic_observe.cpp — Periodic Observe List (4 tests)
 
-**Source:** `api/oc_ri.c` (periodic observe callbacks on the observe list); observer registered through `coap_receive()` (GET + Observe 0 + `lt`), `oc_main_poll()` drives the list; linked with `-Wl,--wrap=oc_clock_time`, `oc_main_initialized`, `coap_send_message`, `oc_notify_observers` (the armed notification deletes its resource)
+**Source:** `src/resources/ri/oc_ri.c` (periodic observe callbacks on the observe list); observer registered through `coap_receive()` (GET + Observe 0 + `lt`), `oc_main_poll()` drives the list; linked with `-Wl,--wrap=oc_clock_time`, `oc_main_initialized`, `coap_send_message`, `oc_notify_observers` (the armed notification deletes its resource)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -960,7 +1062,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_oc_abort.cpp — Abort / Exit / Assert (6 tests)
 
-**Source:** `port/.../oc_assert.h` (`oc_abort`, `oc_exit`, `OC_ASSERT`) — GoogleTest death tests.
+**Source:** `src/port/.../oc_assert.h` (`oc_abort`, `oc_exit`, `OC_ASSERT`) — GoogleTest death tests.
 
 | Test | What it verifies |
 |------|-----------------|
@@ -973,22 +1075,22 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ---
 
-### test_oc_blockwise.cpp — Blockwise Transfer (27 tests)
+### test_oc_blockwise.cpp — Blockwise Transfer (29 tests)
 
-**Source:** `api/oc_blockwise.c`
+**Source:** `src/messaging/coap/oc_blockwise.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
 | `BlockwiseDispatch` | 4 | Outgoing block slicing (offset beyond payload, advances offset, partial/mid slices) |
 | `BlockwiseHandle` | 5 | Incoming block reassembly (sequential append, offset/size overflow, gap, duplicate) |
-| `BlockwiseAlloc` | 12 | Request/response buffer alloc + lookup by href (length and content: a prefix such as `p` does not match `p/1`)/token/mid/client-cb (both request- and response-list variants of each `_by_token`/`_by_mid`/`_by_client_cb` wrapper), including a NULL empty-query lookup |
+| `BlockwiseAlloc` | 13 | Request/response buffer alloc + lookup by href (length and content: a prefix such as `p` does not match `p/1`)/token/mid/client-cb (both request- and response-list variants of each `_by_token`/`_by_mid`/`_by_client_cb` wrapper), including a NULL empty-query lookup and a lookup without Uri-Path (NULL href: matches no stored href, never read) |
 | `BlockwiseScrub` | 6 | Free/scrub buffers (incl. NULL-buffer no-op), ref-count-based reclamation, scrub-for-client-cb on both the request and response lists |
 
 ---
 
 ### test_oc_buffer.cpp — Message Buffer Pool (23 tests)
 
-**Source:** `api/oc_buffer.c`
+**Source:** `src/core/oc_buffer.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1020,7 +1122,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_oc_client_api.cpp — Client API (15 tests)
 
-**Source:** `api/oc_client_api.c`
+**Source:** `src/resources/ri/oc_client_api.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -1029,9 +1131,9 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ---
 
-### test_oc_discovery.cpp — Discovery (`/.well-known/core`) (236 tests)
+### test_oc_discovery.cpp — Discovery (`/.well-known/core`) (237 tests)
 
-**Source:** `api/oc_discovery.c`
+**Source:** `src/resources/ri/oc_discovery.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -1045,9 +1147,9 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ---
 
-### test_oc_etimer.cpp — Event Timers (12 tests)
+### test_oc_etimer.cpp — Event Timers (13 tests)
 
-**Source:** `util/oc_etimer.c`
+**Source:** `src/util/oc_etimer.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1063,12 +1165,13 @@ init / DNS-SD re-register) and are covered by the runtime suite
 | `RestartKeepsTimerPending` | Restart keeps the timer pending |
 | `NextExpirationZeroWhenEmpty` | Next-expiration is 0 when none pending |
 | `NextExpirationNonZeroWhenPending` | Next-expiration is non-zero when pending |
+| `OcEtimerProcess.ExpiredTimersArePostedOnePerPassAndAllFire` | Several timers expired at once: one timer event per pass of the etimer process (the bounded event queue is not flooded), all of them fire |
 
 ---
 
 ### test_oc_knx_client.cpp — KNX Client Redirect (8 tests)
 
-**Source:** `api/oc_knx_client.c`
+**Source:** `src/resources/knx/oc_knx_client.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1083,9 +1186,43 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ---
 
-### test_oc_knx_p.cpp — KNX `/p` Properties Resource (9 tests)
+### test_read_on_init.cpp — Read-on-Init Network Gate (9 tests — fixture)
 
-**Source:** `api/oc_knx_p.c`
+**Source:** `src/resources/knx/oc_knx_fp.c` (`oc_init_datapoints_at_initialization()` and its timed callback). The timed-event registry, `oc_connectivity_get_network_scope()` and the s-mode senders are replaced with `--wrap`; the group object and recipient tables are filled with `test_helpers_tables.h`. Covers what the runtime class `TestReadOnInitNetworkGate` cannot run under the Docker runner.
+
+| Test | What it verifies |
+|------|-----------------|
+| `CallbackPeriodIsTheDelayInClockTicks` | The callback is registered with `OC_CLOCK_MS_TO_TICKS(KNX_READ_ON_INIT_DELAY_MILLISECONDS)`, not the raw ms value (100 ticks = 100 us on Linux before the fix) |
+| `SiteLocalScopeSendsTheRead` | Scope 5 (ULA): one multicast `r` on the sending GA, then done |
+| `GlobalScopeSendsTheRead` | Scope 14 also opens the gate |
+| `UnicastRecipientGetsAUnicastRead` | Recipient with grpid 0: one unicast `r` on the sending GA |
+| `NoScopeWithholdsTheRead` | Scope 0: rescheduled, nothing sent |
+| `ReadIsReleasedWhenScopeReachesSiteLocal` | Withheld (rescheduled) at scope 2, sent once scope reaches 5 |
+| `ScopeDropAfterNetworkUpIsTolerated` | Once up, a drop to scope 2 does not stop the remaining reads |
+| `GivesUpAfterMaxAttemptsWithoutSiteLocalScope` | `KNX_READ_ON_INIT_MAX_ATTEMPTS` reschedules, then done without sending |
+| `NewInitializationResetsTheAttemptCounter` | A new initialization restarts the `KNX_READ_ON_INIT_MAX_ATTEMPTS` budget |
+
+---
+
+### test_oc_knx_publisher.cpp — Publisher of Output Datapoints, S-Mode and /p Observe (50 tests)
+
+**Source:** `src/resources/knx/oc_knx_publisher.c` (publish procedure of output datapoints with the metadata `cov`, `hbt`, `mrt`, KNX IoT Point API 2.5.7.4.3 / 2.5.11.2 / 2.5.11.4 / 2.6.10.2). Clock, timed events, load state, resource lookup and the s-mode sender are replaced with `--wrap`; the sender double only returns the outcome a test sets (rc and dispatched flag), the real sender's group object, recipient and /p observer decisions are covered by `SmodeDispatch.*` in `test_smode_loopback_recursion.cpp`.
+
+| Group | Tests | What it verifies |
+|-------|-------|-----------------|
+| `SendCheck` initial / change | 14 | First evaluation sends (also with hbt 0); unchanged re-evaluation quiet; accumulated small changes; float change at cov quiet (reference kept), above cov sends, decrease, cov 0, negative cov; NaN and infinity; int32 cov and full range; bool toggle |
+| `SendCheck` heartbeat | 8 | Elapsed and restart, one tick early, restart after a change, change wins over heartbeat, `UINT16_MAX`, hbt 0 never sends, `oc_clock_time_t` wrap-around before/after |
+| `SendCheck` mrt | 4 | Initial value not delayed; change held back until mrt elapsed, then sent against the last sent value; heartbeat shorter than mrt waits for mrt; mrt across clock wrap-around |
+| `SendCheck` invalid | 3 | NULL entry, NULL value, unknown type → no send, state unchanged |
+| `SendCheckTimer` | 14 | Start validation (NULL, no entries, count 0, period 0), period in ticks, restart, stop; one initial value per period, a change is not delayed by a pending initial value; failed send keeps the reference and is retried (initial and change), a failed initial value does not block the next; an entry the sender does not dispatch stays pending and the next entry still gets its initial value; only changed/due entries sent; nothing sent outside runtime, all values resent after a reload; callback without list stops |
+| `SendCheckTimer` observe | 4 | The dispatched flag decides, not the return code: delivery to /p observers only (rc -1, dispatched) is committed and uses the period's initial-value slot; start writes `hbt` into `observe_period_seconds` (not for hbt 0, `OC_PERIODIC` or const resources) |
+| `SendCheckTimer` delivery | 3 | Start rejects an entry without `resource_path` and fails when the timed callback cannot be allocated; an s-mode write without recipient or observer stays pending and is retried |
+
+---
+
+### test_oc_knx_p.cpp — KNX `/p` Properties Resource (13 tests)
+
+**Source:** `src/resources/knx/oc_knx_p.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1094,6 +1231,10 @@ init / DNS-SD re-register) and are covered by the runtime suite
 | `KnxPGet.NoAppResourcesReturnsBadRequest` | GET with no app resources → bad request |
 | `KnxPGet.ContentNoneAcceptIsAccepted` | GET with content-none Accept is accepted |
 | `KnxPAppResources.GetReturnsRegisteredDatapointsWithPagination` | GET lists registered datapoints and emits pagination metadata |
+| `KnxPAppResources.GetDefaultPageThatFitsKeepsThePageNumberOnlyLink` | `KNX_PAGE_SIZE + 1` short datapoints, `KNX_PAYLOAD_SIZE` buffer: a full default page and `p.next` `pn=1`, nothing written beyond the buffer |
+| `KnxPAppResources.GetDefaultPageOfLongDatapointsFitsTheResponseBuffer` | F-078: realistic (69-byte) datapoint links, `KNX_PAYLOAD_SIZE` buffer: without `ps` a page holds as many as fit, `l=ps` reports that size, `p.next` `pn=1`, and page 1 continues where page 0 ended |
+| `KnxPAppResources.GetDatapointLongerThanBufferReturnsInternalServerError` | A single link longer than the buffer → 5.00, empty payload, nothing written beyond the buffer |
+| `KnxPAppResources.GetWithObserveIsAnsweredWithoutObserveOption` | GET with Observe 0 on `/p` (through `oc_ri_invoke_coap_entity_handler`, OSCORE client with `if.p`): 2.05 without an Observe option, no observer registered |
 | `KnxPAppResources.PostDispatchesValueToMatchingPutHandler` | POST dispatches a collection value to the matching datapoint PUT handler |
 | `KnxPPost.WrongAcceptReturnsBadRequest` | POST with wrong Accept → bad request |
 | `KnxPPost.EmptyPayloadReturnsOk` | POST with empty payload → OK |
@@ -1103,7 +1244,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_oc_knx_sub.cpp — KNX `/sub` Delete (7 tests)
 
-**Source:** `api/oc_knx_sub.c`
+**Source:** `src/resources/knx/oc_knx_sub.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1119,18 +1260,18 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_oc_knx_swu.cpp — Software Update (105 tests)
 
-**Source:** `api/oc_knx_swu.c`; linked with `-Wl,--wrap=malloc` and `-Wl,--wrap=free` (pass through unless armed: capture a setter's string buffer, poison a block on free) and `-Wl,--wrap=oc_core_get_core_resource_by_index` (counts the lookups, pass through)
+**Source:** `src/resources/knx/oc_knx_swu.c`; linked with `-Wl,--wrap=malloc` and `-Wl,--wrap=free` (pass through unless armed: capture a setter's string buffer, poison a block on free) and `-Wl,--wrap=oc_core_get_core_resource_by_index` (counts the lookups, pass through)
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
 | `KnxSwuGetInt` | 10 | Integer-valued `/swu` resource GETs (protocol, method, result, state, bytes) + wrong-Accept |
 | `KnxSwuGetString` | 5 | String-valued GETs (hwref, lastupdate, lastupdate as `{ "osv": true }` without a real-time clock) + wrong-Accept |
 | `KnxSwuLastUpdateStorage` | 7 | `oc_swu_set_last_update()` stores the timestamp / the no-RTC marker; `oc_swu_read_last_update()` loads the stored value over the manufacturing date, keeps `{ "osv": true }` across a restart, reads a 63 character value, and falls back to the manufacturing date with nothing stored or no storage |
-| `KnxSwuGetGated` | 10 |
+| `KnxSwuGetGated` | 10 | Download-gated GETs (pkgv, pkgname, update) returning not-found / bad-request / OK |
 | `KnxSwuPut` | 11 | PUT validation per resource (wrong Accept, missing/non-typed payload, happy path, upgrade-cb invocation) |
 | `KnxSwuABlock` | 8 | `/swu` block transfer (Accept, ps param, no-callback, fast-path changed) + `po=0` accepted, leading zero is decimal not octal, value is not read beyond its length |
 | `KnxSwuABlockInvalidQuery` | 21 | Parameterised `po`/`ps`/`pkgs` rejection: non-numeric, trailing garbage, negative, zero (ps/pkgs), above INT_MAX, too many digits, empty → all 4.00 with the callback never invoked |
-| `KnxSwuList` | 4 | List GET wrong-Accept, invalid page size (`ps=0`), invalid page number (`pn=-1`) — all rejected before the core resource table is touched; a valid list GET answers 2.05 with the swu sub resources and walks the core chain once (one lookup by index) |
+| `KnxSwuList` | 4 | List GET wrong-Accept, invalid page size (`ps=0`), invalid page number (`pn=-1`) — all rejected before the core resource table is touched; a valid list GET answers 2.05 with the swu sub resources and looks up each listed entry once by index |
 | `KnxSwuABlockStateMachine` | 15 | Download state machine on `/a/swu`: the first block starts a download and clears stale metadata, an empty payload does not; received bytes accumulate and are reported only while downloading; offset 0 or a missing offset restarts an interrupted or finished download; a continuation block outside DOWNLOADING is rejected; the stack never moves to DOWNLOADED itself; restart after a failed update; update refused while updating |
 | `KnxSwuABlockAppCompletion` | 3 | The application completes the download with its own counter; the stack counter matches it; update rejected until the application completes |
 | `KnxSwuSetters` | 7 | Setter values become visible in matching GETs |
@@ -1141,7 +1282,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_oc_log.cpp — Hex Logging (4 tests)
 
-**Source:** `port/.../oc_log.h` (`OC_LOGbytes` formatting)
+**Source:** `src/port/.../oc_log.h` (`OC_LOGbytes` formatting)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1154,7 +1295,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_oc_main.cpp — Main Callbacks / State (9 tests)
 
-**Source:** `api/oc_main.c`
+**Source:** `src/core/oc_main.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -1163,24 +1304,40 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ---
 
-### test_oc_network_events.cpp — Network Events (6 tests)
+### test_oc_main_init.cpp — DNS-SD Registration at Bootstrap (1 test)
 
-**Source:** `api/oc_network_events.c`
+**Source:** `src/core/oc_main.c`
+
+| Test | What it verifies |
+|------|-----------------|
+| `MainInit.DnsSdRegistrationRunsOnceTheStackIsInitialized` | `oc_main_init()` calls `knx_dns_sd_update_service()` exactly once and only after `oc_main_initialized()` is true; before, the call was postponed and dropped, so a device without a later interface event never answered mDNS. Storage, network and crypto are replaced by linker `--wrap` |
+
+---
+
+### test_oc_network_events.cpp — Network Events (14 tests)
+
+**Source:** `src/core/oc_network_events.c`
 
 | Test | What it verifies |
 |------|-----------------|
 | `EventWhenProcessNotRunningUnrefsMessage` | Event with process not running unrefs the message |
 | `EventWhenProcessNotRunningIsRepeatable` | Repeatable without leaking |
 | `RunningProcessDrainsQueuedMessage` | Running process drains and receives queued messages |
-| `InterfaceEventsArePostedAndDispatched` | Interface up/down events are posted and dispatched |
+| `InterfaceEventsArePostedAndDispatched` | Up then down before the loop runs dispatches only the last event (down) |
+| `InterfaceEventBurstEndingWithUpDispatchesUp` | A down/up/down/up burst dispatches only up, never a trailing down |
+| `InterfaceEventsInSeparateRunsAreAllDispatched` | Events in separate loop runs are all dispatched |
 | `UnknownInterfaceEventIsIgnored` | Unknown interface event is ignored |
 | `InterfaceEventWithFullQueueStaysPendingAndIsDispatchedLater` | an `INTERFACE_UP` that cannot be queued (queue full) stays pending, is posted again on a later run and dispatched |
+| `AddressesHashIgnoresTheListOrder` | Address hash is independent of the list order, another set gives another hash, no addresses gives 0 |
+| `ReportStateDispatchesOnlyChanges` | Reported state dispatches up for the first or changed addresses, down for the last lost, nothing for the same state |
+| `InitialStateDispatchesNothing` | Initial state is remembered without an event |
+| `MessageBeyondRxPendingLimitIsDropped` | A received message beyond `KNX_NET_MAX_RX_PENDING` is unref'd, the queued ones are delivered |
 
 ---
 
 ### test_oc_network_interface.cpp — Network Interface Enumeration (5 tests)
 
-**Source:** `port/.../ipadapter` (`oc_get_network_interfaces`, filter)
+**Source:** `src/port/.../ipadapter` (`oc_get_network_interfaces`, filter)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1194,7 +1351,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_oc_process.cpp — Process / Event Loop (18 tests)
 
-**Source:** `util/oc_process.c`
+**Source:** `src/util/oc_process.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1221,7 +1378,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_oc_random.cpp — Random (5 tests)
 
-**Source:** `port/.../oc_random`
+**Source:** `src/port/.../oc_random`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1235,7 +1392,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_oc_server_api.cpp — Server API (43 tests)
 
-**Source:** `api/oc_server_api.c`
+**Source:** `src/resources/ri/oc_server_api.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -1247,18 +1404,18 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_oc_storage.cpp — Persistent Storage (9 tests)
 
-**Source:** `port/.../oc_storage.c`
+**Source:** `src/port/.../oc_storage.c`
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
 | `OcStorageBeforeConfig` | 3 | Config rejects NULL/empty/overlong path; read/write/erase fail without config |
-| `OcStorage` | 6 | Write→read round-trip (text/binary), size cap, missing file, erase, overwrite |
+| `OcStorage` | 6 | Write→read round-trip (text/binary), size cap, missing file, erase, overwrite; each test has its own storage directory, removed in TearDown (`test_helpers_storage.h`) |
 
 ---
 
 ### test_oc_test_control.cpp — Test Control Trigger (4 tests)
 
-**Source:** `api/oc_test_control.c`
+**Source:** `src/resources/ri/oc_test_control.c`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1271,7 +1428,7 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ### test_separate.cpp — Separate Responses (8 tests)
 
-**Source:** `messaging/coap/separate.c`, `api/oc_server_api.c` (separate response send); linked with `-Wl,--wrap=coap_send_message`, `-Wl,--wrap=oc_main_initialized`
+**Source:** `src/messaging/coap/separate.c`, `src/resources/ri/oc_server_api.c` (separate response send); linked with `-Wl,--wrap=coap_send_message`, `-Wl,--wrap=oc_main_initialized`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1286,21 +1443,60 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ---
 
-### test_spake2plus.cpp — SPAKE2+ Handshake (16 tests)
+### test_spake2plus.cpp — SPAKE2+ Handshake (29 tests)
 
-**Source:** `security/oc_spake2plus.c`
+**Source:** `src/security/spake2plus.c`
 
-| Group | Tests | What it covers |
-|-------|-------|----------------|
-| `SpakeEncode` | 5 | uint/string/point encoding (little-endian, length-prefixed, empty) |
-| `SpakeLifecycle` | 2 | Init→free succeeds and is repeatable |
-| `Spake` | 9 | Parameter exchange, keypair gen, w0/L params, share calc, shared-secret derivation, full handshake agreement, transcript determinism |
+`Spake`: 22 tests — fixture (P-256 initialized per test; PSA initialized globally).
+
+| Test | What it verifies |
+|------|-----------------|
+| `SpakeEncode.UintLittleEndian` | uint64 encoding uses eight little-endian bytes |
+| `SpakeEncode.UintZero` | Zero encodes as eight zero bytes |
+| `SpakeEncode.StringLengthPrefixed` | String bytes follow an eight-byte little-endian length |
+| `SpakeEncode.StringEmpty` | Empty string encodes only its zero length |
+| `SpakeEncode.PointLengthPrefixed` | Point bytes follow their encoded length |
+| `SpakeLifecycle.InitThenFreeSucceeds` | P-256 initialization and cleanup succeed |
+| `SpakeLifecycle.InitFreeIsRepeatable` | Three initialization/cleanup cycles succeed |
+| `Spake.ParameterExchangeFillsBuffers` | Nonce generation fills the output with nonzero material |
+| `Spake.GenKeypairProducesValidPoint` | Generated scalar is nonzero and public point has uncompressed prefix |
+| `Spake.GenKeypairIsRandom` | Two generated private scalars differ |
+| `Spake.GetW0LParamsDeterministic` | Identical password parameters reproduce w0 and L |
+| `Spake.CalcShareProducesValidPoints` | Both shares have uncompressed prefixes and differ for the same public key |
+| `Spake.KSharedDerivationsAreDeterministicAndDistinct` | Repeated 16-byte key derivation agrees; 16- and 32-byte outputs are nonzero |
+| `Spake.FullHandshakeBothSidesAgree` | Responder transcript, both confirmation MACs and shared key are nonzero; confirmV is repeatable |
+| `Spake.TranscriptInitiatorAgreesWithResponder` | Both transcript roles agree using a matched w1/L pair |
+| `Spake.TranscriptInitiatorIsDeterministicAndContextSensitive` | Identical inputs reproduce the hash; changing context changes it |
+| `Spake.PasswordExpansionMatchesKnxVector` | Configuration-client password, 32-byte salt and 1000 iterations produce exact w0 and uncompressed L |
+| `Spake.SharesMatchKnxVector` | Fixed x*G/y*G and w0 produce the configuration-client shareP/shareV bytes |
+| `Spake.BothRolesMatchKnxKeyScheduleVector` | Both roles match independent KNX-profile transcript, confirmP, confirmV and 16-byte shared-key answers |
+| `Spake.ResponderMatchesRfc9383Vector` | RFC responder hash, confirmation MACs and 16-/32-byte shared keys match byte for byte |
+| `Spake.InitiatorMatchesRfc9383Vector` | RFC initiator transcript hash matches byte for byte |
+| `Spake.ResponderRejectsShareNotOnCurve` | Off-curve share is rejected without producing a transcript hash |
+| `Spake.ShareAtInfinityIsRejected` | A share calculation yielding infinity is rejected |
+| `Spake.TranscriptStripsLeadingZerosOfW0` | Leading-zero scalar encoding matches the recorded transcript hash |
+| `Spake.ResponderWipesEphemeralPrivateKey` | Successful transcript computation clears the ephemeral scalar |
+| `Spake.ResponderWipesEphemeralPrivateKeyOnFailure` | Failed transcript computation also clears the ephemeral scalar |
+| `Spake.VerifyConfirmPAcceptsRfc9383Mac` | Correct RFC confirmation MAC is accepted |
+| `Spake.VerifyConfirmPRejectsWrongMac` | Single-byte MAC mutation is rejected |
+| `Spake.VerifyConfirmPRejectsMacOverOtherShare` | MAC bound to the wrong share is rejected |
+
+The KNX dataset is shared with the configuration client's cryptographic tests:
+password `LJFYEARVK56STM70`, salt `aabbccdd` repeated eight times, 1000
+iterations, empty identities and context `knxpase`. Expected answers are fixed,
+not recomputed by the C implementation under test. Python's compressed L is
+expanded to the stack's uncompressed representation. The existing device fixture
+keeps its password, salt `00..1f` and 50000 iterations unchanged.
+
+Validated on 2026-11-16: all 29 cases passed with GCC and GCC ASan/UBSan
+in Docker. The full runtime run passed 294 tests with 5 skips, including the
+strengthened handshake assertions; conformance section 5.3.1 also passed.
 
 ---
 
 ### test_app_precalculated_spake.cpp — Precalculated SPAKE2+ Record (9 tests)
 
-**Source:** `app_get_precalculated_spake_data()` (`include/oc_knx.h`) + `oc_spake2plus_init_data()` (`api/oc_knx.c`)
+**Source:** `app_get_precalculated_spake_data()` (`include/oc_knx.h`) + `oc_spake2plus_init_data()` (`src/resources/knx/oc_knx.c`)
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
@@ -1310,9 +1506,9 @@ init / DNS-SD re-register) and are covered by the runtime suite
 
 ---
 
-DNS-SD Announcements and Query Responder (44 tests)
+### test_dns_sd_mdns.cpp — DNS-SD Announcements and Query Responder (49 tests)
 
-**Source:** `port/dns-sd_mdns.c`
+**Source:** `src/port/dns-sd_mdns.c`
 
 Linker `--wrap` of `oc_network_event_handler_mutex_lock` / `_unlock` (count how deep the calling thread holds the mutex: `get_ip_context_for_device` returns an EMPTY endpoint list to a thread without the mutex, so every test also checks that the endpoint list is only walked under it), `sendto`, `recvmsg`, `get_ip_context_for_device`,
 `oc_clock_time` and `oc_main_initialized`: no packet leaves the host, the
@@ -1326,22 +1522,22 @@ since the source is POSIX-only and `--wrap` is a GNU ld feature.
 
 | Group | Tests | What it covers |
 |-------|-------|----------------|
-| `knx_dns_sd_update_service` | 11 | Record built from the device info: first announcement, RFC 6762 section 8.3 repeat at 1 s and only once, section 8.4 restart on a change, goodbye for the old record, NULL device, NULL serial, rollback on send failure, no interface, nothing before the stack is initialized |
-| host name (`oc_core_set_device_hostname`) | 3 | No packet for a change before the stack is initialized; the first announcement after it carries the latest host name set before (no goodbye); a change afterwards sends the goodbye with the old name, then announces the new one |
-| programming mode (`oc_knx_device_set_programming_mode`) | 3 | No packet for a change before the stack is initialized; the first announcement after it carries the `_pm` subtype set before (no goodbye); on and off afterwards each send the goodbye for the old record, then announce the new one with or without `_pm` |
-| `knx_dns_sd_set_sleep_period` | 5 | SP in TXT, repeat after the change, TXT goodbye on clear, no goodbye for an unset SP, nothing before a publish |
-| `knx_dns_sd_stop` | 2 | Goodbye and cancel of the pending repeat; nothing without a publish |
+| `knx_dns_sd_update_service` | 14 | Record built from the device info: First announcement, RFC 6762 section 8.3 repeat at 1 s and only once, section 8.4 restart on a change, goodbye for the old record, no goodbye for unchanged content, NULL device, NULL serial, rollback on send failure, retry of a failed update after 1 s and 2 s that ends with the success, success on one of two interfaces, no interface (no retry), nothing before the stack is initialized |
+| host name (`oc_core_set_device_hostname`) | 3 | No packet for a change before the stack is initialized, the first announcement after it carries the latest host name set before (no goodbye), a change afterwards sends the goodbye with the old name, then announces the new one |
+| programming mode (`oc_knx_device_set_programming_mode`) | 3 | No packet for a change before the stack is initialized, the first announcement after it carries the `_pm` subtype set before (no goodbye), on and off afterwards each send the goodbye for the old record, then announce the new one with or without `_pm` |
+| `knx_dns_sd_set_sleep_period` | 6 | SP in TXT, repeat after the change, TXT goodbye on clear, no goodbye for an unset SP, nothing before a publish, retry of a failed announcement |
+| `knx_dns_sd_stop` | 3 | Goodbye and cancel of the pending repeat, cancel of a pending retry, nothing without a publish |
 | getters | 2 | `knx_dns_sd_get_used_port`, `knx_dns_sd_get_current_record` before, after and past a publish |
 | query responder | 11 | PTR for service type, serial, IA and `_pm` subtype (programming mode only), ANY, SRV, AAAA, TXT, foreign names, unhandled type, application-set host name in SRV target and AAAA |
 | AAAA records per interface | 4 | RFC 6762 section 15: an announcement and the PTR, SRV and AAAA answers name only the addresses of the interface they leave on; a query from an interface without an own address gets no answer; an unknown receive interface gets every address |
 | send buffer | 1 | `WorstCasePacketFitsTheSendBuffer`: the largest announcement fits the send buffer |
-| receive interface from the sender | 2 |
+| receive interface from the sender | 2 | Without `IPV6_PKTINFO` (as on Windows) `mdns_ifindex_from_source()` takes the zone of a link-local sender as the interface, a ULA sender leaves it unknown |
 
 ---
 
 ### test_smode_issue.cpp — S-Mode Send Path (8 tests)
 
-**Source:** `api/oc_knx_client.c` (`oc_issue_s_mode_message()`, driven through the public `oc_send_s_mode_multicast_message()`), network faked with linker `--wrap` (`oc_main_initialized`, `coap_send_message`, `oc_etimer_restart`; `oc_allocate_message` counted; `coap_new_transaction_with_message` can fail; `coap_notify_k_observers` recorded)
+**Source:** `src/resources/knx/oc_knx_client.c` (`oc_issue_s_mode_message()`, driven through the public `oc_send_s_mode_multicast_message()`), network faked with linker `--wrap` (`oc_main_initialized`, `coap_send_message`, `oc_etimer_restart`; `oc_allocate_message` counted; `coap_new_transaction_with_message` can fail; `oc_knx_notify_k_observers` recorded)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1356,9 +1552,34 @@ since the source is POSIX-only and `--wrap` is a GNU ld feature.
 
 ---
 
-S-Mode Write Loopback (4 tests)
+### test_oc_knx_client_off.cpp — Stack Without OC_CLIENT (2 tests + 1 build test)
 
-**Source:** `api/oc_knx_client.c` (`oc_send_s_mode_mc_or_uc_message()`); the transmission is neutralised with `--wrap=coap_new_transaction_with_message` (returns NULL, the message is released)
+**Source:** `src/resources/knx/oc_knx_client.c` (`ipv6_for_ia_is_resolved()` via `oc_send_s_mode_unicast_message()`), `src/messaging/coap/transactions.c`. Built in `tests/unit/client_off/` against its own stack library without `OC_CLIENT` (as `CONFIG_KNXIOT_CLIENT=n` on Zephyr and ESP-IDF); `ClientOff.StackBuildsAndLinksWithoutOcClient` builds and links it and is the fixture of the run `ClientOff.test_oc_knx_client_off`. The CI job `build-server-only` compiles the stack with the CMake option `OC_CLIENT_ENABLED=OFF`.
+
+| Test | What it verifies |
+|------|-----------------|
+| `ClientOff.StackBuildsAndLinksWithoutOcClient` | The server-only stack compiles warning-free and links without unresolved client symbols |
+| `ClientOff.UnresolvedUnicastRecipientFailsWithoutDiscovery` | Unicast write to an unresolved recipient: nothing handed over, the recipient is marked `FAILED` (no CoAP discovery exists) |
+| `ClientOff.FailedUnicastRecipientIsNotRetried` | A second trigger leaves it `FAILED` and sends nothing |
+
+---
+
+### Stack Without OC_PUBLISHER_TABLE — Plain Sender (`PublisherOff`, 2 runs + 1 build test)
+
+**Source:** `src/resources/knx/oc_knx_fp.c`. Built in `tests/unit/publisher_off/` against its own stack library without `OC_PUBLISHER_TABLE` (as `OC_PUBLISHER_TABLE_ENABLED=OFF` or `CONFIG_KNXIOT_PUBLISHER_TABLE=n`): `kis-common` leaves the definition out for targets with the property `KIS_NO_PUBLISHER_TABLE`. The test files that depend on the switch run a second time, their publisher tests left out: `PublisherOff.test_oc_knx_fp` runs `test_oc_knx_fp.cpp` and `PublisherOff.test_oc_core_res` runs `test_oc_core_res.cpp` (`CoreResourceByIndex` checks the registry without `/fp/p` and `/fp/p/*`).
+
+| Test | What it verifies |
+|------|-----------------|
+| `PublisherOff.StackBuildsAndLinksWithoutPublisherTable` | The plain-sender stack and both test files compile warning-free and link: every publisher function declared in `oc_knx_fp.h` exists |
+| `FpTableSizes.PublisherTableIsEmptyWithoutOcPublisherTable` | Size 0, no entry, an id or group address is never found (-1, NULL) |
+| `FpHandlers.GoEntryGetIsAllowedForADeviceScopeToken` | Same scope for GET `/fp/g/*` as with the publisher table (F-080) |
+| `GroupMulticasts.PlainSenderJoinsNoGroup` | Without a publisher table no group id is known: `oc_register_group_multicasts` joins no group |
+
+---
+
+### test_smode_loopback_recursion.cpp — S-Mode Write Loopback and Dispatch Result (16 tests)
+
+**Source:** `src/resources/knx/oc_knx_client.c` (`oc_send_s_mode_mc_or_uc_message()`, `oc_send_s_mode_mc_or_uc_message_dispatched()`); the transmission is faked with `--wrap=coap_new_transaction_with_message` (records the serialized message or fails), `coap_send_transaction`, `coap_notify_observers_dispatched` and `oc_knx_notify_k_observers`
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1366,12 +1587,24 @@ S-Mode Write Loopback (4 tests)
 | `SmodeLoopback.SingleLevelLoopbackStillUpdatesOtherInputs` | An ordinary write still updates a different writable input on the same GA exactly once |
 | `SmodeLoopback.OversizedValueIsNeitherSentNorLoopedBack` | F-047: a value larger than the buffer (size -1) gives rc -1, no send and no loopback PUT |
 | `SmodeLoopback.EmptyValueIsNeitherSentNorLoopedBack` | F-047: a GET handler that encodes nothing (size 0) gives rc -1, no send and no loopback PUT |
+| `SmodeDispatch.WriteThatIsNotSentDoesNotNotifyKObservers` | No transaction for the write: the `/k` observers are not notified (the write is repeated later) |
+| `SmodeDispatch.SentWriteNotifiesKObserversWithTheSentEnvelope` | The `/k` event carries the envelope that was sent (the payload after the 0xFF marker of the sent message), although the send reuses the encoder buffer |
+| `SmodeDispatch.WriteWithoutRecipientAndObserverIsNotDispatched` | rc 0 but not dispatched without recipient and observers; the old function keeps rc 0 |
+| `SmodeDispatch.MulticastWriteIsDispatched` | Multicast write to a recipient → dispatched |
+| `SmodeDispatch.WriteIsNotDispatchedWhenMessageCannotBeCreated` | Message creation fails → not dispatched |
+| `SmodeDispatch.SendHandsTheEncoderBackToTheCaller` | A send from inside a handler that is encoding its response: the response continues on its own buffer |
+| `SmodeDispatch.UnicastWithoutIndividualAddressIsNotDispatched` | Unicast recipient without IA → not dispatched |
+| `SmodeDispatch.WriteWithoutTransmitFlagNotifiesObservers` | Loaded, group object without t-flag: write → -1, no s-mode, /p observers notified (dispatched) |
+| `SmodeDispatch.WriteWithoutGroupObjectNotifiesObservers` | Loaded, no group object: write → -1, /p observers notified (dispatched) |
+| `SmodeDispatch.WriteWithoutGroupObjectAndObserversIsNotDispatched` | No group object and no observers → not dispatched |
+| `SmodeDispatch.ReadWithoutGroupObjectDoesNotNotifyObservers` | A read without group object notifies nobody |
+| `SmodeDispatch.WriteBeforeLoadingDoesNotNotifyObservers` | Not loaded → -1, observers not notified |
 
 ---
 
 ### test_smode_read_answer_payload.cpp — S-Mode Read Answer Payload (1 test)
 
-**Source:** `api/oc_knx.c` (`oc_core_knx_k_post_handler()`)
+**Source:** `src/resources/knx/oc_knx.c` (`oc_core_knx_k_post_handler()`)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -1381,7 +1614,7 @@ S-Mode Write Loopback (4 tests)
 
 ### Runtime-covered source files (no unit tests)
 
-`api/oc_test_control.c` and `api/oc_knx_p.c` — previously listed here as
+`src/resources/ri/oc_test_control.c` and `src/resources/knx/oc_knx_p.c` — previously listed here as
 runtime-only — now have dedicated unit test files
 ([test_oc_test_control.cpp](unit/test_oc_test_control.cpp),
 [test_oc_knx_p.cpp](unit/test_oc_knx_p.cpp)) that exercise their handlers
@@ -1636,7 +1869,7 @@ Measured link-format sizes at `KNX_PAYLOAD_SIZE` 768 (512-byte blocks):
 
 ---
 
-### test_group_comm.py — Group Communication (34 tests, 39 collected)
+### test_group_comm.py — Group Communication (36 tests, 41 collected)
 
 | Class | Test | Overlaps | What it checks |
 |-------|------|----------|----------------|
@@ -1658,6 +1891,8 @@ Measured link-format sizes at `KNX_PAYLOAD_SIZE` 768 (512-byte blocks):
 |  | `test_read_on_init_released_after_network_up` |  | Network down from the start, then up after ~600 ms -> read fires. |
 |  | `test_read_on_init_abandoned_after_max_retries` |  | Network never comes up -> read is abandoned after the 20-cycle cap. |
 | **TestMulticastResponseUpdateOnly** | `test_answer_updates_update_only_go` |  | Set /p/1=true via /p, then multicast answer (st="a") false on a u-only GO. |
+| **TestMulticastWriteWithIfGsToken** | `test_multicast_write_with_if_g_s_token_is_applied` |  | Multicast write true to ga 65535 protected with an `if.g.s` token (no ga list, all ga, spec 3.5.3 / 2.5.9.6) -> /p/1 becomes true. |
+| **TestMulticastWriteWithoutGroupRights** | `test_multicast_write_without_group_rights_is_dropped` |  | Control: the same write with an `if.p` only token (no group rights) is discarded, /p/1 stays false. |
 | **TestOwnGroupObjectUpdate** | `test_self_update_on_transmit` | 5.4.1.12 | Trigger sensor → DUT sends multicast write for ga=65535, DUT also updates /p/1 (receiving GO with ga=65535). |
 | **TestLongGASend** | `test_sends_long_ga` | 5.4.1.14 | Trigger sensor → DUT sends multicast with ga=4294967295. |
 | **TestUnicastConfirmable** | `test_unicast_sends_con` | 5.4.1.15 | Trigger sensor → DUT resolves PEER_IA via discovery, then sends CON POST /k (unicast to test host). |
@@ -1743,7 +1978,7 @@ Measured link-format sizes at `KNX_PAYLOAD_SIZE` 768 (512-byte blocks):
 
 ---
 
-### test_security.py — Security & OSCORE (72 tests, 79 collected)
+### test_security.py — Security & OSCORE (74 tests, 81 collected)
 
 | Class | Test | Overlaps | What it checks |
 |-------|------|----------|----------------|
@@ -1754,6 +1989,8 @@ Measured link-format sizes at `KNX_PAYLOAD_SIZE` 768 (512-byte blocks):
 |  | `test_overwrite_existing_at` | 5.3.8.4 | POST /auth/at with same id but new scope overwrites entry. |
 |  | `test_create_multiple_ats_single_write` | 5.3.8.5 | POST /auth/at with array of 2 ATs → 2.01. |
 |  | `test_update_multiple_ats` | 5.3.8.6 | POST /auth/at to update 2 existing ATs → 2.04. |
+| **TestWriteAccessTokenEntryLimit** | `test_more_than_ten_tokens_in_one_post_returns_413` |  | POST /auth/at with 11 ATs (payload below one block) -> 4.13 from the handler (spec 2.6.3.3.2), none of them stored. |
+|  | `test_ten_tokens_in_one_post_are_accepted` |  | POST /auth/at with 10 ATs (the limit) -> 2.01, all 10 stored. |
 | **TestWriteAccessTokenMandatoryProperties** | `test_at_mandatory_create_with_id_only_rejected` |  | POST /auth/at with only the id -> 4.00, no entry created. |
 |  | `test_at_mandatory_create_without_scope_rejected` |  | POST /auth/at without scope (9) -> 4.00, no entry created. |
 |  | `test_at_mandatory_create_without_sender_id_rejected` |  | POST /auth/at without cnf:osc:id (8:4:0) -> 4.00, no entry. |
@@ -1801,7 +2038,7 @@ Measured link-format sizes at `KNX_PAYLOAD_SIZE` 768 (512-byte blocks):
 | **TestEchoPaseToken** | `test_echo_on_pase_at_post` | 5.3.17.8 | Factory reset → SPAKE2+ → POST auth/at with PASE key → echo. |
 | **TestSpake2PlusProtocol** | `test_spake_wrong_password_fails_verification` | 5.3.1.2 | SPAKE2+ with wrong password: confirmV verification fails. |
 |  | `test_spake_wrong_confirm_p_rejected` | 5.3.1.2b | SPAKE2+ with correct password but wrong confirmP → 4.00. |
-|  | `test_spake_full_handshake` | 5.3.1.1 | SPAKE2+ full handshake succeeds, temp key works. |
+|  | `test_spake_full_handshake` | 5.3.1.1 | Exact 2.04 responses, CBOR maps, 32-byte nonce, provisioned salt/50000 iterations, uncompressed 65-byte shareV, 32-byte confirmV, empty step-3 payload and usable temporary OSCORE key. |
 | **TestSpake2PlusStateMachine** | `test_spake_state_credential_before_parameter` |  | Credential request (step 2) in IDLE state → 4.00. |
 |  | `test_spake_state_verification_before_parameter` |  | Verification request (step 3) in IDLE state → 4.00. |
 |  | `test_spake_state_repeated_parameter_mid_handshake` |  | A second parameter request after step 1 is a legal restart of step 1. |

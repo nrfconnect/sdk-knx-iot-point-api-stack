@@ -33,13 +33,6 @@ endif()
 # pass in RUNTIME_TEST_SERVER.
 add_executable(runtime_test_server common/runtime_test_server.c)
 
-target_include_directories(runtime_test_server PRIVATE
-    ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_SOURCE_DIR}/port
-    ${PROJECT_SOURCE_DIR}/api
-)
-
 target_link_libraries(runtime_test_server PRIVATE
     kisTestControl
     kisClientServer

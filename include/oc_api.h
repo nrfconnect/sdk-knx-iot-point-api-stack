@@ -38,10 +38,10 @@
 */
 
 #pragma once
-#include "messaging/coap/oc_coap.h"
 #include "oc_client_state.h"
-#include "oc_knx.h"
 #include "oc_ri.h"
+#include "port/oc_connectivity.h"
+#include "port/oc_log.h"
 
 
 #ifdef __cplusplus
@@ -275,12 +275,14 @@ extern "C"
    * Blocks arrive in order and without gaps: a download starts with block_offset 0
    * and each following block_offset equals the number of bytes passed before.
    * The stack rejects blocks that would leave a gap and passes only the new bytes
-   * of a repeated or overlapping block.
+   * of a repeated or overlapping block. A block at offset 0 always starts a new
+   * download, also when it repeats the first block: the application gets
+   * block_offset 0 again and must restart its image.
    *
    * @param[in] response the instance of an internal struct that is used to track
    *                     the state of the separate response
    * @param[in] binary_size the full size of the binary
-   * @param[in] block_offset the offset (in the file)  
+   * @param[in] block_offset the offset (in the file)
    * @param[in] block_data the block data
    * @param[in] block_len the size of the block_data
    * @param[in] data the user supplied data
@@ -382,9 +384,9 @@ extern "C"
    *
    * @param resource the resource
    * @param content_type_man the mandatory content type
-   * @param content_type_man the optional second content type
-
-  * @note only one type can be set at a time as part of the response
+   * @param content_type_opt the optional second content type
+   *
+   * @note only one type can be set at a time as part of the response
    */
   void oc_resource_bind_content_type(oc_resource_t* resource, oc_content_format_t content_type_man,
                                      oc_content_format_t content_type_opt);
@@ -486,10 +488,10 @@ extern "C"
    * Get for a resource the interfaces for all methods
    *
    * @param[in] resource the resource
-   * @param[in/out] interfaces
+   * @param[in,out] interfaces the interface mask the interfaces of all methods are added to
    *
    * @return
-   * - true if the resource and at least on resource method is defined (interfaces are set accordingly) 
+   * - true if the resource and at least on resource method is defined (interfaces are set accordingly)
    * - false otherwise (interfaces are not touched)
    *
    * @note ADDs all if's from all for this resource defined methods to the 'interfaces' parameter,
@@ -503,7 +505,7 @@ extern "C"
    *
    * @param[in] resource the resource
    * @param[in] method the requesters method for a specific resource callback
-   * @param[in/out] scopes the method scope(s)
+   * @param[in,out] scopes the method scope(s)
    *
    * @return
    * - true if resource and resource method are defined (scope is set accordingly)
@@ -511,22 +513,6 @@ extern "C"
    *
    */
   bool oc_resource_get_acl_for_method(const oc_resource_t* resource, coap_method_t method, oc_acl_mask_t* scopes);
-
-
-  /**
-   * @brief sets the callback properties for set properties and get properties
-   *
-   * @param resource the resource for the callback data
-   * @param get_properties callback function for retrieving the properties
-   * @param get_props_user_data the user data for the get_properties callback
-   * function
-   * @param set_properties callback function for setting the properties
-   * @param set_props_user_data the user data for the set_properties callback
-   * function
-   */
-  void oc_resource_set_properties_cbs(oc_resource_t* resource, oc_get_properties_cb_t get_properties,
-                                      void* get_props_user_data, oc_set_properties_cb_t set_properties,
-                                      void* set_props_user_data);
 
   /**
    * @brief set a (FB) resource to a specific function block instance.

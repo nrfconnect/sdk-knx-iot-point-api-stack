@@ -40,9 +40,9 @@
   #include "oc_buffer.h"
   #include "messaging/coap/transactions.h"
   #include "messaging/coap/oscore.h"
-  #include "api/oc_knx_fp.h"
+  #include "oc_knx_fp.h"
   #include "port/oc_network_events_mutex.h"
-  #include "include/oc_endpoint.h"
+  #include "oc_endpoint.h"
   #include "security/oc_oscore_context.h"
   }
 

@@ -147,7 +147,7 @@ UDP `sendto` to `[::1]:52741` (or the DUT address in Docker).
 
 #### 4. Server processes the request
 
-The `network_event_thread` (in `port/linux/ipadapter.c`) wakes from
+The `network_event_thread` (in `src/port/linux/ipadapter.c`) wakes from
 `select()`, reads the packet, and calls `oc_network_event()` which signals
 the main thread. The main thread's `oc_main_poll()` processes the message
 through:

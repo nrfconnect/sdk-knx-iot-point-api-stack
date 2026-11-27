@@ -11,21 +11,19 @@
 
 #pragma once
 
-#ifndef __ZEPHYR__
-#include "ipadapter.h"
-#endif
+#include "messaging/coap/constants.h"
 #include "oc_config.h"
 #include "oc_endpoint.h"
 #include "oc_rep.h"
 #include "util/oc_etimer.h"
-#include "messaging/coap/constants.h"
+#include "util/oc_list.h"
+
+/* Opaque to applications: the struct is defined in the stack's private oc_blockwise.h. */
+typedef struct oc_blockwise_state_s oc_blockwise_state_t;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* The blockwise state is only forward declared here, oc_blockwise.h includes this header. */
-struct oc_blockwise_state_s;
 
 /**
  * @brief CoAP observe codes, see https://www.rfc-editor.org/rfc/rfc7641#section-2
@@ -171,13 +169,26 @@ typedef enum oc_content_format {
  *        that tracks the process/schedule of origin request -> delayed response
  *
  */
-typedef struct oc_separate_response_s oc_separate_response_t;
+typedef struct oc_separate_response_s
+{
+  OC_LIST_STRUCT(requests); // LOCAL list to all requests where a separate response belongs to
+  bool active;              // a separate response is still pending (true) or not anymore (false)
+  oc_blockwise_state_t* response_state;
+} oc_separate_response_t;
 
 /**
  * @brief response buffer type
  *
  */
-typedef struct oc_response_buffer_s oc_response_buffer_t;
+typedef struct oc_response_buffer_s
+{
+  uint8_t* buffer;        // the payload (response) byte buffer
+  size_t buffer_size;     // the total payload buffer size
+  size_t response_length; // the actual response length (which is usually less than the buffer size)
+  int code;               // coap code
+  oc_content_format_t content_format;
+  uint32_t max_age; // defines the maximum time in seconds that a response can be cached before it is considered "not fresh"
+} oc_response_buffer_t;
 
 /**
  * @brief response type
@@ -263,7 +274,7 @@ unsigned int oc_count_total_scopes_in_mask(oc_acl_mask_t scopes);
  * @param interfaces the interface mask
  * @return int the amount of interfaces in the mask
  *
- * @note calculates the interface if.g.s.<a> only 1
+ * @note calculates the interface if.g.s.\<a\> only 1
  *
  */
 unsigned int oc_count_total_interfaces_in_mask(oc_interface_mask_t interfaces);
@@ -311,75 +322,75 @@ void oc_print_acl_scopes(oc_acl_mask_t scope);
 /**
  * @brief core resource numbers
  *
- * @note
+ * @note numbering rules:
  *
- * - the numbered order of resources is used to create the 'linked' list
- *   of resources, hence the pointer to a specific resource matches
- *   the number in this enum (used for get 'resource by index' functions)
+ * - the number is the index into the core resource registry
+ *   (oc_core_res.c), used by the 'resource by index' functions
  *
- * - if inserting a new resource, add them in the enum in that place where
- *	 as the linked list linkage is defined
+ * - if inserting a new resource, add its enum value here, its declaration
+ *   in resources/ri/oc_core_resources.h and its entry in the registry
  *
  * - some enums are used to calculate the number of resources, such as
  *   OC_DEV - OC_DEV_SN (all device resources)
  *
  */
-typedef enum {
-  OC_DEV_SN = 0,                       /**< Device serial number */
-  OC_DEV_HWV,                          /**< Hardware version */
-  OC_DEV_FWV,                          /**< Firmware version */
-  OC_DEV_HWT,                          /**< The hardware type is a manufacture specific id for a device type (MaC uses this id for compatibility checks) */
-  OC_DEV_ORDER_NUMBER,                 /**< Device order number (former device model) */
-  OC_DEV_HOSTNAME,                     /**< Device host name for DNS resolution. */
-  OC_DEV_IID,                          /**< KNX installation ID */
-  OC_DEV_PM,                           /**< Programming Mode */
-  OC_DEV_IPV6,                         /**< IPV6 */
-  OC_DEV_SA,                           /**< /dev/sa subnet address */
-  OC_DEV_DA,                           /**< /dev/da device address */
-  OC_DEV_FID,                          /**< /dev/fid the fabric ID */
-  OC_DEV_PORT,                         /**< /dev/port the coap port number */
-  OC_DEV_MPORT,                        /**< /dev/mport the multicast port number */
-  OC_DEV_MID,                          /**< /dev/mid the manufacturer ID */
-  OC_DEV,                              /**< core link */
-  OC_APP,                              /**< application ID (list) */
-  OC_APP_PV,                           /**< application program version */
-  OC_A_LSM,                            /**< load state machine */
-  OC_KNX_SPAKE,                        /**< spake */
-  OC_KNX_K,                            /**< k */
-  OC_KNX_FINGERPRINT,                  /**< FINGERPRINT value of loaded contents */
-  OC_KNX_IA,                           /**< .well-known / knx / ia */
-  OC_KNX,                              /**< .well-known / knx */
-  OC_KNX_FP_G,                         /**< FP/G */
-  OC_KNX_FP_G_X,                       /**< FP/G/X */
+typedef enum
+{
+  OC_DEV_SN = 0,       /**< Device serial number */
+  OC_DEV_HWV,          /**< Hardware version */
+  OC_DEV_FWV,          /**< Firmware version */
+  OC_DEV_HWT,          /**< The hardware type is a manufacture specific id for a device type (MaC uses this id for compatibility checks) */
+  OC_DEV_ORDER_NUMBER, /**< Device order number (former device model) */
+  OC_DEV_HOSTNAME,     /**< Device host name for DNS resolution. */
+  OC_DEV_IID,          /**< KNX installation ID */
+  OC_DEV_PM,           /**< Programming Mode */
+  OC_DEV_IPV6,         /**< IPV6 */
+  OC_DEV_SA,           /**< /dev/sna subnet address */
+  OC_DEV_DA,           /**< /dev/da device address */
+  OC_DEV_FID,          /**< /dev/fid the fabric ID */
+  OC_DEV_PORT,         /**< /dev/port the coap port number */
+  OC_DEV_MPORT,        /**< /dev/mport the multicast port number */
+  OC_DEV_MID,          /**< /dev/mid the manufacturer ID */
+  OC_DEV,              /**< core link */
+  OC_APP,              /**< application ID (list) */
+  OC_APP_PV,           /**< application program version */
+  OC_A_LSM,            /**< load state machine */
+  OC_KNX_SPAKE,        /**< spake */
+  OC_KNX_K,            /**< k */
+  OC_KNX_FINGERPRINT,  /**< FINGERPRINT value of loaded contents */
+  OC_KNX_IA,           /**< .well-known / knx / ia */
+  OC_KNX,              /**< .well-known / knx */
+  OC_KNX_FP_G,         /**< FP/G */
+  OC_KNX_FP_G_X,       /**< FP/G/X */
   #ifdef OC_PUBLISHER_TABLE            /** read the notes above on the enum order! */
   OC_KNX_FP_P,                         /**< FP/P */
   OC_KNX_FP_P_X,                       /**< FP/P/X */
   #endif
-  OC_KNX_FP_R,                         /**< FP/R */
-  OC_KNX_FP_R_X,                       /**< FP/R/X */
-  OC_KNX_P,                            /**< P */
-  OC_KNX_F,                            /**< f */
-  OC_KNX_F_X,                          /**< f/X */
-  OC_KNX_SWU_PROTOCOL,                 /**< software update protocol */
-  OC_KNX_SWU_HWREF,                    /**< swu hwref */
-  OC_KNX_SWU_METHOD,                   /**< swu method */
-  OC_KNX_SWU_LASTUPDATE,               /**< swu last update */
-  OC_KNX_SWU_RESULT,                   /**< swu result */
-  OC_KNX_SWU_STATE,                    /**< swu state */
-  OC_KNX_SWU_UPDATE,                   /**< swu update */
-  OC_KNX_SWU_PKGV,                     /**< swu package version */
-  OC_KNX_SWU_PKGCMD,                   /**< swu package command , a/swu*/
-  OC_KNX_SWU_PKGBYTES,                 /**< swu package bytes*/
-  OC_KNX_SWU_PKGNAMES,                 /**< swu package names*/
-  OC_KNX_SWU,                          /**< swu top level */
-  OC_KNX_SUB,                          /**< delete all device subscriptions */
-  OC_KNX_AUTH_O_REPLWDO,               /**< oscore replay window*/
-  OC_KNX_AUTH_O_OSNDELAY,              /**< oscore osn delay*/
-  OC_KNX_AUTH_O,                       /**< auth/o oscore functional block properties list*/
-  OC_KNX_AUTH_AT,                      /**< auth/at resource listing auth/at/X */
-  OC_KNX_AUTH_AT_X,                    /**< auth/at/X resources */
-  OC_KNX_AUTH,                         /**< auth list all sub resources */
-  WELLKNOWNCORE,                       /**< well-known/core resource, is the last resource in the list  */
+  OC_KNX_FP_R,            /**< FP/R */
+  OC_KNX_FP_R_X,          /**< FP/R/X */
+  OC_KNX_P,               /**< P */
+  OC_KNX_F,               /**< f */
+  OC_KNX_F_X,             /**< f/X */
+  OC_KNX_SWU_PROTOCOL,    /**< software update protocol */
+  OC_KNX_SWU_HWREF,       /**< swu hwref */
+  OC_KNX_SWU_METHOD,      /**< swu method */
+  OC_KNX_SWU_LASTUPDATE,  /**< swu last update */
+  OC_KNX_SWU_RESULT,      /**< swu result */
+  OC_KNX_SWU_STATE,       /**< swu state */
+  OC_KNX_SWU_UPDATE,      /**< swu update */
+  OC_KNX_SWU_PKGV,        /**< swu package version */
+  OC_KNX_SWU_PKGCMD,      /**< swu package command , a/swu*/
+  OC_KNX_SWU_PKGBYTES,    /**< swu package bytes*/
+  OC_KNX_SWU_PKGNAMES,    /**< swu package names*/
+  OC_KNX_SWU,             /**< swu top level */
+  OC_KNX_SUB,             /**< delete all device subscriptions */
+  OC_KNX_AUTH_O_REPLWDO,  /**< oscore replay window*/
+  OC_KNX_AUTH_O_OSNDELAY, /**< oscore osn delay*/
+  OC_KNX_AUTH_O,          /**< auth/o oscore functional block properties list*/
+  OC_KNX_AUTH_AT,         /**< auth/at resource listing auth/at/X */
+  OC_KNX_AUTH_AT_X,       /**< auth/at/X resources */
+  OC_KNX_AUTH,            /**< auth list all sub resources */
+  WELLKNOWNCORE,          /**< well-known/core resource, is the last resource in the list  */
 } oc_core_resource_t;
 
 #define OC_NUM_CORE_RESOURCES (1 + WELLKNOWNCORE) // number of core resources, note that first resource index is "0" 
@@ -431,30 +442,6 @@ typedef struct oc_request_handler {
 } oc_request_handler_t;
 
 /**
- * @brief set properties callback
- *
- */
-typedef bool (*oc_set_properties_cb_t)(oc_resource_t*, oc_rep_t*, void*);
-
-/**
- * @brief get properties callback
- *
- */
-typedef void (*oc_get_properties_cb_t)(oc_resource_t*, oc_interface_mask_t, void*);
-
-/**
- * @brief properties callback structure
- *
- */
-typedef struct oc_properties_cb_t {
-  union {
-    oc_set_properties_cb_t set_props;
-    oc_get_properties_cb_t get_props;
-  } cb;
-  void* user_data;
-} oc_properties_cb_t;
-
-/**
  * @brief resource structure for a resource's (in RAM) modifiable data at runtime 
  * @note data MUST be RAM allocated, even it is part of compiled stack resources (and is of only one byte) 
  *        - for application resources (/p/1/...) it is allocated from HEAP -> oc_new_resource  
@@ -481,8 +468,6 @@ struct oc_resource {
   oc_request_handler_t put_handler;     /**< callback for PUT */
   oc_request_handler_t post_handler;    /**< callback for POST */
   oc_request_handler_t delete_handler;  /**< callback for DELETE */
-  oc_properties_cb_t get_properties;    /**< callback for get properties */
-  oc_properties_cb_t set_properties;    /**< callback for set properties */
   uint16_t observe_period_seconds;      /**< observe period in seconds  */
   uint32_t fb_data;                     /**< compressed FB data* (see extra details) */
   bool is_const;                        /**< resource is precompiled (core = true, application = always false, will be dynamically allocated) */
@@ -529,25 +514,15 @@ typedef struct oc_event_callback_s
 } oc_event_callback_t;
 
 /**
- * @brief initialize the resource implementation handler
- *
- */
-void oc_ri_init(void);
-
-/**
- * @brief shut down the resource implementation handler
- *
- */
-void oc_ri_shutdown(void);
-
-/**
  * @brief add timed event callback
  *
  * @param cb_data the timed event callback info
  * @param event_callback the callback
  * @param ticks time in ticks
+ *
+ * @return true added, false the callback entry cannot be allocated
  */
-void oc_ri_add_timed_event_callback_ticks(void* cb_data, oc_trigger_t event_callback, oc_clock_time_t ticks);
+bool oc_ri_add_timed_event_callback_ticks(void* cb_data, oc_trigger_t event_callback, oc_clock_time_t ticks);
 
 /**
  * @brief add timed event callback in seconds
@@ -609,20 +584,6 @@ const oc_resource_t* oc_ri_get_app_resource_by_resource_path(const char* resourc
 oc_resource_t* oc_ri_get_app_resources(void);
 
 #ifdef OC_SERVER
-/**
- * @brief allocate a resource structure
- *
- * @return oc_resource_t*
- */
-oc_resource_t* oc_ri_alloc_resource(void);
-
-/**
- * @brief allocate a resource structure
- *
- * @return oc_resource_t*
- */
-oc_resource_data_t* oc_ri_alloc_resource_data(void);
-
 /**
  * @brief add resource to the system
  *
@@ -689,43 +650,10 @@ int oc_ri_query_exists(const char* query, size_t query_len, const char* key);
  * @param query_len the length of the query
  * @param key the key to be checked if exists, key is not null terminated
  * @param key_len the key length
- * @param n
- * @return int
+ * @param n the 1-based number of the key/value pair to check
+ * @return int the position of the next key/value pair in the query, -1 if there is none
  */
 int oc_ri_query_nth_key_exists(const char* query, size_t query_len, const char** key, size_t* key_len, size_t n);
-
-/**
- * @brief dispatches an inbound CoAP request to the handler of the addressed resource and fills
- *        in the response, the server side entry point of the resource interface
- *
- * @note
- *  - called by the CoAP engine (coap_receive) once the request is assembled, applications
- *    never call it
- *  - the resource lookup, the access scope check, the GET/PUT/POST/DELETE handler callback,
- *    observe registration, separate responses and the observer notification happen here
- *  - the response state is allocated here when it is NULL, the response payload is written
- *    into its buffer
- *
- * @param request the inbound coap_packet_t
- * @param response the coap_packet_t the response is written to
- * @param request_state blockwise state holding the request payload, the payload is empty when
- *                      it is NULL
- * @param response_state blockwise state receiving the response payload, allocated when NULL
- * @param block2_size block size for the response
- * @param endpoint endpoint the request was received from
- * @param clear_transaction set to true when the transaction of this request has to be cleared without sending a
- *                          reply (the handler answered OC_IGNORE, or a separate response was started); left
- *                          unchanged otherwise
- *
- * @return true when the request reached the handler of a matching resource, false when this
- *         function set an error status on the response itself (bad request, forbidden, not
- *         found, method not allowed, entity too large)
- */
-bool oc_ri_invoke_coap_entity_handler(void* request, void* response,
-                                      struct oc_blockwise_state_s** request_state,
-                                      struct oc_blockwise_state_s** response_state,
-                                      uint16_t block2_size,
-                                      oc_endpoint_t* endpoint, bool* clear_transaction);
 
 /**
  * @brief frame the interface mask in the response, as string in the uri
@@ -749,31 +677,6 @@ int oc_frame_interfaces_mask_in_response(oc_interface_mask_t interfaces, bool tr
  * @return oc_acl_mask_t the compacted mask value of the access scopes, also 'OC_ACL_NONE' on no hit
  */
 oc_acl_mask_t oc_ri_get_scope_mask(const char* acl_scope_name, size_t acl_scope_name_len);
-
-/**
- * @brief creates a new request from the (old) request by copy it 1:1,
- *        is used internally for handler calls of /k and /p,
- *				 and adds response object to the new request (that includes also the link to the response buffer) 
- *
- * @note
- *  - take care on editing data in the new request (such as in application),
- *    most copied data are pointers, they are a reference to the original source
- *  - adds a new response buffer pointer/size to the new request
- *  - copied endpoint data into new request maybe used in callback handler to access interfaces
- *    or acl scopes
- *
- * @param new_request the original request
- * @param inbound_request the new request
- * @param response_buffer the response buffer for the new request
- * @param response_obj the response object
- *
- */
-void oc_ri_new_request_from_inbound_request(oc_request_t* new_request, const oc_request_t* inbound_request, 
-                                            oc_response_buffer_t* response_buffer, oc_response_t* response_obj);
-
-void allocate_events(void);
-
-oc_event_callback_retval_t oc_ri_remove_client_cb(void* data);
 
 #ifdef __cplusplus
 }
